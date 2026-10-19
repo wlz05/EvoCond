@@ -1,0 +1,47 @@
+{
+  "format": "evocond_searl_experiment_v1",
+  "run_id": "searl_portable_v1",
+  "official_root": "baselines/SEARL-official",
+  "model": "assets/models/REPLACE_WITH_FROZEN_QWEN3_POLICY",
+  "encoder": "assets/models/REPLACE_WITH_TOOL_ENCODER",
+  "isolation_config": "assets/deployment/isolation.json",
+  "isolation_receipt": "assets/deployment/inspection.json",
+  "search_url": "http://127.0.0.1:5003/retrieve",
+  "dataset_provenance": "adapted_upstream",
+  "datasets": {
+    "train": "assets/splits/train.parquet",
+    "validation": "assets/splits/validation.parquet",
+    "test": "assets/splits/test.parquet"
+  },
+  "teacher": {
+    "teacher_path": "assets/teacher_fit/teacher.json",
+    "alignment_path": "assets/teacher_alignment/alignment.json",
+    "encoder_id": "REPLACE_WITH_PINNED_ENCODER_ID",
+    "teacher_policy_mode": "frozen_controller_transfer",
+    "reuse_boundary_mode": "off",
+    "value_contracts": true,
+    "binding_strategy": "rebind",
+    "binding_credit": "native_only",
+    "guidance_mode": "ranked",
+    "tool_construction": "portable",
+    "structure_policy": {
+      "mode": "sparse", "max_incident_edges": 2, "min_matching_tasks": 2,
+      "min_abs_score": 0.0, "selection": "score", "seed": 42
+    },
+    "trusted_alias_tools": []
+  },
+  "budget": {
+    "gpus": 8,
+    "batch_size": 256,
+    "rollouts": 8,
+    "epochs": 1,
+    "max_prompt": 4096,
+    "max_response": 2048,
+    "max_context": 32768,
+    "max_turns": 6,
+    "save_freq": 5,
+    "validation_freq": 5,
+    "learning_rate": 0.000001,
+    "seed": 42
+  }
+}

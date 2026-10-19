@@ -1,0 +1,9 @@
+{
+  "format": "searl_isolation_config_v1",
+  "endpoint": "http://127.0.0.1:8080",
+  "deployment_id": "REPLACE_WITH_INSPECTED_DEPLOYMENT_ID",
+  "isolation": "container",
+  "max_run_seconds": 30,
+  "memory_limit_mb": 512,
+  "max_output_bytes": 1048576
+}
