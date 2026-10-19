@@ -78,6 +78,13 @@ class PublicationTests(unittest.TestCase):
             manifest.write_text('{"entries":[]}', encoding='utf-8')
             self.assertNotEqual(directory_digest(root), before)
 
+    def test_vendored_release_receipt_matches_source(self):
+        baseline = Path(__file__).resolve().parents[1]/'baselines/SEARL-official'
+        if not (baseline/'source.json').is_file():
+            self.skipTest('Source receipt is generated in the public release')
+        self.assertEqual(reviewed(baseline, 'b535d6199602bd9d747fc260bd29c77764799358'),
+            'b535d6199602bd9d747fc260bd29c77764799358')
+
 if __name__ == '__main__':
     unittest.main()
 

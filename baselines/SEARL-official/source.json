@@ -31,7 +31,7 @@
     "envs/baseline.py": "a16778a96a09161c90e199f0bb101e543e889e1b948a53193af0ab5c03d708f1",
     "envs/bases.py": "8cc12895cc910b3764d53ed8d39ce8cfb23ec7780052d25354a2b7f43c6d9631",
     "envs/configs/calculator.json": "8ae2e36d33dbb31c4fe9879c41e4e997a3c376bca2dc2070b4b2de17ab9ab5ea",
-    "envs/configs/chat_template.jinja": "cd4f830c66484c22cae6eed57765050f95a36f201237308a7ec65c0142fa7bf3",
+    "envs/configs/chat_template.jinja": "1a8a8832ff55071653a487851eace8eaf84c7657632499b33cb8e544628c4da2",
     "envs/configs/mcp_tools.pydata": "cf622a4159cf63d3797809af3ec2f1ad40c100db5ff032f85dc433a89b561a6b",
     "envs/configs/mcp_tools_graph.pydata": "c5404b16b2e2ecb62deaf89a92b22a289e8dd18151a9a08716070eaa9915a94c",
     "envs/configs/mcp_tools_local.pydata": "4c3573342bbedb42152643db447da7a3ea844e1e87b074adf42bb78d66d34811",
