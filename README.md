@@ -1,34 +1,42 @@
 # EvoCond: Preserving Conditional Tool Relations for Co-Evolving Language Agents
 
-**EvoCond** is a framework for co-evolving language agents and tool memory. A tool's capability can be shared across tasks; the value of calling it before another tool depends on the current task. EvoCond preserves this distinction instead of turning frequently observed tool sequences into universal preferences.
+**EvoCond** learns how accumulated tool experience should guide a co-evolving language agent. Compatible tools share a capability identity, while their relation events retain the conditions and feedback of each transition. At each retrieval, EvoCond reconstructs supported ordering proposals and learns their value to the current actor from randomized tool-list presentation and terminal task utility. Evidence accumulates across tasks; adoption value is re-estimated as the actor and inventory evolve.
 
 EvoCond achieves state-of-the-art pass@1 performance in mathematical and multi-hop reasoning. Experiments use **8 NVIDIA GeForce RTX 4090 GPUs**, with random seeds **42, 52, 3047, and 3407**.
 
 ## Architecture
 
 ```text
-Task and execution context
+Current task and visible execution state
            |
            v
-Capability memory: describe, validate, and deduplicate tools
+Shared capabilities and a common semantic candidate pool
            |
            v
-Conditional relation memory: recover task-relevant ordering evidence
+Compatible relation events -> current signed ordering evidence
            |
            v
-Adoption teacher: choose semantic, structural, or fused retrieval
+Ordering evidence -> semantic, structural, and fused tool lists
            |
            v
-Qwen3-4B actor: execute tools and update through online reinforcement learning
+Current-actor adoption policy -> actual tool-list presentation
            |
-           +----> verified tool events and subsequent memory updates
+           v
+Qwen3-4B planning and execution -> terminal utility and full cost
+           |
+           +----> relation evidence and fixed-actor adoption feedback
+           +----> stage-boundary actor update and adoption re-evaluation
 ```
+
+Capability compatibility, relation support, and adoption value answer different questions. Compatibility determines which implementations can share an identity. Conditional support generates an ordering proposal. Randomized presentation estimates whether that proposal improves the current actor's terminal utility relative to the semantic list. The teacher selects the presented list; the actor retains planning, tool-call, and argument decisions. Hard execution dependencies remain enforced for every list.
+
+Within a frozen execution window, a preselected retrieval point receives one randomized list in an existing rollout. The completed episode supplies its utility; logged action probabilities support doubly robust value estimation. An accepted teacher update is used in the next window on the same actor and public inventory. At the co-evolution boundary, memory is published and the actor is updated, starting a new basis for adoption evaluation. Test evaluation freezes public memory and learning state.
 
 ### Key Contributions
 
-- **Conditional tool relations.** Relations retain their supporting execution contexts, allowing the same tool pair to express different preferences in different tasks.
-- **Capability identity.** Semantic descriptions and verified behavior identify reusable capabilities without collapsing complementary ordering evidence.
-- **Adoption learning.** A contextual teacher learns when structural memory helps execution, using logged randomized decisions and doubly robust utility estimates.
+- **Evidence-preserving relation reuse.** Shared capability identities retain condition-feedback events, from which each query reconstructs directed ordering proposals.
+- **Current-actor adoption value.** Actual tool-list presentation is the intervention, and terminal utility relative to semantic retrieval is the learning target.
+- **Adoption under co-evolution.** Frozen windows support value estimation and deployment on the same execution basis; actor and inventory updates trigger re-evaluation.
 
 ## Project Structure
 

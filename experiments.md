@@ -1,5 +1,17 @@
 # EvoCond Experiments
 
+## Method Questions
+
+EvoCond's method chain is capability sharing, conditional proposal reconstruction, current-actor adoption, and renewed evaluation after co-evolution. The mechanism study follows the same order:
+
+| Question | Matched comparison | Observation |
+|---|---|---|
+| Which historical distinctions change the current ordering? | Preserve, erase, or permute condition-feedback links with the same actor, tool versions, event counts, candidate pool, and budget | Actual lists, ordering choices, and paired terminal utility |
+| Does a supported proposal help the current actor? | Randomize actual lists at a preselected point and continue under the same frozen execution policy | Incremental terminal utility relative to the semantic list, full cost, and subsequent calls |
+| Does adoption value transfer after co-evolution? | Cross old and new actors with old and new inventories on aligned tasks and compare retained versus re-evaluated adoption | The same proposal's utility, adaptation, and deployment eligibility |
+
+Vary relation scale and condition heterogeneity separately. More edges or events alone do not identify the cause of a performance change. Historical relation support and randomized adoption utility have separate feedback records. These fixed-execution mechanism comparisons complement the independently trained main and ablation conditions below.
+
 ## Shared Setup
 
 All main and training-ablation conditions use eight RTX 4090 GPUs, Qwen3-4B in non-thinking mode, and seeds 42, 52, 3047, 3407. Each seed uses the same data order across conditions. Data partitions do not change with training seeds. Checkpoint content, rather than its directory name, identifies the common starting actor. Declare `pretrained` or `coldstart` in `initialization`; a cold-start checkpoint is shared by all conditions.
