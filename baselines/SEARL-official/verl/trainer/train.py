@@ -84,6 +84,8 @@ class TaskRunner:
 
     def run(self, config):
         'Execute the main PPO training workflow.\n\n        This method sets up the distributed training environment, initializes\n        workers, datasets, and reward functions, then starts the training process.\n\n        Args:\n            config: Training configuration object containing all parameters needed\n                   for setting up and running the PPO training process.\n        '
+        from transformers import set_seed
+        set_seed(config.data.get('seed', 42))
         # Print the initial configuration. `resolve=True` will evaluate symbolic values.
         from pprint import pprint
 

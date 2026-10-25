@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import re
 import experiment as experiment
+import study
 def variants(config, teacher_paths):
     if config.get('format') != experiment.FORMAT or not re.fullmatch(r'[A-Za-z0-9_-]{1,50}', config.get('run_id', '')):
         raise ValueError('Expected an experiment config with a short run_id')
@@ -27,12 +28,24 @@ def variants(config, teacher_paths):
     return result
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--config', type=Path, required=True)
-    parser.add_argument('--teacher-reject', required=True)
-    parser.add_argument('--teacher-rebind', required=True)
+    parser.add_argument('--config', type=Path, default=Path('configs/contextual.json'))
+    parser.add_argument('--teacher-reject')
+    parser.add_argument('--teacher-rebind')
+    parser.add_argument('--suite', choices=('ablation', 'statistics'), default='ablation')
+    parser.add_argument('--seeds', nargs='+', type=int, default=list(study.SEEDS))
+    parser.add_argument('--conditions', nargs='+')
     parser.add_argument('--output', type=Path)
     parser.add_argument('--run', action='store_true')
     args = parser.parse_args(argv)
+    if not args.teacher_reject and not args.teacher_rebind:
+        values = study.matrix(experiment.read(args.config), args.suite, args.seeds, args.conditions)
+        if args.run and args.output is None:
+            parser.error('--run requires a new --output directory')
+        report = study.write(args.output, values) if args.run else study.inventory(values)
+        print(json.dumps(dict(run=args.run, gpu_started=False, **report)))
+        return
+    if not args.teacher_reject or not args.teacher_rebind:
+        parser.error('Legacy binding ablations require both matching teacher files')
     values = variants(experiment.read(args.config), {'reject': args.teacher_reject, 'rebind': args.teacher_rebind})
     if args.run:
         if args.output is None:

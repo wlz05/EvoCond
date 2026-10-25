@@ -8,7 +8,10 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import study
+from control.contracts import strict_json
 SEEDS = (42, 52, 3047, 3407)
+HERE = Path(__file__).resolve().parent
 def recipes(config):
     result = []
     for seed in SEEDS:
@@ -18,43 +21,91 @@ def recipes(config):
         value.setdefault('contextual', {}).update(seed=seed)
         result.append((seed, value))
     return result
-def main():
-    parser = argparse.ArgumentParser(description='Prepare and launch the four eight-GPU experiments.')
-    parser.add_argument('stage', choices=('configs', 'prepare', 'status', 'train'))
+def checkpoints(path):
+    if path is None:
+        return {}
+    value = strict_json(path.read_text(encoding='utf-8'))
+    if not isinstance(value, dict) or set(value) != {'format', 'checkpoints'} or value['format'] != 'evocond_checkpoints_v1':
+        raise ValueError('Expected a declared checkpoint map, not automatic test-based selection')
+    if not isinstance(value['checkpoints'], dict) or any(not isinstance(name, str) or not isinstance(item, str)
+            or not item or Path(item).is_absolute() or '..' in Path(item).parts for name, item in value['checkpoints'].items()):
+        raise ValueError('Checkpoint entries must use experiment-relative repository paths')
+    return value['checkpoints']
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description='Plan matched main and ablation experiments on eight GPUs.')
+    parser.add_argument('stage', choices=('configs', 'prepare', 'status', 'train', 'evaluate'))
     parser.add_argument('--config', type=Path, default=Path('configs/contextual.json'))
-    parser.add_argument('--root', type=Path, default=Path('runs/evocond'))
-    parser.add_argument('--arm', choices=('searl', 'evocond', 'teacher'), default='teacher')
+    parser.add_argument('--root', type=Path, default=Path('runs/reproduction'))
+    parser.add_argument('--suite', choices=tuple(study.SUITES), default='main')
+    parser.add_argument('--conditions', nargs='+')
+    parser.add_argument('--arm', choices=('searl', 'evocond', 'teacher'), help='Main-suite alias for --conditions')
     parser.add_argument('--seeds', nargs='+', type=int, choices=SEEDS, default=list(SEEDS))
+    parser.add_argument('--resume', type=Path)
+    parser.add_argument('--checkpoints', type=Path)
+    parser.add_argument('--split', choices=('validation', 'test'), default='validation')
+    parser.add_argument('--allow-test', action='store_true')
     parser.add_argument('--run', action='store_true')
-    args = parser.parse_args()
-    if len(set(args.seeds)) != len(args.seeds) or args.root.is_absolute():
-        parser.error('Use unique seeds and a relative experiment directory')
-    config = json.loads(args.config.read_text(encoding='utf-8'))
-    # Keep dataset partitions fixed while changing training randomness.
-    for seed, value in recipes(config):
-        if seed not in args.seeds:
+    args = parser.parse_args(argv)
+    for path in (args.root, args.config, args.resume, args.checkpoints):
+        if path is not None and (path.is_absolute() or '..' in path.parts):
+            parser.error('Use repository-relative paths without parent traversal')
+    if args.arm:
+        if args.suite != 'main' or args.conditions:
+            parser.error('--arm is a main-suite alias; use --conditions for ablations')
+        args.conditions = ['searl' if args.arm == 'searl' else 'evocond']
+    if args.split == 'test' and (args.stage != 'evaluate' or not args.allow_test):
+        parser.error('Test evaluation requires evaluate --split test --allow-test')
+    if args.resume and args.checkpoints:
+        parser.error('Use either one --resume or a --checkpoints map')
+    config = strict_json((HERE/args.config).read_text(encoding='utf-8'))
+    values = study.matrix(config, args.suite, args.seeds, args.conditions)
+    folder = args.root/args.suite
+    if args.stage == 'configs':
+        report = study.write(HERE/folder, values) if args.run else study.inventory(values)
+        print(json.dumps(dict(root=folder.as_posix(), run=args.run, gpu_started=False, **report)))
+        return
+    if args.resume and len(values) != 1:
+        parser.error('--resume requires exactly one condition and seed')
+    selected = checkpoints(HERE/args.checkpoints if args.checkpoints else None)
+    if selected and set(selected) != set(values):
+        parser.error('Checkpoint map must exactly cover the selected condition/seed jobs')
+    if args.stage == 'evaluate' and not (args.resume or selected):
+        parser.error('Evaluation requires --resume or --checkpoints; select on validation only')
+    if args.run and args.stage in ('train', 'evaluate'):
+        from experiment import checkpoint
+        for name, value in values.items():
+            resume = args.resume.as_posix() if args.resume else selected.get(name)
+            if resume:
+                checkpoint((HERE/folder/name).resolve(), value['design']['arm'], HERE/resume)
+    for name, value in values.items():
+        root = folder/name
+        setting = folder/(name+'.json')
+        if args.stage == 'status' and not (HERE/root/'protocol.json').is_file():
+            print(json.dumps(dict(job=name, prepared=False, root=root.as_posix())))
             continue
-        folder = args.root/('seed'+str(seed))
-        setting = args.root/('seed'+str(seed)+'.json')
-        if args.stage == 'configs':
-            if args.run:
-                setting.parent.mkdir(parents=True, exist_ok=True)
-                if setting.exists() and json.loads(setting.read_text(encoding='utf-8')) != value:
-                    raise ValueError('Existing seed configuration differs: '+str(setting))
-                if not setting.exists():
-                    setting.write_text(json.dumps(value, indent=2, sort_keys=True)+'\n', encoding='utf-8')
-            print(json.dumps(dict(seed=seed, gpus=8, config=str(setting), written=args.run)))
-            continue
-        command = [sys.executable, '-B', 'experiment.py', args.stage, '--root', str(folder)]
+        command = [sys.executable, '-B', str(HERE/'experiment.py'), args.stage, '--root', root.as_posix(), '--workspace', str(HERE)]
         if args.stage == 'prepare':
-            command += ['--config', str(setting)]
-        elif args.stage == 'train':
-            command += ['--arm', args.arm]
+            if args.run and not (HERE/setting).is_file():
+                raise ValueError('Generate the study configurations first: run.py configs --suite '+args.suite+' --run')
+            if (HERE/setting).is_file() and strict_json((HERE/setting).read_text(encoding='utf-8')) != value:
+                raise ValueError('Generated configuration differs from the requested study: '+name)
+            command += ['--config', setting.as_posix()]
+        elif args.stage in ('train', 'evaluate'):
+            command += ['--arm', value['design']['arm']]
+            resume = args.resume.as_posix() if args.resume else selected.get(name)
+            if resume:
+                command += ['--resume', resume]
+            if args.stage == 'evaluate':
+                command += ['--split', args.split]
+                if args.allow_test:
+                    command.append('--allow-test')
         if args.run and args.stage != 'status':
             command.append('--run')
-        print(json.dumps(dict(seed=seed, command=command, run=args.run)), flush=True)
+        print(json.dumps(dict(job=name, condition=value['design']['condition'], seed=value['budget']['seed'],
+            command=command, run=args.run)), flush=True)
         if args.run or args.stage == 'status':
-            subprocess.run(command, check=True)
+            subprocess.run(command, check=True, cwd=HERE)
 if __name__ == '__main__':
     main()
 

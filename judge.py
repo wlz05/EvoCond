@@ -16,6 +16,7 @@ from report import paired_summary
 from assets import CATALOGUE, verify
 from convert import file_hash, pointer, question_hash, read_rows
 FORMAT = "searl_judge_manifest_v1"
+STUDY_FORMAT = 'evocond_judge_manifest_v2'
 ARMS = ("searl", "evocond", "teacher")
 HELPERS = ("remove_boxed", "last_boxed_only_string", "evaluation_metrics_HLE")
 AUTHOR_FILES = ("evaluation/judge.py", "evaluation/evaluation.py",
@@ -157,14 +158,14 @@ def load_author_judge(root: Path, model: Path, *, batch_size: int, max_new_token
     spec.loader.exec_module(module)
     return StrictAuthorJudge(module.VLLMJudge(model_path=str(model), temperature=0.0,
                                             max_new_tokens=max_new_tokens, batch_size=batch_size))
-def _exports(path: Path, kind: str) -> list:
+def _exports(path: Path, kind: str, *, allow_empty=False) -> list:
     if kind == "jsonl":
         rows = list(read_rows(path, "jsonl"))
     elif kind == "json":
         rows = _json_file(path)
     else:
         raise ValueError("Prediction export format must be jsonl or json")
-    if not isinstance(rows, list) or not rows:
+    if not isinstance(rows, list) or not rows and not allow_empty:
         raise ValueError("Prediction export must be a nonempty row collection")
     for number, row in enumerate(rows):
         if not isinstance(row, dict) or not isinstance(row.get("output"), str):
@@ -172,15 +173,37 @@ def _exports(path: Path, kind: str) -> list:
         if "input" not in row and "question" not in row:
             raise ValueError(f"Prediction row {number} is missing input/question for alignment")
     return rows
+def arm_names(manifest):
+    if not isinstance(manifest, dict):
+        raise ValueError('Judge manifest must be an object')
+    if manifest.get('format') == FORMAT:
+        if not isinstance(manifest.get('arms'), dict) or set(manifest['arms']) != set(ARMS):
+            raise ValueError('Legacy judge requires all three arms')
+        return ARMS
+    arms = manifest.get('arms')
+    if manifest.get('format') != STUDY_FORMAT or not isinstance(arms, dict) or not 2 <= len(arms) <= 32:
+        raise ValueError('Study judge requires two to thirty-two named conditions')
+    if any(not isinstance(name, str) or not re.fullmatch('[a-z][a-z0-9_-]{0,40}', name) for name in arms):
+        raise ValueError('Invalid study condition label')
+    if type(manifest.get('samples_per_question')) is not int or manifest['samples_per_question'] != 1:
+        raise ValueError('Study pass@1 requires one scheduled prediction per base question')
+    from study import SEEDS
+    if type(manifest.get('training_seed')) is not int or manifest['training_seed'] not in SEEDS:
+        raise ValueError('Study scoring must declare its actual training seed')
+    return tuple(sorted(arms))
+
 def preflight(manifest_path: Path, official_root: Path, model: Path, *, full_weights=False) -> tuple[dict, dict]:
     manifest_path, official_root = manifest_path.resolve(), official_root.resolve()
     manifest_digest = file_hash(manifest_path)
     manifest = _json_file(manifest_path)
+    selected_arms = arm_names(manifest)
     fields = {"format", "split", "dataset_name", "metric", "dataset", "arms", "samples_per_question"}
-    if (not isinstance(manifest, dict) or set(manifest) != fields or manifest["format"] != FORMAT
+    if manifest['format'] == STUDY_FORMAT:
+        fields.add('training_seed')
+    if (not isinstance(manifest, dict) or set(manifest) != fields or manifest["format"] not in (FORMAT, STUDY_FORMAT)
             or manifest["split"] not in ("validation", "test") or manifest["metric"] != "author_overall"
             or not isinstance(manifest["dataset_name"], str) or not manifest["dataset_name"].strip()
-            or not isinstance(manifest["arms"], dict) or set(manifest["arms"]) != set(ARMS)
+            or not isinstance(manifest["arms"], dict)
             or type(manifest["samples_per_question"]) is not int or manifest["samples_per_question"] < 1):
         raise ValueError("Malformed judge manifest: explicit split, dataset, all three arms and sample count required")
     metric_name = re.sub(r"[\s_-]+", "", manifest["dataset_name"].casefold())
@@ -213,12 +236,12 @@ def preflight(manifest_path: Path, official_root: Path, model: Path, *, full_wei
     if not references:
         raise ValueError("Reference dataset is empty")
     inputs, prepared = {}, {}
-    for arm in ARMS:
+    for arm in selected_arms:
         spec = manifest["arms"][arm]
         if not isinstance(spec, dict) or set(spec) - {"path", "sha256", "format", "alignment"} or "format" not in spec:
             raise ValueError("Each arm needs path/hash/format and optional explicit alignment")
         path = _source(manifest_path.parent, spec)
-        rows = _exports(path, spec["format"])
+        rows = _exports(path, spec["format"], allow_empty=manifest['format'] == STUDY_FORMAT)
         mapping = {}
         if "alignment" in spec:
             alignment = spec["alignment"]
@@ -266,10 +289,16 @@ def preflight(manifest_path: Path, official_root: Path, model: Path, *, full_wei
             counts[key] += 1
             question, answer = references[key]
             prepared[arm].append({"question": question, "ground_truth": answer, "output": row["output"]})
+        missing = [key for key, count in counts.items() if count == 0]
+        if manifest['format'] == STUDY_FORMAT:
+            for key in missing:
+                question, answer = references[key]
+                prepared[arm].append(dict(question=question, ground_truth=answer, output=''))
+                counts[key] = 1
         if any(count != manifest["samples_per_question"] for count in counts.values()):
             raise ValueError(f"{arm} does not have the declared sample count for every reference question")
         inputs[arm] = {"path": str(path), "sha256": spec["sha256"], "format": spec["format"],
-                       "alignment": spec.get("alignment"), "rows": len(rows)}
+                       "alignment": spec.get("alignment"), "rows": len(rows), 'missing_scored_zero': len(missing)}
     # A long weight check or concurrent export must not change scored inputs.
     if file_hash(manifest_path) != manifest_digest:
         raise ValueError("Judge manifest changed during preflight")
@@ -282,6 +311,7 @@ def preflight(manifest_path: Path, official_root: Path, model: Path, *, full_wei
         if file_hash(official_root / relative) != expected:
             raise ValueError("Author source changed during preflight")
     protocol = {"format": "searl_judge_protocol_v1", "manifest_sha256": manifest_digest,
+                'training_seed': manifest.get('training_seed'),
                 "split": manifest["split"], "dataset_name": manifest["dataset_name"], "metric": "author_overall",
                 "samples_per_question": manifest["samples_per_question"], "reference_count": len(references),
                 "dataset": {**dataset, "path": str(dataset_path)}, "arms": inputs,
@@ -321,7 +351,7 @@ def run(manifest_path: Path, official_root: Path, model: Path, output: Path | No
     metrics = author_helpers(official_root)["evaluation_metrics_HLE"]
     result = {"run": True, "complete": False, "protocol_sha256": digest(protocol), "arms": {}}
     scored = {}
-    for arm in ARMS:
+    for arm in protocol['arms']:
         before = len(judge.calls)
         values = metrics(prepared[arm], judge)
         row = dict(zip(("no_answer", "boxed_not_found", "correct", "false_answer", "acc"), values))

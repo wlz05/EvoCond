@@ -5,6 +5,7 @@
 from __future__ import annotations
 import argparse
 from copy import deepcopy
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from hashlib import sha256
 import importlib.util
@@ -31,7 +32,7 @@ ARMS = ("searl", "evocond", "teacher")
 HERE = Path(__file__).resolve().parent
 DEFAULTS = dict(gpus=8, batch_size=256, rollouts=8, epochs=1, max_prompt=4096,
                 max_response=2048, max_context=32768, max_turns=6, save_freq=5, validation_freq=5,
-                learning_rate=1e-6, seed=42)
+                learning_rate=1e-6, seed=42, tail_policy='error', temperature=.7, top_p=.98, repetition_penalty=1.05)
 def read(path):
     return strict_json(Path(path).read_text(encoding='utf-8-sig'), max_text=64*1024*1024)
 def write_new(path, value):
@@ -73,11 +74,16 @@ def settings(value, *, collection=False):
     if unknown:
         raise ValueError(f"Unknown budget fields: {sorted(unknown)}")
     result = {**DEFAULTS, **value}
-    for key in set(DEFAULTS) - {"learning_rate"}:
+    for key in set(DEFAULTS) - {"learning_rate", "tail_policy", "temperature", "top_p", "repetition_penalty"}:
         if type(result[key]) is not int or result[key] < (0 if key == "seed" else 1):
             raise ValueError(f"Invalid budget: {key}")
     if type(result["learning_rate"]) not in (float, int) or not 0 < result["learning_rate"] < 1:
         raise ValueError("Invalid learning rate")
+    if result['tail_policy'] not in ('error', 'keep'):
+        raise ValueError('Declare error or keep for the final training batch')
+    for key, low, high in (('temperature', 0., 2.), ('top_p', 0., 1.), ('repetition_penalty', 0., 2.)):
+        if type(result[key]) not in (int, float) or not low < result[key] <= high:
+            raise ValueError('Invalid generation setting: '+key)
     if not collection and result["rollouts"] < 2:
         raise ValueError("Group-relative training requires at least two rollouts")
     if result["batch_size"] % result["gpus"]:
@@ -91,16 +97,21 @@ def resolved(value, base=None):
         path = Path(base)/path
     return str(path.resolve(strict=True))
 def window_budget(budget, options, training_rows):
+    from control.windows import layout
     count = options['frozen_batches']
-    batches, remainder = divmod(training_rows, budget['batch_size'])
-    if remainder or batches < count or batches % count:
-        raise ValueError('Training split must contain complete frozen actor-memory windows with no dropped questions')
+    schedule = layout(training_rows, budget['batch_size'], count,
+        tail=budget.get('tail_policy', 'error'), epochs=budget['epochs'])
     if budget['save_freq'] % count or budget['validation_freq'] % count:
         raise ValueError('Checkpoint and validation frequencies must land on frozen-window barriers')
     if options['horizon_steps'] != budget['max_turns']+1:
         raise ValueError('Uniform marking horizon must equal the actual native retrieval cap')
-    return dict(batches_per_epoch=batches, frozen_batches=count, actor_updates_per_epoch=batches//count,
-                total_actor_updates=batches*budget['epochs']//count, dropped_training_questions=0)
+    return schedule
+
+def arms(config):
+    if config.get('design') is None:
+        return ARMS
+    from study import validate
+    return (validate(config['design'])['arm'],)
 def validate_teacher_splits(teacher, alignment, identities):
     fitting, calibration = set(teacher["train_ids"]), set(teacher["calibration_ids"])
     if not (fitting | calibration) <= identities["train"]:
@@ -142,6 +153,12 @@ def freeze(config, *, collection=False, base=None):
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", result.get("run_id", "")):
         raise ValueError("Invalid run_id")
     result["budget"] = settings(result.get("budget", {}), collection=collection)
+    if result.get('design') is not None:
+        from study import validate, setup
+        result['design'] = validate(result['design'])
+        setup(result)
+        if result['design']['native'] and (result.get('contextual') is not None or result.get('teacher')):
+            raise ValueError('Native SEARL keeps its tool graph and cannot use a contextual retrieval override')
     for key in ("official_root", "model", "encoder", "isolation_config", "isolation_receipt"):
         result[key] = resolved(result[key], base)
     root = Path(result["official_root"])
@@ -183,6 +200,9 @@ def freeze(config, *, collection=False, base=None):
                     "encoder": directory_digest_encoder(Path(result["encoder"])),
                     "isolation": file_digest(Path(result["isolation_config"]))}
     position_limit = read(Path(result["model"]) / "config.json").get("max_position_embeddings")
+    if result.get('design') is not None:
+        from study import actor
+        actor(read(Path(result['model'])/'config.json'))
     if type(position_limit) is not int or result["budget"]["max_context"] > position_limit:
         raise ValueError("Declared context exceeds the model's recorded position limit")
     if collection:
@@ -190,6 +210,16 @@ def freeze(config, *, collection=False, base=None):
             raise ValueError("Teacher bootstrap uses one rollout and no fitted teacher")
         return {"config": result, "split_audit": split, "fingerprints": fingerprints,
                 "upstream_commit": PIN, "claim": "frozen-policy training-only teacher bootstrap; no Qwen optimizer update"}
+    if result.get('design', {}).get('native'):
+        from control.windows import layout
+        count = result['design']['actor_batches']
+        schedule = layout(split['datasets']['train']['rows'], result['budget']['batch_size'], count,
+            tail=result['budget']['tail_policy'], epochs=result['budget']['epochs'])
+        if any(result['budget'][key] % count for key in ('save_freq', 'validation_freq')):
+            raise ValueError('Native cadence controls save and validate only at actor barriers')
+        return dict(config=result, split_audit=split, fingerprints=fingerprints, upstream_commit=PIN,
+            schedule=schedule, arm_methods={'searl': 'native_tool_graph' if count == 1 else 'native_tool_graph_actor_cadence'},
+            claim='pinned SEARL tool-graph baseline on the declared eight-GPU execution environment')
     if result.get('contextual') is not None:
         from control.stage import settings as contextual_settings
         options = contextual_settings(result['contextual'])
@@ -197,8 +227,10 @@ def freeze(config, *, collection=False, base=None):
             raise ValueError('Use the same native G rollouts and no legacy teacher artifacts')
         result['contextual'] = options
         schedule = window_budget(result['budget'], options, split['datasets']['train']['rows'])
+        methods = ({'teacher': result['design']['condition']} if result.get('design') is not None else
+            dict(searl='semantic_control', evocond='conditional_identity_fixed_fusion', teacher=options['variant']))
         return {'config': result, 'split_audit': split, 'fingerprints': fingerprints, 'upstream_commit': PIN,
-                'schedule': schedule, 'arm_methods': dict(searl='semantic_control', evocond='conditional_identity_fixed_fusion', teacher=options['variant']),
+                'schedule': schedule, 'arm_methods': methods,
                 'claim': 'matched contextual controls using native SEARL actor updates; not official SEARL reproduction; live validation required'}
     teacher = result.get("teacher", {})
     teacher_options(teacher)
@@ -235,19 +267,24 @@ def directory_digest_encoder(path):
     return canonical_hash({p.relative_to(path).as_posix(): file_digest(p) for p in files})
 def runtimes(frozen, root):
     config, output = frozen["config"], {}
-    for arm in ARMS:
+    for arm in arms(config):
         folder = root / arm / "runtime"
         value = dict(format="evocond_searl_runtime_v1", arm=arm, run_id=config["run_id"]+"_"+arm,
                      root=str(folder), registry_path=str(folder / "registry.json"),
                      policy_hash=frozen["fingerprints"]["model"]["sha256"], value_contracts=False,
                      sample_tool_turns=True, rollout_contract=rollout_contract(config["budget"]),
                      official_source_sha256=frozen["fingerprints"]["official_source"]["sha256"])
+        if config.get('design') is not None:
+            value.update(design=deepcopy(config['design']), epoch_batches=frozen['schedule']['batches_per_epoch'],
+                actor_batches=config['design']['actor_batches'])
         if config.get('contextual') is not None:
             options = deepcopy(config['contextual'])
             options['variant'] = 'semantic' if arm == 'searl' else 'aligned' if arm == 'evocond' else options['variant']
             options['horizon_steps'] = config['budget']['max_turns']+1
             value.update(contextual=options, encoder_path=config['encoder'], encoder_id=frozen['fingerprints']['encoder'],
                          tool_construction='legacy', value_contracts=False, binding_credit='native_only')
+            if frozen.get('schedule') is not None:
+                value['epoch_batches'] = frozen['schedule']['batches_per_epoch']
         elif arm == "teacher":
             value.update(config["teacher"], encoder_path=config["encoder"])
             value["value_contracts"] = bool(config["teacher"].get("value_contracts", True))
@@ -262,6 +299,8 @@ def checkpoint(root, arm, value):
             raise ValueError(f"Incomplete paired checkpoint: missing {item}")
     return str(path)
 def launch_spec(frozen, root, arm, *, stage="train", split="validation", resume=None, attempt="attempt"):
+    if arm not in arms(frozen['config']):
+        raise ValueError('Arm does not belong to this frozen study condition')
     if stage == "train" and split != "validation":
         raise ValueError("Training can monitor validation only; test is reserved for explicit final evaluation")
     config, budget = frozen["config"], frozen["config"]["budget"]
@@ -283,13 +322,25 @@ def launch_spec(frozen, root, arm, *, stage="train", split="validation", resume=
                SEARL_DYNAMIC_REGISTRY=str(arm_root / "runtime" / "registry.json"),
                PYTHONPATH=os.pathsep.join([str(HERE), config["official_root"], env.get("PYTHONPATH", "")]),
                WANDB_DIR=str(arm_root / "wandb"))
+    env['PYTHONHASHSEED'] = str(budget['seed'])
     params = {"data.train_batch_size": budget["batch_size"], "data.seed": budget["seed"],
+              "data.keep_tail": budget.get('tail_policy') == 'keep',
               "actor_rollout_ref.actor.state_masking": True,
               "actor_rollout_ref.actor.optim.lr": budget["learning_rate"],
               "actor_rollout_ref.rollout.seed": budget["seed"],
               "actor_rollout_ref.rollout.max_tokens": budget["max_response"],
               "actor_rollout_ref.rollout.max_model_len": budget["max_context"],
               "actor_rollout_ref.rollout.n": budget["rollouts"],
+              "actor_rollout_ref.rollout.temperature": budget.get('temperature', .7),
+              "actor_rollout_ref.rollout.top_p": budget.get('top_p', .98),
+              "actor_rollout_ref.rollout.repetition_penalty": budget.get('repetition_penalty', 1.05),
+              "actor_rollout_ref.rollout.val_kwargs.n": 1,
+              "actor_rollout_ref.rollout.val_kwargs.do_sample": False,
+              "actor_rollout_ref.rollout.val_kwargs.temperature": 0.0,
+              "actor_rollout_ref.rollout.val_kwargs.top_p": 1.0,
+              "actor_rollout_ref.env.enable_thinking": False,
+              "data.filter_overlong_prompts": False,
+              "data.validation_shuffle": False,
               "actor_rollout_ref.rollout.max_turns": budget["max_turns"],
               "actor_rollout_ref.env.max_turns": budget["max_turns"],
               "actor_rollout_ref.env.runtime_config_path": str(arm_root / "runtime_config.json"),
@@ -319,6 +370,26 @@ def environment_identity():
             "gpus": [{"name": torch.cuda.get_device_properties(i).name,
                       "memory": torch.cuda.get_device_properties(i).total_memory}
                      for i in range(torch.cuda.device_count())]}
+
+@contextmanager
+def allocation(root, workspace, identity, *, shared=False):
+    owned = []
+    paths = ([workspace/'runs/.gpu.lock'] if shared else [])+[root/'.launch.lock']
+    try:
+        for path in paths:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open('x', encoding='utf-8') as stream:
+                json.dump(identity, stream)
+            owned.append(path)
+        yield
+    finally:
+        for path in reversed(owned):
+            try:
+                owner = read(path) if path.is_file() else None
+            except (OSError, ValueError):
+                continue
+            if owner == identity:
+                path.unlink()
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("stage", choices=("prepare", "status", "train", "evaluate"))
@@ -339,7 +410,12 @@ def main():
             parser.error("prepare requires --config")
         frozen = freeze(read(workspace/args.config), base=workspace)
         if root.exists() and any(root.iterdir()):
-            raise FileExistsError("Prepare requires a new empty experiment directory")
+            if protocol.is_file() and read(protocol) == frozen and all(
+                    (root/arm/'runtime_config.json').is_file() and read(root/arm/'runtime_config.json') == value
+                    for arm, value in runtimes(frozen, root).items()):
+                print(json.dumps(dict(prepared=True, reused=True, root=str(root), gpu_started=False)))
+                return
+            raise FileExistsError("Existing experiment differs; prepare requires a new empty directory")
         if args.run:
             write_new(protocol, frozen)
             for arm, value in runtimes(frozen, root).items():
@@ -352,7 +428,7 @@ def main():
     if args.stage == "status":
         print(json.dumps({"root": str(root), "claim": frozen["claim"], "arms": {arm: {
             "checkpoints": sorted(p.name for p in (root / arm / "checkpoints").glob("global_step_*")),
-            "active_lock": (root / ".launch.lock").exists()} for arm in ARMS}}))
+            "active_lock": (root / ".launch.lock").exists()} for arm in arms(frozen['config'])}}))
         return
     if args.arm is None:
         parser.error("train/evaluate require --arm; launch arms sequentially on shared GPUs")
@@ -372,11 +448,9 @@ def main():
     if not args.run:
         return
     readiness(frozen["config"]["budget"]["gpus"])
-    lock = root / ".launch.lock"
-    with lock.open("x", encoding="utf-8") as stream:
-        json.dump({"pid": os.getpid(), "attempt": attempt, "arm": args.arm}, stream)
     record = root / args.arm / "attempts" / (attempt+".json")
-    try:
+    identity = dict(pid=os.getpid(), attempt=attempt, arm=args.arm, root=str(root))
+    with allocation(root, workspace, identity, shared=frozen['config'].get('design') is not None):
         environment = environment_identity()
         environment_file = root / "environment.json"
         if environment_file.exists():
@@ -390,8 +464,6 @@ def main():
         result = subprocess.run(command, cwd=frozen["config"]["official_root"], env=env, check=False)
         write_new(record.with_suffix(".result.json"), {"exit_code": result.returncode})
         raise SystemExit(result.returncode)
-    finally:
-        lock.unlink()
 if __name__ == "__main__":
     main()
 

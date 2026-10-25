@@ -1,0 +1,8 @@
+{
+  "format": "evocond_checkpoints_v1",
+  "checkpoints": {
+    "searl/seed42": "runs/reproduction/main/searl/seed42/searl/checkpoints/global_step_40",
+    "pace/seed42": "runs/reproduction/main/pace/seed42/searl/checkpoints/global_step_40",
+    "evocond/seed42": "runs/reproduction/main/evocond/seed42/teacher/checkpoints/global_step_40"
+  }
+}

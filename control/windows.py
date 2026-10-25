@@ -6,6 +6,33 @@ import numpy as np
 FULL = {'input_ids', 'attention_mask', 'position_ids', 'loss_mask'}
 RESPONSE = {'responses', 'response_mask', 'old_log_probs', 'ref_log_prob', 'rollout_log_probs', 'values',
             'advantages', 'returns', 'token_level_scores', 'token_level_rewards'}
+
+def barrier(phase, epoch_batches, count):
+    if type(phase) is not int or phase < 0 or type(count) is not int or count < 1:
+        raise ValueError('Invalid actor window position')
+    if epoch_batches is not None and (type(epoch_batches) is not int or epoch_batches < 1):
+        raise ValueError('Invalid epoch batch count')
+    position = phase % epoch_batches if epoch_batches else phase
+    return position == 0 or position % count == 0
+
+def width(phase, epoch_batches, count):
+    barrier(phase, epoch_batches, count)
+    position = (max(1, phase)-1) % epoch_batches if epoch_batches else max(1, phase)-1
+    return min(count, epoch_batches-position//count*count) if epoch_batches else count
+
+def layout(questions, batch, count, *, tail='error', epochs=1):
+    if any(type(value) is not int or value < 1 for value in (questions, batch, count, epochs)) or tail not in ('error', 'keep'):
+        raise ValueError('Invalid training window layout')
+    full, remainder = divmod(questions, batch)
+    if tail == 'error' and (remainder or full < count or full % count):
+        raise ValueError('Training split must contain complete frozen actor-memory windows with no dropped questions')
+    batches = full+bool(remainder)
+    sizes = [min(batch, questions-index*batch) for index in range(batches)]
+    windows = [sum(sizes[index:index+count]) for index in range(0, batches, count)]
+    return dict(batches_per_epoch=batches, frozen_batches=count,
+        actor_updates_per_epoch=len(windows), total_actor_updates=len(windows)*epochs,
+        dropped_training_questions=0, tail_questions=remainder,
+        questions_per_epoch=questions, window_questions=windows, tail_policy=tail)
 def tensor_pad(value, shape, fill, slices):
     result = value.new_full(shape, fill)
     result[slices] = value

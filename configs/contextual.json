@@ -3,6 +3,10 @@
   "run_id": "evocond_contextual_v5",
   "official_root": "baselines/SEARL-official",
   "model": "assets/models/Qwen3-4B",
+  "initialization": {
+    "stage": "pretrained",
+    "source": "Qwen/Qwen3-4B"
+  },
   "encoder": "assets/models/e5-base-v2",
   "isolation_config": "assets/deployment/isolation.json",
   "isolation_receipt": "assets/deployment/inspection.json",
@@ -67,6 +71,10 @@
     "save_freq": 2,
     "validation_freq": 2,
     "learning_rate": 0.000001,
-    "seed": 42
+    "seed": 42,
+    "tail_policy": "keep",
+    "temperature": 0.7,
+    "top_p": 0.98,
+    "repetition_penalty": 1.05
   }
 }

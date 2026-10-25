@@ -8,7 +8,7 @@ import json
 import math
 from pathlib import Path
 import time
-from control import bandit, drift, dynamic, mixing as fusion, identity, metric, relations, subtasks, whole
+from control import bandit, drift, dynamic, mixing as fusion, identity, metric, relations, subtasks, whole, windows
 from control.context import embedding
 from control.context import visible
 FORMAT = 'evocond_contextual_stage_v6'
@@ -40,7 +40,7 @@ def settings(value):
     if not math.isfinite(result['actor_kl_threshold']) or result['actor_kl_threshold'] <= 0:
         raise ValueError('Declare a positive actor drift threshold before training')
     result['metric'] = metric.options(result['metric'])
-    if result['variant'] == 'simple':
+    if result['variant'] in ('simple', 'raw'):
         result['metric'].update(protection='identity', residual=1.0)
     result['actor_drift'] = drift.options(result['actor_drift'])
     if result['fixed_alpha'] is not None and result['fixed_alpha'] not in bandit.ACTIONS:
@@ -60,7 +60,7 @@ class Engine:
         registry.setdefault('relations', relations.new(**{key: self.options[key] for key in ('horizon', 'limit', 'bandwidth', 'decay', 'shrinkage')}))
         runtime.dispatcher.replace_registry(registry, expected_sha256=dynamic.digest(runtime.dispatcher.registry))
         self.alignment = identity.initialize(registry, self.encoder, self.encoder_id)
-        if self.options['variant'] == 'simple':
+        if self.options['variant'] in ('simple', 'noidentity'):
             self.alignment.update(frozen=True, objective='fixed_identity_no_alignment_fit')
         else:
             self.alignment = identity.fit(registry, self.encoder, self.alignment, steps=self.options['alignment_steps'])
@@ -193,14 +193,14 @@ class Engine:
             return [deepcopy(by_version[row['version']]) for row in ranking if row['version'] in by_version]
         classes = bandit.payloads(result['rankings'], lambda ranking: json.dumps(dict(task=view, tools=presentation(ranking)),
             sort_keys=True, separators=(',', ':'), ensure_ascii=False, allow_nan=False))
-        eligible = (context['split'] == 'train' and self.options['variant'] in ('full', 'simple') and
+        eligible = (context['split'] == 'train' and self.options['variant'] in fusion.LEARNED and self.options['fixed_alpha'] is None and
             context['ordinal'] == context['exploration_rollout'] and index == context['marked_point'])
         marked = eligible and not context['marked'] and result['edge_support'] and len(classes) > 1
         if eligible:
             context['mark_status'] = 'observed' if marked else 'single_class' if len(classes) == 1 else 'unsupported'
         model = self.deployed_teacher() if result['edge_support'] and context['phase_snapshot'] == self.snapshot else None
         fixed = self.options['fixed_alpha']
-        if self.options['variant'] not in ('full', 'simple') and fixed is None:
+        if self.options['variant'] not in fusion.LEARNED and fixed is None:
             fixed = 0.0 if self.options['variant'] == 'semantic' else .5
         if not result['edge_support']:
             fixed, marked = 0.0, False
@@ -274,7 +274,7 @@ class Engine:
             row['reward'] = bandit.reward(success, row['costs'], penalty=row['penalty'], reference=row['reference'])
             bandit.validate(row)
             self.logs.append(row)
-        elif context['ordinal'] == context['exploration_rollout'] and self.options['variant'] in ('full', 'simple'):
+        elif context['ordinal'] == context['exploration_rollout'] and self.options['variant'] in fusion.LEARNED and self.options['fixed_alpha'] is None:
             row = dict(format=bandit.FORMAT, split='train', base_id=context['task_id'], snapshot=self.snapshot,
                 bottom=self.bottom, phase=self.phase, actor=self.actor, bank=dynamic.digest(self.registry), features=[], actions=[],
                 encoder=self.encoder_id, alignment=dynamic.digest(self.alignment), metric=dynamic.digest(self.metric),
@@ -340,8 +340,9 @@ class Engine:
             tool_seconds=sum(row['quantities']['seconds'] for row in receipts if row['kind'] == 'tools'),
             actor_input_tokens=sum(row['quantities']['input_tokens'] for row in receipts if row['kind'] == 'actor'),
             actor_output_tokens=sum(row['quantities']['output_tokens'] for row in receipts if row['kind'] == 'actor'))
-        boundary = (self.phase+1) % self.options['frozen_batches'] == 0
-        next_metric = metric.fit(self.metric, registry['relations'], version_compatible=lambda a, b: identity.eligible(registry, a, b)) if boundary else deepcopy(self.metric)
+        boundary = windows.barrier(self.phase+1, self.runtime.config.get('epoch_batches'), self.options['frozen_batches'])
+        fit_geometry = boundary and self.options['variant'] not in ('simple', 'raw')
+        next_metric = metric.fit(self.metric, registry['relations'], version_compatible=lambda a, b: identity.eligible(registry, a, b)) if fit_geometry else deepcopy(self.metric)
         next_teacher = deepcopy(self.teacher)
         next_teacher_bottom = self.teacher_bottom
         if labels and (not boundary or self.options['frozen_batches'] == 1):
@@ -364,7 +365,7 @@ class Engine:
             alignment_frozen=self.alignment['frozen'], phase_auxiliary_seconds=time.monotonic()-started,
             actor_update_ready=boundary, public_bank_published=boundary, bottom=self.bottom,
             window_role='co_evolution_barrier' if boundary else 'fixed_bottom_teacher_update_then_deployment')
-        next_alignment = identity.fit(registry, self.encoder, self.alignment, steps=self.options['alignment_steps'], fit_ids=groups) if boundary and self.options['variant'] != 'simple' else deepcopy(self.alignment)
+        next_alignment = identity.fit(registry, self.encoder, self.alignment, steps=self.options['alignment_steps'], fit_ids=groups) if boundary and self.options['variant'] not in ('simple', 'noidentity') else deepcopy(self.alignment)
         next_whole = whole.fit(registry, self.encoder, next_alignment, self.whole, next_metric, actor=self.actor,
             neighbors=self.options['neighbors'], recall=self.options['recall'], samples_limit=self.options['whole_samples'],
             steps=self.options['alignment_steps']) if boundary and self.whole is not None else deepcopy(self.whole)
@@ -404,7 +405,7 @@ class Engine:
             used_holdout=deepcopy(self.used_holdout), actor_updates=deepcopy(self.actor_updates))
     def schedule(self):
         return dict(contextual=True, actor_update_ready=self.pending_registry is None,
-            phase=self.phase, frozen_batches=self.options['frozen_batches'], actor=self.actor,
+            phase=self.phase, frozen_batches=windows.width(self.phase, self.runtime.config.get('epoch_batches'), self.options['frozen_batches']), actor=self.actor,
             actor_drift=deepcopy(self.options['actor_drift']), adoption=self.adoption_status())
     def restore(self, state):
         if state.get('adoption_protocol') != bandit.PROTOCOL:
@@ -426,7 +427,7 @@ class Engine:
         if binding is not None and (not isinstance(binding, str) or len(binding) != 64 or
             any(char not in '0123456789abcdef' for char in binding) or state['teacher'] is None):
             raise ValueError('Malformed teacher deployment binding')
-        if type(state['phase']) is not int or state['phase'] < 0 or state['phase'] % self.options['frozen_batches']:
+        if not windows.barrier(state['phase'], self.runtime.config.get('epoch_batches'), self.options['frozen_batches']):
             raise ValueError('Contextual checkpoint is not at an actor-memory barrier')
         expected = dynamic.digest(dict(format=FORMAT, phase=state['phase'], actor=state['actor'], encoder=self.encoder_id,
             adoption_protocol=bandit.PROTOCOL, registry=state['registry_hash'], alignment=dynamic.digest(state['alignment']),

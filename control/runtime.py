@@ -79,6 +79,13 @@ def load_config(path):
     config = json.loads(Path(path).read_text(encoding="utf-8"))
     if config.get("format") != FORMAT or config.get("arm") not in ARMS:
         raise ValueError("Unknown SEARL runtime format or arm")
+    if config.get('design') is not None:
+        from study import validate
+        design = validate(config['design'])
+        if design['arm'] != config['arm'] or design['native'] != (config.get('contextual') is None):
+            raise ValueError('Runtime adapter differs from the declared study condition')
+        if type(config.get('epoch_batches')) is not int or config['epoch_batches'] < 1 or config.get('actor_batches') != design['actor_batches']:
+            raise ValueError('Runtime requires the frozen epoch and actor cadence')
     from control.binding import validate_strategy, validate_credit
     validate_strategy(config.get('binding_strategy', 'reject'), enabled=bool(config.get('value_contracts', False)))
     validate_credit(config.get('binding_credit', 'native_only'))
@@ -167,6 +174,7 @@ class Runtime:
         self.lock = threading.RLock()
         self.contexts = {}
         self.policy_step = 0
+        self.native_batches = 0
         self.policy_hash = config["policy_hash"]
         self.alignment = self.teacher = None
         self.engine = None
@@ -222,6 +230,8 @@ class Runtime:
         if self.engine and self.contexts:
             raise ValueError('Actor updates require the completed-rollout barrier')
         if self.engine and self.engine.pending_registry is not None:
+            raise ValueError('Actor must remain frozen until the configured window barrier')
+        if not restoring and self.schedule() is not None and not self.schedule()['actor_update_ready']:
             raise ValueError('Actor must remain frozen until the configured window barrier')
         self.policy_step = step
         self.policy_hash = self.config["policy_hash"] if step == 0 else dynamic.digest(
@@ -562,7 +572,20 @@ class Runtime:
             raise ValueError("Cannot release contexts while rollouts remain in flight")
         if self.engine:
             self.engine.publish(list(self.contexts.values()))
+        elif self.config.get('design', {}).get('native') and any(row['split'] == 'train' for row in self.contexts.values()):
+            self.native_batches += 1
         self.contexts.clear()
+    def schedule(self):
+        if self.engine:
+            return self.engine.schedule()
+        count = self.config.get('actor_batches', 1)
+        if count == 1:
+            return None
+        from control import windows, drift
+        epoch = self.config.get('epoch_batches')
+        return dict(contextual=False, actor_update_ready=windows.barrier(self.native_batches, epoch, count),
+            phase=self.native_batches, frozen_batches=windows.width(self.native_batches, epoch, count),
+            actor=self.policy_hash, actor_drift=drift.options({}))
     def charge(self, identity, kind, quantities):
         'Record measured costs without changing the native actor reward objective.'
         if self.engine:
@@ -579,6 +602,10 @@ class Runtime:
             raise ValueError("Finish in-flight rollout contexts before checkpoint")
         result = {"format": FORMAT, "config_hash": dynamic.digest(self.config), "policy_step": self.policy_step,
                   "registry": self.dispatcher.registry, "run_id": self.config["run_id"], "arm": self.arm}
+        if self.config.get('design', {}).get('native'):
+            if self.schedule() is not None and not self.schedule()['actor_update_ready']:
+                raise ValueError('Native cadence checkpoint must be at an actor barrier')
+            result['native_batches'] = self.native_batches
         if self.engine:
             result['contextual'] = self.engine.state()
         return result
@@ -589,6 +616,12 @@ class Runtime:
         self.dispatcher.reload()
         self.dispatcher.replace_registry(state["registry"], expected_sha256=dynamic.digest(self.dispatcher.registry))
         self.contexts.clear()
+        if self.config.get('design', {}).get('native'):
+            from control.windows import barrier
+            phase = state.get('native_batches')
+            if not barrier(phase, self.config.get('epoch_batches'), self.config.get('actor_batches', 1)):
+                raise ValueError('Native cadence checkpoint is inside an actor window')
+            self.native_batches = phase
         self.set_policy_step(state["policy_step"], restoring=True)
         if self.engine:
             self.engine.restore(state['contextual'])

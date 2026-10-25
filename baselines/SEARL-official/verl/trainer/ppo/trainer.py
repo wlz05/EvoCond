@@ -562,7 +562,7 @@ class RayPPOTrainer:
             dataset=self.train_dataset,
             batch_size=self.config.data.get("gen_batch_size", self.config.data.train_batch_size),
             num_workers=num_workers,
-            drop_last=not bool(self.config.trainer.get('teacher_collect_mode')),
+            drop_last=not bool(self.config.trainer.get('teacher_collect_mode') or self.config.data.get('keep_tail', False)),
             collate_fn=collate_fn,
             sampler=train_sampler,
         )
@@ -600,11 +600,15 @@ class RayPPOTrainer:
         if runtime_path:
             from control.runtime import load_config
             runtime_config = load_config(runtime_path)
-            if runtime_config.get('contextual') is not None:
-                count = runtime_config['contextual']['frozen_batches']
-                if len(self.train_dataloader) % count or total_training_steps % count:
+            count = runtime_config.get('actor_batches', runtime_config.get('contextual', {}).get('frozen_batches', 1))
+            if runtime_config.get('contextual') is not None or count > 1:
+                if runtime_config.get('epoch_batches') is not None and runtime_config['epoch_batches'] != len(self.train_dataloader):
+                    raise ValueError('Actual dataloader size differs from the frozen study schedule')
+                if not self.config.data.get('keep_tail', False) and (len(self.train_dataloader) % count or total_training_steps % count):
                     raise ValueError('Native dataloader must end on a frozen actor-memory barrier')
-                actor_training_steps //= count
+                if total_training_steps != len(self.train_dataloader)*self.config.trainer.total_epochs:
+                    raise ValueError('Study windows require full declared epochs, not an implicit step truncation')
+                actor_training_steps = ((len(self.train_dataloader)+count-1)//count)*self.config.trainer.total_epochs
 
         try:
             OmegaConf.set_struct(self.config, True)
@@ -1716,10 +1720,12 @@ class RayPPOTrainer:
                             )
 
                     # validate
+                    epoch_step = (self.global_steps-1) % len(self.train_dataloader)+1
+                    epoch_end = epoch_step == len(self.train_dataloader)
                     if (
-                        self.val_reward_fn is not None
+                        actor_ready and self.val_reward_fn is not None
                         and self.config.trainer.test_freq > 0
-                        and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
+                        and (is_last_step or epoch_end or epoch_step % self.config.trainer.test_freq == 0)
                     ):
                         with marked_timer("testing", timing_raw, color="green"):
                             val_metrics: dict = self._validate()
@@ -1741,7 +1747,8 @@ class RayPPOTrainer:
                     # 4. The ESI(Elastic Server Instance)/training plan is close to expiration.
                     if actor_ready and self.config.trainer.save_freq > 0 and (
                         is_last_step
-                        or self.global_steps % self.config.trainer.save_freq == 0
+                        or epoch_end
+                        or epoch_step % self.config.trainer.save_freq == 0
                         or esi_close_to_expiration
                     ):
                         if esi_close_to_expiration:

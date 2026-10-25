@@ -45,6 +45,8 @@ EvoCond/
 |-- convert.py     # Convert declared source schemas into training splits
 |-- experiment.py  # Freeze, train, resume, and evaluate an experiment
 |-- run.py         # Launch the four eight-GPU seed configurations
+|-- study.py       # Matched main and ablation conditions
+|-- summary.py     # Aggregate complete four-seed test reports
 |-- test.py        # Run regression tests
 ```
 
@@ -113,29 +115,74 @@ assets/
 
 ## Reproducibility
 
-`configs/contextual.json` specifies the eight-GPU experiment. `run.py` generates configurations for seeds **42, 52, 3047, 3407**, holding the dataset partitions fixed. Each experiment freezes the source, model, data, deployment receipt, and execution settings before training.
+`configs/contextual.json` specifies the eight-GPU experiment. `run.py` generates configurations for seeds **42, 52, 3047, 3407**, holding dataset partitions fixed. Every condition starts from the same initial Qwen3-4B checkpoint with an empty generated-tool inventory and the same built-in Python and search tools. Source, weights, data, deployment receipt, initialization stage, and execution settings are frozen before training.
 
-The three arms are `searl` (semantic retrieval with SEARL actor updates), `evocond` (conditional identity with fixed fusion), and `teacher` (the full conditional adoption configuration). They start from the same Qwen3-4B backbone and use separate checkpoints. Run the arms sequentially on the same eight GPUs.
+The `initialization` section declares a pretrained or cold-start checkpoint. A cold-start comparison uses the same supplied SFT checkpoint in every condition. Model architecture and weight fingerprints are checked; a folder named `Qwen3-4B` cannot substitute for the 4B architecture.
+
+## Main Experiments
+
+| Condition | Retrieval and memory | Actor update cadence |
+|---|---|---|
+| `searl` | Pinned SEARL tool graph and tool-anchored credit | Every collected batch |
+| `pace` | Same native graph and credit | Every two batches |
+| `evocond` | Full conditional memory and adoption teacher | Every two batches |
+
+`pace` isolates the actor update cadence; its graph keeps the SEARL update path. All conditions share actor initialization, data order per seed, tools, isolation, judge, and generation budgets. The previous contextual three-arm entry used `searl` as a semantic control. Current main experiments keep that control in the ablation suite and run the native tool graph in `searl`.
 
 ```bash
-python run.py configs --run
-python run.py prepare --run
-python run.py train --arm searl --run
-python run.py train --arm evocond --run
-python run.py train --arm teacher --run
+python run.py configs --suite main --run
+python run.py prepare --suite main --run
+python run.py train --suite main --run
+python run.py status --suite main
 ```
 
-These commands run online policy training, not the earlier frozen-policy CostBench pilot. Dataset and deployment checks run before GPU launch.
+These commands train each condition and seed sequentially on the same eight GPUs. `--conditions evocond --seeds 42` selects one job. Without `--run`, configuration and training commands print their plans. A shared GPU lock prevents a second condition from starting on the same allocation.
+
+The collection batch is 256 base questions, with eight rollouts per question. Full two-batch windows contain 512 questions. The final batch and final short window are retained. For 10,000 training questions this gives 40 collection batches, a final batch of 16, and a final two-batch update window of 272 questions. These are schedule calculations, not benchmark measurements. The frozen protocol records actual window sizes and update calls. SEARL's paper Table 2 reports global batch 384 on H200; the released entry uses 256. The eight-4090 runs use the explicit 256 collection configuration above.
+
+## Ablation Experiments
+
+| Condition | Change from full EvoCond |
+|---|---|
+| `semantic` | Present semantic retrieval only |
+| `global` | Erase context conditioning from relation evidence; retain the learned teacher |
+| `identity` | Remove learned identity alignment; retain conditional reading and the teacher |
+| `fixed` | Replace learned adoption with fixed fusion, alpha = 0.5 |
+| `raw` | Replace the learned context projection with raw context distance |
+
+```bash
+python run.py configs --suite ablation --run
+python run.py prepare --suite ablation --run
+python run.py train --suite ablation --run
+python ablation.py --suite statistics
+```
+
+Each training ablation restarts from the common actor checkpoint and its own empty inventory. The `statistics` suite contains full EvoCond, the combined raw conditional bandit control (`simple`), and the confidence-bound-only control (`bernstein`). Fixed-actor, fixed-memory mechanism evaluation is separate from these independently trained systems. The complete comparison protocol is in [experiments.md](experiments.md).
 
 ## Evaluation
 
 ```bash
-python experiment.py evaluate --root runs/evocond/seed42 --arm searl --split validation --run
-python experiment.py evaluate --root runs/evocond/seed42 --arm evocond --split validation --run
-python experiment.py evaluate --root runs/evocond/seed42 --arm teacher --split validation --run
+python run.py evaluate --suite main --conditions evocond --seeds 42 \
+  --resume runs/reproduction/main/evocond/seed42/teacher/checkpoints/global_step_40 \
+  --split validation --run
 ```
 
-Repeat with `seed52`, `seed3047`, and `seed3407`. For the final test, use `--split test --allow-test` with the frozen experiment and selected checkpoint. Resume interrupted training through `experiment.py train --resume`, supplying the checkpoint path relative to the repository root.
+Choose the checkpoint on validation, then use `--split test --allow-test` with the same checkpoint. `global_step_40` illustrates the 10,000-question schedule; use the actual validation-selected checkpoint shown by `status`. Batch evaluation accepts a frozen map through `--checkpoints`; see [the checkpoint-map example](configs/checkpoints.example.json). No latest-checkpoint guessing or test-score selection is performed.
+
+The example map contains the three main conditions for seed 42. Use `--seeds 42` with that map, or extend it to the exact selected seed/condition grid. Judge and result manifest paths are relative to the manifest file, not the shell's working directory. Set the real file checksums before running either manifest.
+
+Evaluation uses one greedy rollout per scheduled question, a frozen tool inventory, and task-private newly created tools. Failure, timeout, and missing prediction count as zero in the v2 judge manifest; duplicates and unaligned identities are rejected. The final Qwen3-32B scoring uses the author answer parser:
+
+```bash
+python judge.py --manifest assets/deployment/judge.json \
+  --official-root baselines/SEARL-official --model assets/models/Qwen3-32B \
+  --output outputs/judging --run
+python summary.py --manifest assets/deployment/results.json --output outputs/summary.json
+```
+
+Use [the v2 judge manifest](configs/judge.example.json) for the actual study labels and [the four-seed result manifest](configs/results.example.json) for aggregation. Run scoring after the actor job or on a separate allocation. `summary.py` reports per-benchmark mean and sample standard deviation over the four training seeds, plus macro and question-weighted summaries. A complete test denominator is required in every condition.
+
+For interrupted training, select one condition and seed and pass its paired checkpoint through `run.py train --resume`. Checkpoints bind actor weights, optimizer and data position, tool graph, registry, and adoption state. Existing frozen runs retain their original configuration; create the new `runs/reproduction` study for this protocol.
 
 ## Acknowledgments
 

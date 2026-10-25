@@ -133,5 +133,35 @@ class WindowTests(unittest.TestCase):
         self.assertEqual(stage.settings({})['frozen_batches'], 2)
         self.assertEqual(stage.settings({'frozen_batches': 1})['frozen_batches'], 1)
 
+    def test_short_epoch_window_publishes_and_restores_a_paired_checkpoint(self):
+        fixture = self.runtime()
+        runtime = fixture.runtime
+        runtime.config['epoch_batches'] = 1
+        for episode in fixture.episodes():
+            fixture.execute(episode)
+        runtime.release_completed()
+        self.assertTrue(runtime.schedule()['actor_update_ready'])
+        self.assertEqual(runtime.schedule()['frozen_batches'], 1)
+        runtime.set_policy_step(1)
+        state = runtime.snapshot()
+        runtime.restore(state)
+        self.assertEqual(runtime.snapshot(), state)
+
+    def test_native_cadence_state_tracks_collection_without_overriding_graph(self):
+        fixture = self.runtime()
+        runtime = fixture.runtime
+        runtime.engine = None
+        runtime.config.update(actor_batches=2, epoch_batches=3, design={'native': True})
+        runtime.native_batches = 1
+        self.assertFalse(runtime.schedule()['actor_update_ready'])
+        with self.assertRaises(ValueError):
+            runtime.snapshot()
+        runtime.native_batches = 3
+        self.assertTrue(runtime.schedule()['actor_update_ready'])
+        self.assertEqual(runtime.schedule()['frozen_batches'], 1)
+        state = runtime.snapshot()
+        runtime.restore(state)
+        self.assertEqual(runtime.native_batches, 3)
+
 # Author: Weiliang Zhu
 # Email: wlzchina05@gmail.com

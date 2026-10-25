@@ -112,6 +112,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         Worker.__init__(self)
 
         self.config = config
+        from transformers import set_seed
+        set_seed(config.rollout.get('seed', 42))
         self.profile_option = kwargs.get("profile_option", None)
         import torch.distributed
 

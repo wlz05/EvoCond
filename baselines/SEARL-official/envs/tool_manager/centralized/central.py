@@ -1241,8 +1241,7 @@ class CentralizedToolActor:
                     self.runtime_finish(identity)
         self.method_runtime.release_completed()
         self._runtime_sync_graph()
-        engine = self.method_runtime.engine
-        return engine.schedule() if engine is not None else None
+        return self.method_runtime.schedule()
 
     def runtime_finish(self, identity, task_success=None):
         context = self.method_runtime.context(identity)

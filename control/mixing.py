@@ -7,7 +7,8 @@ from copy import deepcopy
 import math
 from control import bandit, identity, relations
 from control.context import embedding, features
-VARIANTS = ('semantic', 'unconditional', 'conditional', 'aligned', 'full', 'erased', 'whole', 'simple')
+VARIANTS = ('semantic', 'unconditional', 'conditional', 'aligned', 'full', 'erased', 'whole', 'simple', 'global', 'noidentity', 'raw')
+LEARNED = ('full', 'simple', 'global', 'noidentity', 'raw')
 def dot(left, right):
     return sum(a*b for a, b in zip(left, right))
 def rank(registry, encoder, alignment, context, *, completed=(), recall=12, top_k=3, neighbors=8, variant='full', metric=None, identity_shrinkage=2.0, whole_alignment=None):
@@ -25,7 +26,7 @@ def rank(registry, encoder, alignment, context, *, completed=(), recall=12, top_
     query = embedding(encoder, context['goal'])
     phi = features(context, encoder)
     metric_context = None
-    if metric is not None and variant not in ('semantic', 'unconditional', 'erased'):
+    if metric is not None and variant not in ('semantic', 'unconditional', 'global', 'erased'):
         from control import metric as geometry
         metric_context = geometry.prepare(metric, geometry.describe(phi, context))
     candidates = []
@@ -40,7 +41,7 @@ def rank(registry, encoder, alignment, context, *, completed=(), recall=12, top_
     candidates = list(unique.values())[:recall]
     memory = registry.get('relations', relations.new())
     vectors = {}
-    aligned = variant in ('aligned', 'full', 'whole')
+    aligned = variant in ('aligned', 'full', 'whole', 'global', 'raw')
     def node(canonical):
         if canonical not in vectors:
             vectors[canonical] = identity.node_vector(registry, alignment, encoder, canonical) if aligned else embedding(encoder, store['nodes'][canonical]['description'], query=False)
@@ -73,7 +74,7 @@ def rank(registry, encoder, alignment, context, *, completed=(), recall=12, top_
                 if other not in store['nodes']:
                     continue
                 receipt = relations.estimate(memory, other if incoming else canonical, canonical if incoming else other,
-                    phi, context, versions=eligible, unconditional=variant == 'unconditional', erase=variant == 'erased', metric=metric, metric_context=metric_context)
+                    phi, context, versions=eligible, unconditional=variant in ('unconditional', 'global'), erase=variant == 'erased', metric=metric, metric_context=metric_context)
                 weight = receipt['weight']
                 receipts.append(dict(source=other if incoming else canonical, target=canonical if incoming else other, **receipt))
                 signed = [a+weight*b for a, b in zip(signed, node(other))]
@@ -106,7 +107,7 @@ def rank(registry, encoder, alignment, context, *, completed=(), recall=12, top_
     largest = max(by_base.values(), default=0.0)
     values = [value/largest for value in by_base.values()] if largest else []
     effective = sum(values)**2/sum(value*value for value in values) if values else 0.0
-    guarded = metric is not None and variant not in ('semantic', 'unconditional', 'erased')
+    guarded = metric is not None and variant not in ('semantic', 'unconditional', 'global', 'erased')
     far = bool(observed_distances) and min(observed_distances) > metric['options']['absolute'] if metric is not None else False
     blind = guarded and effective < 1.0 and (far or not observed_distances)
     unsupported = guarded and not largest
