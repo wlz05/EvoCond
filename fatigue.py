@@ -4,8 +4,25 @@
 'Inspect memory value traces and matched actor-by-memory panels on CPU.'
 import argparse
 import json
+import os
 from pathlib import Path
+import tempfile
 from control.fatigue import aggregate, panel, trace
+
+def publish(path, text):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, name = tempfile.mkstemp(prefix='.fatigue-', suffix='.tmp', dir=path.parent)
+    temporary = Path(name)
+    try:
+        with os.fdopen(descriptor, 'w', encoding='utf-8', newline='\n') as stream:
+            stream.write(text+'\n')
+            stream.flush()
+            os.fsync(stream.fileno())
+        # Linking publishes a complete report without replacing an existing file.
+        os.link(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 def main():
     parser = argparse.ArgumentParser(description='Measure marginal memory value without changing training.')
@@ -18,9 +35,7 @@ def main():
     result = trace(args.root) if args.root is not None else aggregate(args.panels) if args.panels else panel(args.panel)
     text = json.dumps(result, indent=2, allow_nan=False)
     if args.output is not None:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        with args.output.open('x', encoding='utf-8', newline='\n') as stream:
-            stream.write(text+'\n')
+        publish(args.output, text)
     print(text)
 
 if __name__ == '__main__':

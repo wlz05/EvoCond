@@ -5,6 +5,7 @@
 from collections import Counter
 from hashlib import sha256
 import math
+import os
 from pathlib import Path, PureWindowsPath
 import re
 import statistics
@@ -34,7 +35,13 @@ def inventory(registry):
         retained_edge_events=sum(len(edge['events']) for edge in registry.get('relations', {}).get('edges', {}).values()))
 
 def support(result):
-    edges = {(edge['source'], edge['target']): edge for row in result['candidates'] for edge in row['edges']}
+    edges = {}
+    for row in result['candidates']:
+        for edge in row['edges']:
+            key = (edge['source'], edge['target'])
+            if key in edges and any(edges[key][field] != edge[field] for field in ('mass', 'weight')):
+                raise ValueError('Shared relation receipts disagree within one query')
+            edges[key] = edge
     return dict(queried_edges=len(edges), conditional_mass=sum(edge['mass'] for edge in edges.values()),
         query_effective_count=result['abstention']['effective_count'],
         positive_edges=sum(edge['weight'] > 0 for edge in edges.values()),
@@ -45,6 +52,8 @@ def window(records):
     records = list(records)
     if records:
         for row in records:
+            if not isinstance(row, dict):
+                raise ValueError('Memory value records must be observation objects')
             bandit.validate(row)
         bandit.frozen_window(records)
         ids = [row['base_id'] for row in records]
@@ -86,34 +95,74 @@ def trace(root):
     observations = root/'interventions.jsonl'
     if not observations.is_file():
         raise ValueError('The run has no randomized intervention log')
-    groups = {}
-    for line in observations.read_text(encoding='utf-8-sig').splitlines():
-        if line.strip():
-            row = strict_json(line)
-            if not isinstance(row, dict) or type(row.get('phase')) is not int or row['phase'] < 0:
-                raise ValueError('Intervention records need a nonnegative phase')
-            groups.setdefault(row['phase'], []).append(row)
-    reports = {}
+    metadata, reports = {}, {}
     for path in (root/'phases').glob('phase*.json'):
         payload = path.read_bytes()
         report = strict_json(payload.decode('utf-8-sig'), max_text=128_000_000)
         if not isinstance(report, dict):
             raise ValueError('Completed phases must be identified report objects')
         phase = report.get('phase')
-        if type(phase) is not int or phase < 0 or phase in reports or not report.get('snapshot'):
+        if type(phase) is not int or phase < 0 or phase in metadata or not isinstance(report.get('snapshot'), str) or not report['snapshot']:
             raise ValueError('Duplicate or unidentified completed phase')
-        rows = groups.get(phase, [])
-        if any(row.get('snapshot') != report['snapshot'] for row in rows):
-            raise ValueError('Phase report and randomized observations differ')
-        if report.get('base_observations') != len(rows):
-            raise ValueError('Completed phase has missing randomized observations')
-        reports[phase] = dict(phase=phase, snapshot=report['snapshot'], memory=report.get('memory_sizes'),
-            phase_report_sha256=sha256(payload).hexdigest(), value=window(rows))
-    if not reports:
+        if path.name != f'phase{phase}.json' or type(report.get('base_observations')) is not int or report['base_observations'] < 0:
+            raise ValueError('Phase filename or observation denominator differs')
+        metadata[phase] = (report, sha256(payload).hexdigest())
+    if not metadata:
         raise ValueError('No completed phase reports are available')
+    groups = {phase: [] for phase in metadata}
+    def complete(phase):
+        report, identity = metadata[phase]
+        reports[phase] = dict(phase=phase, snapshot=report['snapshot'], memory=report.get('memory_sizes'),
+            phase_report_sha256=identity, value=window(groups[phase]))
+        groups[phase] = None
+    for phase, (report, _) in metadata.items():
+        if report['base_observations'] == 0:
+            complete(phase)
+    digest = sha256()
+    incomplete, trailing = 0, 0
+    # Read a fixed byte prefix; later appends belong to the next inspection.
+    with observations.open('rb') as stream:
+        captured = remaining = os.fstat(stream.fileno()).st_size
+        first = True
+        while remaining:
+            raw = stream.readline(min(remaining, 1_000_001))
+            if not raw:
+                raise ValueError('The intervention log was truncated during inspection')
+            remaining -= len(raw)
+            digest.update(raw)
+            if len(raw) > 1_000_000:
+                raise ValueError('An intervention record exceeds the supported line size')
+            encoding = 'utf-8-sig' if first else 'utf-8'
+            first = False
+            try:
+                text = raw.decode(encoding)
+                if not text.strip():
+                    continue
+                row = strict_json(text)
+            except ValueError:
+                if not remaining and not raw.endswith(b'\n'):
+                    trailing = len(raw)
+                    break
+                raise
+            if not isinstance(row, dict) or type(row.get('phase')) is not int or row['phase'] < 0:
+                raise ValueError('Intervention records need a nonnegative phase')
+            phase = row['phase']
+            if phase not in metadata:
+                incomplete += 1
+                continue
+            report = metadata[phase][0]
+            if row.get('snapshot') != report['snapshot']:
+                raise ValueError('Phase report and randomized observations differ')
+            if groups[phase] is None:
+                raise ValueError('Completed phase has extra randomized observations')
+            groups[phase].append(row)
+            if len(groups[phase]) == report['base_observations']:
+                complete(phase)
+    if any(rows is not None for rows in groups.values()):
+        raise ValueError('Completed phase has missing randomized observations')
     return dict(format='evocond_memory_value_trace_v1', phases=[reports[key] for key in sorted(reports)],
-        intervention_sha256=sha256(observations.read_bytes()).hexdigest(),
-        incomplete_observations=sum(len(rows) for phase, rows in groups.items() if phase not in reports),
+        intervention_sha256=digest.hexdigest(), intervention_bytes=captured,
+        incomplete_observations=incomplete, incomplete_tail_bytes=trailing,
         scope='training_stream_diagnostic_compare_checkpoints_with_a_matched_panel', deployment_decision=False)
 
 def fingerprint(value):
@@ -136,7 +185,8 @@ def outcome(row, protocol):
 
 def panel(path):
     path = Path(path).resolve()
-    manifest = strict_json(path.read_text(encoding='utf-8-sig'))
+    manifest_bytes = path.read_bytes()
+    manifest = strict_json(manifest_bytes.decode('utf-8-sig'))
     fields = {'format', 'seed', 'actors', 'banks', 'protocol', 'cells'}
     if not isinstance(manifest, dict) or set(manifest) != fields or manifest['format'] != PANEL:
         raise ValueError('Expected a declared actor-by-memory fatigue panel')
@@ -228,7 +278,7 @@ def panel(path):
     return dict(format='evocond_fatigue_panel_report_v1', seed=manifest['seed'], protocol=protocol,
         task_count=len(order), paired_ids_sha256=dynamic.digest(order), cells=summaries,
         decomposition={name: moments(values) for name, values in terms.items()},
-        source_sha256=sha256(path.read_bytes()).hexdigest(), inference_unit='paired_base_question_within_one_training_seed',
+        source_sha256=sha256(manifest_bytes).hexdigest(), inference_unit='paired_base_question_within_one_training_seed',
         scope='fixed_structure_marginal_value_not_raw_accuracy_or_automatic_mechanism_proof', deployment_decision=False)
 
 def aggregate(paths):
@@ -252,6 +302,9 @@ def aggregate(paths):
     fields |= optional & set(reports[0]['cells']['actor0_bank0'])
     result['cells'] = {cell: {name: moments(row['cells'][cell][name]['mean'] for row in reports)
         for name in sorted(fields)} for cell in reports[0]['cells']}
+    for name, summary in result['cells'].items():
+        summary['outcomes'] = {arm: {metric: moments(row['cells'][name]['outcomes'][arm][metric]['mean'] for row in reports)
+            for metric in ('success', 'cost', 'utility')} for arm in reports[0]['cells'][name]['outcomes']}
     return result
 
 # Author: Weiliang Zhu

@@ -8,6 +8,8 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
+import fatigue as command
 from control import bandit, dynamic, fatigue
 from tests.bandits import records
 
@@ -85,6 +87,9 @@ class FatigueTests(unittest.TestCase):
         self.assertEqual(report['support_at_randomized_points']['conditional_mass']['n'], 1)
         self.assertEqual(report['net_utility_lift']['n'], 2)
         self.assertLess(report['net_utility_lift']['mean'], 0)
+        result['candidates'][1]['edges'][0]['mass'] = 4
+        with self.assertRaises(ValueError):
+            fatigue.support(result)
 
     def test_trace_uses_completed_windows_and_exposes_incomplete_tail(self):
         (self.root/'phases').mkdir()
@@ -101,6 +106,72 @@ class FatigueTests(unittest.TestCase):
         (self.root/'phases/phase0.json').write_text(json.dumps(report), encoding='utf-8')
         with self.assertRaises(ValueError):
             fatigue.trace(self.root)
+
+    def trace_fixture(self, payload=None, count=1):
+        (self.root/'phases').mkdir(exist_ok=True)
+        payload = (json.dumps(zero('q'))+'\n').encode() if payload is None else payload
+        (self.root/'interventions.jsonl').write_bytes(payload)
+        report = dict(phase=0, snapshot='fixed', base_observations=count)
+        (self.root/'phases/phase0.json').write_text(json.dumps(report), encoding='utf-8')
+        return payload
+
+    def test_trace_streams_and_hashes_the_captured_bytes_including_bom(self):
+        payload = self.trace_fixture(b'\xef\xbb\xbf'+(json.dumps(zero('q'))+'\n').encode())
+        with patch.object(Path, 'read_text', side_effect=AssertionError('Use streamed log reads')):
+            report = fatigue.trace(self.root)
+        self.assertEqual(report['intervention_sha256'], sha256(payload).hexdigest())
+        self.assertEqual(report['intervention_bytes'], len(payload))
+
+    def test_later_appends_do_not_change_the_analyzed_prefix_checksum(self):
+        payload = self.trace_fixture()
+        original = fatigue.window
+        def append(rows):
+            tail = zero('future')
+            tail.update(phase=1, snapshot='future')
+            with (self.root/'interventions.jsonl').open('ab') as stream:
+                stream.write((json.dumps(tail)+'\n').encode())
+            return original(rows)
+        with patch.object(fatigue, 'window', side_effect=append):
+            report = fatigue.trace(self.root)
+        self.assertEqual(report['intervention_sha256'], sha256(payload).hexdigest())
+        self.assertEqual(report['incomplete_observations'], 0)
+        self.assertGreater((self.root/'interventions.jsonl').stat().st_size, report['intervention_bytes'])
+
+    def test_uncommitted_partial_tail_is_counted_but_completed_data_is_required(self):
+        raw = (json.dumps(zero('q'))+'\n').encode()
+        fragment = b'{"phase":1,"label":"\xe4'
+        self.trace_fixture(raw+fragment)
+        report = fatigue.trace(self.root)
+        self.assertEqual(report['incomplete_tail_bytes'], len(fragment))
+        self.trace_fixture(raw+fragment, count=2)
+        with self.assertRaises(ValueError):
+            fatigue.trace(self.root)
+        self.trace_fixture(raw+b'{invalid}\n')
+        with self.assertRaises(ValueError):
+            fatigue.trace(self.root)
+
+    def test_trace_rejects_wrong_phase_filename_and_boolean_denominator(self):
+        self.trace_fixture()
+        path = self.root/'phases/phase0.json'
+        report = json.loads(path.read_text(encoding='utf-8'))
+        for change in (dict(phase=1), dict(base_observations=True)):
+            path.write_text(json.dumps({**report, **change}), encoding='utf-8')
+            with self.assertRaises(ValueError):
+                fatigue.trace(self.root)
+
+    def test_publish_is_complete_exclusive_and_cleans_failed_staging(self):
+        path = self.root/'reports/result.json'
+        command.publish(path, '{"complete":true}')
+        self.assertEqual(json.loads(path.read_text(encoding='utf-8')), {'complete': True})
+        with self.assertRaises(FileExistsError):
+            command.publish(path, '{"complete":false}')
+        self.assertEqual(json.loads(path.read_text(encoding='utf-8')), {'complete': True})
+        self.assertEqual(list(path.parent.glob('.fatigue-*.tmp')), [])
+        with patch.object(command.os, 'fsync', side_effect=OSError('Interrupted write')):
+            with self.assertRaises(OSError):
+                command.publish(path.parent/'failed.json', '{}')
+        self.assertFalse((path.parent/'failed.json').exists())
+        self.assertEqual(list(path.parent.glob('.fatigue-*.tmp')), [])
 
     def fixture(self, *, adopted=False):
         actors, banks = ['a'*64, 'b'*64], ['c'*64, 'd'*64]
@@ -201,6 +272,18 @@ class FatigueTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             fatigue.panel(self.save(manifest))
 
+    def test_panel_source_hash_identifies_the_manifest_actually_parsed(self):
+        path = self.save(self.fixture())
+        payload = path.read_bytes()
+        original = fatigue.outcome
+        def replace(row, protocol):
+            path.write_text('{"replaced":true}', encoding='utf-8')
+            return original(row, protocol)
+        with patch.object(fatigue, 'outcome', side_effect=replace):
+            report = fatigue.panel(path)
+        self.assertEqual(report['source_sha256'], sha256(payload).hexdigest())
+        self.assertNotEqual(report['source_sha256'], sha256(path.read_bytes()).hexdigest())
+
     def test_panel_rejects_nonfinite_cost_and_partial_adoption(self):
         for mode in ('cost', 'adoption'):
             manifest = self.fixture(adopted=True)
@@ -242,6 +325,10 @@ class FatigueTests(unittest.TestCase):
         self.assertEqual(report['decomposition']['total_change']['n'], 4)
         self.assertEqual(report['decomposition']['total_change']['mean'], -1)
         self.assertEqual(report['decomposition']['total_change']['sample_std'], 0)
+        outcomes = report['cells']['actor1_bank1']['outcomes']
+        self.assertEqual(outcomes['structural']['success']['n'], 4)
+        self.assertEqual(outcomes['structural']['success']['mean'], 1)
+        self.assertEqual(outcomes['semantic']['success']['mean'], 1)
         with self.assertRaises(ValueError):
             fatigue.aggregate(paths[:3])
         with self.assertRaises(ValueError):

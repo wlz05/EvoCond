@@ -77,6 +77,8 @@ The distinction matters during actor learning: successful execution with memory 
 
 Every preselected question stays in the denominator. Unreached points, unsupported histories, and a single actual class contribute zero. No collected observations yields an unavailable mean rather than a zero-valued memory effect. Reports include the smallest logging probability, largest contrast weight, sample dispersion, and measured success and costs. Relation-support receipts separately record deduplicated queried edges, conditional mass, query effective support, and signed edge counts; their statistics cover only randomized points with recorded support. Legacy logs without these fields keep support unavailable. Training traces summarize the random-point effect under each logged continuation; the frozen panel below evaluates full presentation policies on the same probe tasks. Completed phases are included; an unfinished tail is counted separately. Neither output selects a deployment policy.
 
+Live inspection first captures the completed phase reports, then streams a fixed byte prefix of the intervention log. `intervention_sha256` hashes those exact bytes and `intervention_bytes` identifies their length; later appends enter the next inspection. An unfinished final record is counted in `incomplete_tail_bytes`, while missing or extra observations for a completed phase remain errors. The reader releases each phase's raw observations after summarizing it. Output files are published only after the complete report has been written, and existing reports are preserved.
+
 ### Frozen Actor-by-Memory Panel
 
 Freeze two actor snapshots and two relation banks before the probe evaluation. Keep capability identities, tool versions, task set, candidate-generation rule, payload budget, execution protocol, and cost scale common. Relation banks differ in retained relation evidence. In all four cells, run each scheduled base question under `semantic` and `structural` presentation. Structural presentation uses the same fixed rule in every cell; trained teachers do not enter the attribution target.
@@ -89,6 +91,8 @@ Freeze two actor snapshots and two relation banks before the probe evaluation. K
 | `actor1_bank1` | Later checkpoint | Later bank | Later structural lift |
 
 Let `B00`, `B01`, `B10`, and `B11` be structural-minus-semantic net utility. Compute paired task contrasts before averaging: actor effect `B10-B00`, bank effect `B01-B00`, interaction `B11-B10-B01+B00`, and total change `B11-B00`. The three effects sum to the total change. Further condition-erasure and budget controls locate the mechanism behind each effect. Repeat on seeds 42, 52, 3047, 3407 and use `--panels` for the mean and sample standard deviation over training runs.
+
+The four-seed output also retains absolute success, cost, and utility for every presentation arm in every cell. These values distinguish an actor that improves while needing less structural help from a structural policy that damages otherwise successful execution.
 
 Populate [configs/fatigue.example.json](configs/fatigue.example.json) with actual checkpoint, bank, common-protocol, and cell-file SHA256 values. Set integer `questions` to the full scheduled probe count and `base_ids_sha256` to `control.dynamic.digest(sorted(scheduled_base_ids))`, derived from the frozen probe reference. Paths are relative to the manifest. Each cell file is a JSON object with these fields:
 
