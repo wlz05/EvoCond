@@ -7,8 +7,7 @@ import json
 import math
 from pathlib import Path
 import statistics
-from control.contracts import strict_json
-from control.files import publish, relative
+from control.contracts import publish, relative, strict_json
 from judge import digest
 from study import SEEDS
 

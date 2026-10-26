@@ -6,7 +6,7 @@ import argparse
 import json
 from pathlib import Path
 from control.fatigue import aggregate, panel, trace
-from control.files import publish
+from control.contracts import publish
 
 def main():
     parser = argparse.ArgumentParser(description='Measure marginal memory value without changing training.')

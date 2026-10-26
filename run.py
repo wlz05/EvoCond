@@ -9,8 +9,7 @@ from pathlib import Path
 import subprocess
 import sys
 import study
-from control.contracts import strict_json
-from control.files import relative
+from control.contracts import relative, strict_json
 SEEDS = (42, 52, 3047, 3407)
 HERE = Path(__file__).resolve().parent
 def recipes(config):

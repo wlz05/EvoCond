@@ -51,6 +51,7 @@ EvoCond/
 |-- baselines/     # SEARL and EVOLT source adaptations
 |-- configs/       # Experiment, isolation, and evaluation settings
 |-- tests/         # CPU regression tests
+|-- source.py      # Restore pinned runtime resources
 |-- assets.py      # Download and verify model and dataset sources
 |-- convert.py     # Convert declared source schemas into training splits
 |-- experiment.py  # Freeze, train, resume, and evaluate an experiment
@@ -75,10 +76,13 @@ The actor is [Qwen3-4B](https://huggingface.co/Qwen/Qwen3-4B). Tool retrieval us
 ```bash
 git clone https://github.com/wlz05/EvoCond.git
 cd EvoCond
+python source.py --run
 python install.py --profile native
 python install.py --profile native --requirements assets/deployment/requirements.txt --run
 python -B test.py
 ```
+
+Run `source.py --run` once after cloning to restore the pinned configurations, prompts, package map, and native launch scripts. Existing local settings are preserved. The command downloads no models or datasets.
 
 Place the exact dependency lock for the selected CUDA environment at `assets/deployment/requirements.txt`. The first installation command checks dependency provenance; the second installs that lock. Keep the repository root on `PYTHONPATH` when invoking the bundled baseline directly. The experiment launcher sets this automatically for its workers.
 
@@ -168,7 +172,7 @@ python run.py train --suite ablation --run
 python ablation.py --suite statistics
 ```
 
-Each training ablation restarts from the common actor checkpoint and its own empty inventory. The `statistics` suite contains full EvoCond, the combined raw conditional bandit control (`simple`), and the confidence-bound-only control (`bernstein`). Fixed-actor, fixed-memory mechanism evaluation is separate from these independently trained systems. The complete comparison protocol is in [experiments.md](experiments.md).
+Each training ablation restarts from the common actor checkpoint and its own empty inventory. The `statistics` suite contains full EvoCond, the combined raw conditional bandit control (`simple`), and the confidence-bound-only control (`bernstein`). Fixed-actor, fixed-memory mechanism evaluation is separate from these independently trained systems. The complete comparison protocol is in [the experimental protocol](#experimental-protocol).
 
 ## Memory Fatigue
 
@@ -187,7 +191,7 @@ python fatigue.py --panels \
   --output outputs/fatiguesummary.json
 ```
 
-The trace command summarizes completed training windows. The panel commands analyze exported frozen evaluations with old/new actors crossed with old/new relation banks, using common tasks, capabilities, budgets, and a fixed structural presentation rule. They separate actor, relation-bank, and interaction effects; optional adopted outcomes measure the current teacher's recovery separately. Four-seed aggregation uses independent training runs as its uncertainty unit. Prepare the measured cell files and [panel manifest](configs/fatigue.example.json) as specified in [experiments.md](experiments.md#memory-fatigue). The existing DR teacher and deployment rule govern training; diagnostic outputs do not change the policy.
+The trace command summarizes completed training windows. The panel commands analyze exported frozen evaluations with old/new actors crossed with old/new relation banks, using common tasks, capabilities, budgets, and a fixed structural presentation rule. They separate actor, relation-bank, and interaction effects; optional adopted outcomes measure the current teacher's recovery separately. Four-seed aggregation uses independent training runs as its uncertainty unit. Prepare the measured cell files and `configs/fatigue.example.json` as specified in [the experimental protocol](#experimental-protocol). The existing DR teacher and deployment rule govern training; diagnostic outputs do not change the policy.
 
 ## Evaluation
 
@@ -197,7 +201,7 @@ python run.py evaluate --suite main --conditions evocond --seeds 42 \
   --split validation --run
 ```
 
-Choose the checkpoint on validation, then use `--split test --allow-test` with the same checkpoint. `global_step_40` illustrates the 10,000-question schedule; use the actual validation-selected checkpoint shown by `status`. Batch evaluation accepts a frozen map through `--checkpoints`; see [the checkpoint-map example](configs/checkpoints.example.json). No latest-checkpoint guessing or test-score selection is performed.
+Choose the checkpoint on validation, then use `--split test --allow-test` with the same checkpoint. `global_step_40` illustrates the 10,000-question schedule; use the actual validation-selected checkpoint shown by `status`. Batch evaluation accepts a frozen map through `--checkpoints`; see `configs/checkpoints.example.json`. No latest-checkpoint guessing or test-score selection is performed.
 
 The example map contains the three main conditions for seed 42. Use `--seeds 42` with that map, or extend it to the exact selected seed/condition grid. Judge and result manifest paths are relative to the manifest file, not the shell's working directory. Set the real file checksums before running either manifest.
 
@@ -210,10 +214,344 @@ python judge.py --manifest assets/deployment/judge.json \
 python summary.py --manifest assets/deployment/results.json --output outputs/summary.json
 ```
 
-Use [the v2 judge manifest](configs/judge.example.json) for the actual study labels and [the four-seed result manifest](configs/results.example.json) for aggregation. Run scoring after the actor job or on a separate allocation. `summary.py` reports per-benchmark mean and sample standard deviation over the four training seeds, plus macro and question-weighted summaries. A complete test denominator is required in every condition.
+Use `configs/judge.example.json` for the actual study labels and `configs/results.example.json` for aggregation. Run scoring after the actor job or on a separate allocation. `summary.py` reports per-benchmark mean and sample standard deviation over the four training seeds, plus macro and question-weighted summaries. A complete test denominator is required in every condition.
 
 For interrupted training, select one condition and seed and pass its paired checkpoint through `run.py train --resume`. Checkpoints bind actor weights, optimizer and data position, tool graph, registry, and adoption state. Existing frozen runs retain their original configuration; create the new `runs/reproduction` study for this protocol.
+
+## Experimental Protocol
+
+### Method Questions
+
+EvoCond's method chain is capability sharing, conditional proposal reconstruction, current-actor adoption, and renewed evaluation after co-evolution. The mechanism study follows the same order:
+
+| Question | Matched comparison | Observation |
+|---|---|---|
+| Which historical distinctions change the current ordering? | Preserve, erase, or permute condition-feedback links with the same actor, tool versions, event counts, candidate pool, and budget | Actual lists, ordering choices, and paired terminal utility |
+| Does a supported proposal help the current actor? | Randomize actual lists at a preselected point and continue under the same frozen execution policy | Incremental terminal utility relative to the semantic list, full cost, and subsequent calls |
+| Does adoption value transfer after co-evolution? | Cross old and new actors with old and new inventories on aligned tasks and compare retained versus re-evaluated adoption | The same proposal's utility, adaptation, and deployment eligibility |
+
+Vary relation scale and condition heterogeneity separately. More edges or events alone do not identify the cause of a performance change. Historical relation support and randomized adoption utility have separate feedback records. These fixed-execution mechanism comparisons complement the independently trained main and ablation conditions below.
+
+### Shared Setup
+
+All main and training-ablation conditions use eight RTX 4090 GPUs, Qwen3-4B in non-thinking mode, and seeds 42, 52, 3047, 3407. Each seed uses the same data order across conditions. Data partitions do not change with training seeds. Checkpoint content, rather than its directory name, identifies the common starting actor. Declare `pretrained` or `coldstart` in `initialization`; a cold-start checkpoint is shared by all conditions.
+
+Training uses a learning rate of 1e-6, one epoch, eight rollouts per base question, a 256-question collection batch, temperature 0.7, top-p 0.98, and repetition penalty 1.05. Prompt, response, and total context limits are 4096, 2048, and 32768 tokens; the execution limit is six turns. Tool-output tokens are excluded from policy loss. The native tool environment, permissions, retrieval endpoint, reward route, and timeout rules are common execution inputs.
+
+SEARL's [paper, Appendix C](https://aclanthology.org/2026.acl-long.1125.pdf#page=13) uses Qwen3-4B and reports a 384-question global batch on H200. Its [released entry](https://github.com/circles-post/SEARL/blob/main/main_searl.sh) uses a 256-question batch. The local eight-4090 comparison uses the released 256 collection setting, not an unlabeled mixture of the two recipes.
+
+### Main Comparison
+
+| Label | Memory and retrieval | Actor update calls per full two-batch interval |
+|---|---|---|
+| `searl` | Native tool graph and tool-anchored credit | 2 |
+| `pace` | Native graph and credit, actor cadence control | 1 |
+| `evocond` | Conditional relations and learned adoption | 1 |
+
+SEARL and EvoCond each maintain a private inventory generated by their own training trajectories. `pace` changes actor update cadence while preserving the native graph update path. The main comparison measures the complete learned systems. The cadence control separates a change in actor optimization rhythm from a change in retrieval memory. Collection calls, actual update calls, generated trajectories, tokens, wall time, and memory usage are distinct budget fields.
+
+The old contextual `searl` label was a semantic-reading control. Current `main/searl` does not attach the contextual engine; `ablation/semantic` carries the semantic-control interpretation. All job names are frozen in `matrix.json` and the per-job `protocol.json`.
+
+### Training Ablations
+
+| Label | Intervention | Preserved components |
+|---|---|---|
+| `evocond` | Full reference | All components |
+| `semantic` | Semantic-only presentation | Tool admission and common execution |
+| `global` | Context-erased relation statistics | Identity alignment, adoption teacher, budgets |
+| `identity` | No learned identity projection | Conditional evidence, adoption teacher, budgets |
+| `fixed` | Fixed alpha 0.5; no teacher fitting | Conditional evidence and identity alignment |
+| `raw` | Raw context distance; no learned context projection | Identity alignment and adoption teacher |
+
+These experiments independently train actor and memory from the common starting checkpoint. Their final inventories are outcomes, not matched covariates. For a fixed-actor mechanism comparison, separately freeze the same actor, memory bank, candidate pool, task order, and token budget, then replace only the target retrieval or adoption decision. Do not interpret independently retrained systems as same-prefix interventions.
+
+The statistical suite compares full EvoCond, `simple` (raw geometry and untrained identity with the same conditional bandit), and `bernstein` (only the confidence rule changes). `simple` is a combined reference, not a single-module ablation. Sensitivity sweeps use validation only; test results do not select thresholds, confidence rules, or checkpoints.
+
+### Epoch Tails and Checkpoints
+
+No base question is dropped or duplicated to fill a batch. The last collection batch retains its actual size. A short final actor-memory window publishes all its events and updates the actor once. At the next epoch, the two-batch schedule restarts. The frozen schedule records `questions_per_epoch`, `window_questions`, `tail_questions`, and `total_actor_updates`.
+
+For 10,000 training questions and batch 256, the schedule contains 40 collection batches, with 16 questions in the final batch. Native SEARL performs 40 actor update calls; `pace` and EvoCond perform 20. The final two-batch update covers 272 questions. These counts describe calls into the native actor updater; optimizer minibatch steps remain part of the native training log.
+
+Save and validate at declared actor barriers and the final short window. Recovery restores the paired actor, optimizer, data iterator, graph, registry, and teacher state. An interrupted incomplete window resumes from the preceding paired checkpoint, replaying that window under the same frozen inputs. Preparation is idempotent only for identical artifacts. A changed source or protocol uses a new run directory.
+
+Recovery starts from a fresh runtime or a released actor-memory barrier. It checks the complete actor, registry, representation, and teacher binding before replacing the live inventory. Rejected recovery requests preserve live episodes, pending memory, and the current inventory. An explicit checkpoint map must be nonempty and cover every selected job; restore arguments apply to training and evaluation. Artifact paths use forward slashes relative to their declared root, including when a manifest moves between Windows and Linux.
+
+Native batch assembly validates sequence lengths, response masks, metadata, and window readiness before padding or appending to the pending window. A rejected batch leaves the pending window available for correction and retry.
+
+### Test Evaluation
+
+Use one greedy answer per scheduled base question, `do_sample=false`, temperature 0, top-p 1, and identical execution limits across conditions. Select checkpoints using validation before test evaluation. A checkpoint map explicitly names every condition/seed checkpoint; test access requires `--allow-test`.
+
+Evaluate each benchmark separately. Shared memory is frozen on test, while newly created tools remain private to their current task. The v2 judge uses the declared reference set as the denominator: missing or failed predictions become empty answers and score zero; duplicate predictions and identity mismatches raise errors. Corrupt judge responses do not become model failures. The same Qwen3-32B snapshot, parser, and judge generation settings score all conditions.
+
+Four training seeds produce four accuracy values per condition and benchmark. Report their mean and sample standard deviation; repeated training rollouts are not extra test questions. Report per-benchmark values first, then explicitly distinguish benchmark macro-average from question-weighted average. `summary.py` requires the complete benchmark-by-seed grid, matching test fingerprints and denominators, and the same judge settings. Question-paired intervals remain separate from between-seed variation.
+
+Judge identity includes the scoring source and wrapper hashes as well as the model, parser, metric, and generation settings. The summary hashes the manifest bytes it actually parses. Reports are published as complete files, and an existing output is preserved.
+
+The [ARPO protocol](https://arxiv.org/html/2507.19849v1) motivates declaring cold-start and sampling budgets explicitly; [AgentFlow, Section 4.3](https://arxiv.org/html/2510.05592#S4.SS3) separates training-strategy changes from fixed execution modules. EvoCond's comparison applies the same separation to actor cadence, condition representation, and adoption decisions.
+
+### Memory Fatigue
+
+Structural memory fatigue is a decline in the incremental terminal utility of structural guidance relative to semantic retrieval as training and relation accumulation proceed. Measure both utility and its components: raw task success, full cost, and the clipped cost used by the declared reward. A shrinking positive gain, zero gain, and negative gain distinguish reduced help, redundant guidance, and harmful interference. Improving memory-assisted accuracy alone does not determine the direction of this incremental value.
+
+The distinction matters during actor learning: successful execution with memory includes both actor capability and memory contribution. Actor progress can raise absolute success while memory's additional contribution declines. EvoCond learns adoption relative to semantic retrieval on the current actor and inventory, while relation feedback retains observational support. Structural guidance can therefore lose influence without deleting a capability needed by another task.
+
+#### Training Trace
+
+`phases/phaseN.json` now records `memory_sizes.read_snapshot`, `memory_sizes.pending_publication`, and `memory_value`. Inventory counts refer to distinct capabilities, versions, relations, and retained edge events. `memory_value` compares semantic presentation with a prespecified uniform distribution over distinct nonsemantic actual payload classes at the randomized point. Identical payloads count once. With logging probability `p`, the contrast weight is `(target_probability - semantic_probability) / p`; a fixed reward midpoint centers the estimate. This known-propensity IPS diagnostic requires no fitted reward model. The adoption learner retains its cross-fitted DR objective.
+
+Every preselected question stays in the denominator. Unreached points, unsupported histories, and a single actual class contribute zero. No collected observations yields an unavailable mean rather than a zero-valued memory effect. Reports include the smallest logging probability, largest contrast weight, sample dispersion, and measured success and costs. Relation-support receipts separately record deduplicated queried edges, conditional mass, query effective support, and signed edge counts; their statistics cover only randomized points with recorded support. Legacy logs without these fields keep support unavailable. Training traces summarize the random-point effect under each logged continuation; the frozen panel below evaluates full presentation policies on the same probe tasks. Completed phases are included; an unfinished tail is counted separately. Neither output selects a deployment policy.
+
+Zero-contrast observations still carry a checked terminal reward and cost receipt. In absolute one-point policy evaluation, their realized reward remains in the full-question average. Each evaluation window uses one frozen snapshot and unique base questions; fitting questions from any branch of a mixed teacher are excluded from its evaluation set.
+
+Live inspection first captures the completed phase reports, then streams a fixed byte prefix of the intervention log. `intervention_sha256` hashes those exact bytes and `intervention_bytes` identifies their length; later appends enter the next inspection. An unfinished final record is counted in `incomplete_tail_bytes`, while missing or extra observations for a completed phase remain errors. The reader releases each phase's raw observations after summarizing it. Output files are published only after the complete report has been written, and existing reports are preserved.
+
+#### Frozen Actor-by-Memory Panel
+
+Freeze two actor snapshots and two relation banks before the probe evaluation. Keep capability identities, tool versions, task set, candidate-generation rule, payload budget, execution protocol, and cost scale common. Relation banks differ in retained relation evidence. In all four cells, run each scheduled base question under `semantic` and `structural` presentation. Structural presentation uses the same fixed rule in every cell; trained teachers do not enter the attribution target.
+
+| Cell | Actor | Relation evidence | Target |
+|---|---|---|---|
+| `actor0_bank0` | Earlier checkpoint | Earlier bank | Earlier structural lift |
+| `actor0_bank1` | Earlier checkpoint | Later bank | Bank effect at fixed actor |
+| `actor1_bank0` | Later checkpoint | Earlier bank | Actor effect at fixed bank |
+| `actor1_bank1` | Later checkpoint | Later bank | Later structural lift |
+
+Let `B00`, `B01`, `B10`, and `B11` be structural-minus-semantic net utility. Compute paired task contrasts before averaging: actor effect `B10-B00`, bank effect `B01-B00`, interaction `B11-B10-B01+B00`, and total change `B11-B00`. The three effects sum to the total change. Further condition-erasure and budget controls locate the mechanism behind each effect. Repeat on seeds 42, 52, 3047, 3407 and use `--panels` for the mean and sample standard deviation over training runs.
+
+The four-seed output also retains absolute success, cost, and utility for every presentation arm in every cell. These values distinguish an actor that improves while needing less structural help from a structural policy that damages otherwise successful execution.
+
+Populate `configs/fatigue.example.json` with actual checkpoint, bank, common-protocol, and cell-file SHA256 values. Set integer `questions` to the full scheduled probe count and `base_ids_sha256` to `control.dynamic.digest(sorted(scheduled_base_ids))`, derived from the frozen probe reference. Paths are relative to the manifest. Each cell file is a JSON object with these fields:
+
+```json
+{
+  "format": "evocond_fatigue_cell_v1",
+  "actor": "<ACTOR_SHA256>",
+  "bank": "<RELATION_BANK_SHA256>",
+  "seed": 42,
+  "protocol_sha256": "<CANONICAL_PROTOCOL_SHA256>",
+  "records": []
+}
+```
+
+`protocol_sha256` is `control.dynamic.digest(manifest["protocol"])`. Export one record per scheduled task with `base_id`, `semantic`, and `structural`. Each outcome has a Boolean `success` and measured `costs` with numeric `actor`, `tools`, and `retrieval` entries. Failed, timed-out, or missing answers remain explicit failed outcomes with their incurred costs. All four files must cover the predeclared reference, including failures; matching subsets cannot reduce the denominator. The importer rejects missing cells, unmatched tasks, repeated checkpoints, corrupt checksums, and nonfinite costs. UTF-8 files with or without a byte-order mark are accepted, while checksums identify the original file bytes.
+
+To measure adoption recovery, add `adopted` outcomes for every task in every cell and a `teacher_sha256` identifying that cell's frozen, current-basis teacher. The report gives adopted-minus-semantic and adopted-minus-structural utility independently of the fixed-structure decomposition. Record call changes alongside payload changes when testing whether recovered utility comes from actual execution decisions.
+
+The comparison targets the learning trajectory of the same actor family. [REM, October 2026](https://arxiv.org/abs/2610.27377v1) studies in-loop recall, eviction, and recipient capability; [CoEvo-Mem](https://arxiv.org/abs/2608.01739v1) alternates retrieval and memory learning with a fixed answering model; [MemRL](https://arxiv.org/abs/2601.03192v2) learns memory utility with a frozen backbone. EvoCond's panel separates changing relation evidence from a changing actor and tests current-value adoption on that evolving execution basis.
 
 ## Acknowledgments
 
 The dynamic tool environment and distributed training runtime build on [SEARL](https://github.com/circles-post/SEARL) and [verl](https://github.com/volcengine/verl). Third-party source retains its original copyright notices and licenses.
+
+
+<details>
+<summary>Apache 2.0 license for the adapted SEARL and verl sources</summary>
+
+```text
+
+                                 Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+   1. Definitions.
+
+      "License" shall mean the terms and conditions for use, reproduction,
+      and distribution as defined by Sections 1 through 9 of this document.
+
+      "Licensor" shall mean the copyright owner or entity authorized by
+      the copyright owner that is granting the License.
+
+      "Legal Entity" shall mean the union of the acting entity and all
+      other entities that control, are controlled by, or are under common
+      control with that entity. For the purposes of this definition,
+      "control" means (i) the power, direct or indirect, to cause the
+      direction or management of such entity, whether by contract or
+      otherwise, or (ii) ownership of fifty percent (50%) or more of the
+      outstanding shares, or (iii) beneficial ownership of such entity.
+
+      "You" (or "Your") shall mean an individual or Legal Entity
+      exercising permissions granted by this License.
+
+      "Source" form shall mean the preferred form for making modifications,
+      including but not limited to software source code, documentation
+      source, and configuration files.
+
+      "Object" form shall mean any form resulting from mechanical
+      transformation or translation of a Source form, including but
+      not limited to compiled object code, generated documentation,
+      and conversions to other media types.
+
+      "Work" shall mean the work of authorship, whether in Source or
+      Object form, made available under the License, as indicated by a
+      copyright notice that is included in or attached to the work
+      (an example is provided in the Appendix below).
+
+      "Derivative Works" shall mean any work, whether in Source or Object
+      form, that is based on (or derived from) the Work and for which the
+      editorial revisions, annotations, elaborations, or other modifications
+      represent, as a whole, an original work of authorship. For the purposes
+      of this License, Derivative Works shall not include works that remain
+      separable from, or merely link (or bind by name) to the interfaces of,
+      the Work and Derivative Works thereof.
+
+      "Contribution" shall mean any work of authorship, including
+      the original version of the Work and any modifications or additions
+      to that Work or Derivative Works thereof, that is intentionally
+      submitted to Licensor for inclusion in the Work by the copyright owner
+      or by an individual or Legal Entity authorized to submit on behalf of
+      the copyright owner. For the purposes of this definition, "submitted"
+      means any form of electronic, verbal, or written communication sent
+      to the Licensor or its representatives, including but not limited to
+      communication on electronic mailing lists, source code control systems,
+      and issue tracking systems that are managed by, or on behalf of, the
+      Licensor for the purpose of discussing and improving the Work, but
+      excluding communication that is conspicuously marked or otherwise
+      designated in writing by the copyright owner as "Not a Contribution."
+
+      "Contributor" shall mean Licensor and any individual or Legal Entity
+      on behalf of whom a Contribution has been received by Licensor and
+      subsequently incorporated within the Work.
+
+   2. Grant of Copyright License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      copyright license to reproduce, prepare Derivative Works of,
+      publicly display, publicly perform, sublicense, and distribute the
+      Work and such Derivative Works in Source or Object form.
+
+   3. Grant of Patent License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      (except as stated in this section) patent license to make, have made,
+      use, offer to sell, sell, import, and otherwise transfer the Work,
+      where such license applies only to those patent claims licensable
+      by such Contributor that are necessarily infringed by their
+      Contribution(s) alone or by combination of their Contribution(s)
+      with the Work to which such Contribution(s) was submitted. If You
+      institute patent litigation against any entity (including a
+      cross-claim or counterclaim in a lawsuit) alleging that the Work
+      or a Contribution incorporated within the Work constitutes direct
+      or contributory patent infringement, then any patent licenses
+      granted to You under this License for that Work shall terminate
+      as of the date such litigation is filed.
+
+   4. Redistribution. You may reproduce and distribute copies of the
+      Work or Derivative Works thereof in any medium, with or without
+      modifications, and in Source or Object form, provided that You
+      meet the following conditions:
+
+      (a) You must give any other recipients of the Work or
+          Derivative Works a copy of this License; and
+
+      (b) You must cause any modified files to carry prominent notices
+          stating that You changed the files; and
+
+      (c) You must retain, in the Source form of any Derivative Works
+          that You distribute, all copyright, patent, trademark, and
+          attribution notices from the Source form of the Work,
+          excluding those notices that do not pertain to any part of
+          the Derivative Works; and
+
+      (d) If the Work includes a "NOTICE" text file as part of its
+          distribution, then any Derivative Works that You distribute must
+          include a readable copy of the attribution notices contained
+          within such NOTICE file, excluding those notices that do not
+          pertain to any part of the Derivative Works, in at least one
+          of the following places: within a NOTICE text file distributed
+          as part of the Derivative Works; within the Source form or
+          documentation, if provided along with the Derivative Works; or,
+          within a display generated by the Derivative Works, if and
+          wherever such third-party notices normally appear. The contents
+          of the NOTICE file are for informational purposes only and
+          do not modify the License. You may add Your own attribution
+          notices within Derivative Works that You distribute, alongside
+          or as an addendum to the NOTICE text from the Work, provided
+          that such additional attribution notices cannot be construed
+          as modifying the License.
+
+      You may add Your own copyright statement to Your modifications and
+      may provide additional or different license terms and conditions
+      for use, reproduction, or distribution of Your modifications, or
+      for any such Derivative Works as a whole, provided Your use,
+      reproduction, and distribution of the Work otherwise complies with
+      the conditions stated in this License.
+
+   5. Submission of Contributions. Unless You explicitly state otherwise,
+      any Contribution intentionally submitted for inclusion in the Work
+      by You to the Licensor shall be under the terms and conditions of
+      this License, without any additional terms or conditions.
+      Notwithstanding the above, nothing herein shall supersede or modify
+      the terms of any separate license agreement you may have executed
+      with Licensor regarding such Contributions.
+
+   6. Trademarks. This License does not grant permission to use the trade
+      names, trademarks, service marks, or product names of the Licensor,
+      except as required for reasonable and customary use in describing the
+      origin of the Work and reproducing the content of the NOTICE file.
+
+   7. Disclaimer of Warranty. Unless required by applicable law or
+      agreed to in writing, Licensor provides the Work (and each
+      Contributor provides its Contributions) on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+      implied, including, without limitation, any warranties or conditions
+      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+      PARTICULAR PURPOSE. You are solely responsible for determining the
+      appropriateness of using or redistributing the Work and assume any
+      risks associated with Your exercise of permissions under this License.
+
+   8. Limitation of Liability. In no event and under no legal theory,
+      whether in tort (including negligence), contract, or otherwise,
+      unless required by applicable law (such as deliberate and grossly
+      negligent acts) or agreed to in writing, shall any Contributor be
+      liable to You for damages, including any direct, indirect, special,
+      incidental, or consequential damages of any character arising as a
+      result of this License or out of the use or inability to use the
+      Work (including but not limited to damages for loss of goodwill,
+      work stoppage, computer failure or malfunction, or any and all
+      other commercial damages or losses), even if such Contributor
+      has been advised of the possibility of such damages.
+
+   9. Accepting Warranty or Additional Liability. While redistributing
+      the Work or Derivative Works thereof, You may choose to offer,
+      and charge a fee for, acceptance of support, warranty, indemnity,
+      or other liability obligations and/or rights consistent with this
+      License. However, in accepting such obligations, You may act only
+      on Your own behalf and on Your sole responsibility, not on behalf
+      of any other Contributor, and only if You agree to indemnify,
+      defend, and hold each Contributor harmless for any liability
+      incurred by, or claims asserted against, such Contributor by reason
+      of your accepting any such warranty or additional liability.
+
+   END OF TERMS AND CONDITIONS
+
+   APPENDIX: How to apply the Apache License to your work.
+
+      To apply the Apache License to your work, attach the following
+      boilerplate notice, with the fields enclosed by brackets "[]"
+      replaced with your own identifying information. (Don't include
+      the brackets!)  The text should be enclosed in the appropriate
+      comment syntax for the file format. We also recommend that a
+      file or class name and description of purpose be included on the
+      same "printed page" as the copyright notice for easier
+      identification within third-party archives.
+
+   Copyright [yyyy] [name of copyright owner]
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+```
+
+</details>

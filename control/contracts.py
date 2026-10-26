@@ -7,7 +7,10 @@ from dataclasses import dataclass
 from hashlib import sha256
 import json
 import math
+import os
+from pathlib import Path, PureWindowsPath
 import re
+import tempfile
 from typing import Any
 FORMAT = "evocond_task_contract_v1"
 MAX_TEXT = 1_000_000
@@ -456,6 +459,35 @@ def memory_applicability(memory_contract: Contract, messages: list[dict], tools:
     return {"decision": decision, "reason": "explicit_assumptions_only", "compared": compared,
             "mismatches": mismatches, "reuse_authorized": False,
             "warning": "Compatibility does not prove utility or cover unrecorded preconditions"}
+
+def relative(root, name):
+    if not isinstance(name, str) or not name or '\\' in name or PureWindowsPath(name).drive:
+        raise ValueError('Use a nonempty portable relative path')
+    path = Path(name)
+    if path.is_absolute() or '..' in path.parts or not path.parts:
+        raise ValueError('Relative artifact paths cannot escape their declared root')
+    base = Path(root).resolve()
+    result = base/path
+    if not result.resolve().is_relative_to(base):
+        raise ValueError('Resolved artifact path leaves its declared root')
+    return result
+
+def publish(path, text):
+    if not isinstance(text, (str, bytes)):
+        raise ValueError('Published content must be text or bytes')
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, name = tempfile.mkstemp(prefix='.evocond-', suffix='.tmp', dir=path.parent)
+    temporary = Path(name)
+    try:
+        with os.fdopen(descriptor, 'wb') as stream:
+            stream.write(text if isinstance(text, bytes) else (text+'\n').encode('utf-8'))
+            stream.flush()
+            os.fsync(stream.fileno())
+        # Linking publishes the complete artifact without replacing a prior result.
+        os.link(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 # Author: Weiliang Zhu
 # Email: wlzchina05@gmail.com
