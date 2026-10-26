@@ -20,6 +20,12 @@ REFERENCE = 'semantic_actual_payload_class'
 BOUND = 'zero_sum_dr_global_envelope_v1'
 NORMAL = 'studentized_dr_normal_v1'
 CONFIDENCE = ('normal', 'bernstein')
+
+def finite(value):
+    try:
+        return type(value) in (int, float) and math.isfinite(value)
+    except OverflowError:
+        return False
 def simplex(values, size, *, positive=False):
     if not isinstance(values, (list, tuple, np.ndarray)) or np.asarray(values).ndim != 1 or len(values) != size or not size:
         raise ValueError('Require one probability per actual payload class')
@@ -71,20 +77,26 @@ def payloads(rankings, serializer):
 def probabilities(model, x, classes):
     if not classes:
         return []
+    validate_model(model)
+    return policy_probabilities(model, x, classes)
+
+def policy_probabilities(model, x, classes):
     if model is None:
         result = [0.0]*len(classes)
         result[next(i for i, row in enumerate(classes) if 0.0 in row['alphas'])] = 1.0
         return result
     if model.get('format') == MIXTURE:
-        old = probabilities(model['previous'], x, classes)
-        proposal = probabilities(model['proposal'], x, classes)
+        old = policy_probabilities(model['previous'], x, classes)
+        proposal = policy_probabilities(model['proposal'], x, classes)
         return [(1-model['delta'])*a+model['delta']*b for a, b in zip(old, proposal)]
-    validate_model(model)
     values = np.asarray(x, dtype=float)
     if values.shape != (model['dimension'],) or not np.isfinite(values).all():
         raise ValueError('Teacher feature dimension mismatch')
-    scaled = (values-np.asarray(model['mean']))/np.asarray(model['scale'])
-    logits = np.asarray(model['weights'])[[row['action'] for row in classes]] @ scaled
+    with np.errstate(over='ignore', invalid='ignore', divide='ignore'):
+        scaled = (values-np.asarray(model['mean']))/np.asarray(model['scale'])
+        logits = np.asarray(model['weights'])[[row['action'] for row in classes]] @ scaled
+    if not np.isfinite(scaled).all() or not np.isfinite(logits).all():
+        raise ValueError('Teacher logits overflowed on the visible features')
     exp = np.exp(logits-logits.max())
     return (exp/exp.sum()).tolist()
 def choose(model, x, classes, *, explore, epsilon, rng):
@@ -97,51 +109,68 @@ def choose(model, x, classes, *, explore, epsilon, rng):
     index = rng.choices(range(len(classes)), weights=probability, k=1)[0]
     return index, probability
 def reward(success, costs, *, penalty, reference):
-    if type(success) is not bool or not math.isfinite(penalty) or penalty < 0 or not math.isfinite(reference) or reference <= 0:
+    if type(success) is not bool or not finite(penalty) or penalty < 0 or not finite(reference) or reference <= 0:
         raise ValueError('Reward needs correctness and fixed positive cost reference')
-    if set(costs) != {'actor', 'tools', 'retrieval'} or any(not math.isfinite(x) or x < 0 for x in costs.values()):
+    if not isinstance(costs, dict) or set(costs) != {'actor', 'tools', 'retrieval'} or any(not finite(x) or x < 0 for x in costs.values()):
         raise ValueError('Record all measured whole-episode cost terms')
-    return float(success)-penalty*min(sum(costs.values())/reference, 1.0)
+    try:
+        total = math.fsum(costs.values())
+    except OverflowError as error:
+        raise ValueError('Whole-episode costs overflowed') from error
+    if not math.isfinite(total):
+        raise ValueError('Whole-episode costs must have a finite total')
+    return float(success)-penalty*min(total/reference, 1.0)
 def validate(row):
-    if row.get('format') != FORMAT or row.get('split') != 'train' or not row.get('base_id') or not row.get('snapshot'):
+    required = {'features', 'reward', 'success', 'costs', 'penalty', 'reference', 'actions', 'probabilities', 'chosen', 'payload_hashes', 'interventions'}
+    if not isinstance(row, dict) or not required <= set(row) or row.get('format') != FORMAT or row.get('split') != 'train' or any(not isinstance(row.get(key), str) or not row[key] for key in ('base_id', 'snapshot')):
         raise ValueError('Teacher observations require an identified training snapshot')
-    x = np.asarray(row['features'], dtype=float)
-    if type(row['reward']) not in (int, float) or not math.isfinite(row['reward']):
+    try:
+        x = np.asarray(row['features'], dtype=float)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ValueError('Invalid visible teacher features') from error
+    if not finite(row['reward']):
         raise ValueError('Logged rewards must be finite numbers')
+    if row.get('status', 'observed') not in ('observed', 'unreached', 'single_class', 'unsupported'):
+        raise ValueError('Unknown randomized observation status')
+    expected = reward(row['success'], row['costs'], penalty=row['penalty'], reference=row['reference'])
+    if abs(expected-row['reward']) > 1e-9:
+        raise ValueError('Teacher reward receipt mismatch')
+    if 'cost_receipts' in row:
+        if not isinstance(row['cost_receipts'], list):
+            raise ValueError('Whole-episode receipts must be a list')
+        terms = {key: [] for key in ('actor', 'tools', 'retrieval')}
+        for receipt in row['cost_receipts']:
+            if not isinstance(receipt, dict) or receipt.get('kind') not in terms or not finite(receipt.get('cost')) or receipt['cost'] < 0:
+                raise ValueError('Whole-episode cost receipts must be finite and identified')
+            terms[receipt['kind']].append(receipt['cost'])
+        try:
+            totals = {key: math.fsum(values) for key, values in terms.items()}
+        except OverflowError as error:
+            raise ValueError('Whole-episode receipts overflowed') from error
+        if any(abs(totals[key]-row['costs'][key]) > 1e-8 for key in totals):
+            raise ValueError('Whole-episode receipt sum differs from logged costs')
     if row.get('status') in ('unreached', 'single_class', 'unsupported'):
-        if row.get('interventions') != 0 or row.get('chosen') is not None or row['actions'] or row['probabilities']:
+        if type(row['interventions']) is not int or row['interventions'] != 0 or row['chosen'] is not None or row['actions'] or row['probabilities'] or row['payload_hashes'] or x.ndim != 1 or x.size:
             raise ValueError('Absorbing observations have no randomized action')
-        expected = reward(row['success'], row['costs'], penalty=row['penalty'], reference=row['reference'])
-        if abs(expected-row['reward']) > 1e-9:
-            raise ValueError('Absorbing reward receipt mismatch')
         return
-    if x.ndim != 1 or not len(x) or not np.isfinite(x).all():
+    if x.ndim != 1 or not len(x) or not np.isfinite(x).all() or x[0] != 1.0:
         raise ValueError('Invalid visible teacher features')
     actions, probabilities = row['actions'], row['probabilities']
-    if len(actions) != len(set(actions)) or any(type(a) is not int or a not in range(3) for a in actions) or type(row['chosen']) is not int or row['chosen'] not in actions:
+    if not isinstance(actions, (list, tuple)) or not actions or any(type(a) is not int or a not in range(3) for a in actions) or len(actions) != len(set(actions)) or type(row['chosen']) is not int or row['chosen'] not in actions:
         raise ValueError('Malformed payload action classes')
     if actions[0] != 0:
         raise ValueError('The first actual class must retain the semantic action identity')
     simplex(probabilities, len(actions), positive=True)
     if 'old_probabilities' in row:
         simplex(row['old_probabilities'], len(actions))
-    if len(row['payload_hashes']) != len(actions) or len(set(row['payload_hashes'])) != len(actions):
+    if not isinstance(row['payload_hashes'], (list, tuple)) or len(row['payload_hashes']) != len(actions) or any(not isinstance(value, str) or not value for value in row['payload_hashes']) or len(set(row['payload_hashes'])) != len(actions):
         raise ValueError('Payload classes must have distinct byte identities')
     if row.get('semantic_payload_hash', row['payload_hashes'][0]) != row['payload_hashes'][0]:
         raise ValueError('Semantic reference differs from the actual payload identity')
     if row.get('target_reference', REFERENCE) != REFERENCE:
         raise ValueError('Adoption targets require the semantic actual payload reference')
-    expected = reward(row['success'], row['costs'], penalty=row['penalty'], reference=row['reference'])
-    if abs(expected-row['reward']) > 1e-9 or row.get('interventions') != 1:
+    if type(row['interventions']) is not int or row['interventions'] != 1:
         raise ValueError('Teacher reward or single-intervention receipt mismatch')
-    if 'cost_receipts' in row:
-        totals = {key: 0.0 for key in ('actor', 'tools', 'retrieval')}
-        for receipt in row['cost_receipts']:
-            if receipt.get('kind') not in totals or type(receipt.get('cost')) not in (int, float) or not math.isfinite(receipt['cost']) or receipt['cost'] < 0:
-                raise ValueError('Whole-episode cost receipts must be finite and identified')
-            totals[receipt['kind']] += receipt['cost']
-        if any(abs(totals[key]-row['costs'][key]) > 1e-8 for key in totals):
-            raise ValueError('Whole-episode receipt sum differs from logged costs')
 def frozen_window(records):
     if not records or len({row['snapshot'] for row in records}) != 1:
         raise ValueError('Do not pool labels across changing actor/bank snapshots')
@@ -149,12 +178,17 @@ def frozen_window(records):
         values = [row.get(field) for row in records]
         if any(value is not None for value in values) and (any(value is None for value in values) or len({dynamic.digest(value) for value in values}) != 1):
             raise ValueError('Adoption estimation requires one complete frozen '+field+' binding')
+    dimensions = {len(row['features']) for row in records if row['interventions'] == 1}
+    if len(dimensions) > 1:
+        raise ValueError('A frozen window must use one visible feature dimension')
 def crossfit(records, *, folds=3, ridge=1.0):
-    if type(folds) is not int or folds < 2 or not math.isfinite(ridge) or ridge <= 0:
+    if type(folds) is not int or folds < 2 or not finite(ridge) or ridge <= 0:
         raise ValueError('Cross-fitting requires multiple folds and positive ridge')
     for row in records:
         validate(row)
     frozen_window(records)
+    if any(row['interventions'] != 1 for row in records):
+        raise ValueError('Reward-head fitting requires actual randomized observations')
     ids = sorted({row['base_id'] for row in records})
     if len(ids) < 2 or len(ids) != len(records):
         raise ValueError('Require one intervention per independent base question and snapshot')
@@ -189,9 +223,9 @@ def crossfit(records, *, folds=3, ridge=1.0):
                             model_mean=mean.tolist(), model_scale=scale.tolist(), target_kind='unclipped_doubly_robust_estimate'))
     return results
 def fit(records, *, steps=100, rate=.02, regularization=.01, folds=3, ridge=1.0):
-    targets = crossfit(records, folds=folds, ridge=ridge)
-    if steps < 1 or rate <= 0 or regularization < 0:
+    if type(steps) is not int or steps < 1 or not finite(rate) or rate <= 0 or not finite(regularization) or regularization < 0:
         raise ValueError('Invalid teacher optimizer budget')
+    targets = crossfit(records, folds=folds, ridge=ridge)
     features = np.asarray([row['features'] for row in targets])
     mean, scale = features.mean(axis=0), features.std(axis=0)
     mean[0], scale[0] = 0.0, 1.0
@@ -215,13 +249,32 @@ def fit(records, *, steps=100, rate=.02, regularization=.01, folds=3, ridge=1.0)
                  fit_ids=sorted(row['base_id'] for row in records), fitted_snapshot=records[0]['snapshot'], objective=objective,
                  target_kind='cross_fitted_unclipped_dr', target_reference=REFERENCE, adoption_protocol=PROTOCOL,
                  objective_kind='relative_dr_minus_regularization', scope='single_point_training_not_sequential_ope')
+    validate_model(model)
     return model, targets
 def evaluate(records, model):
-    if set(row['base_id'] for row in records) & set(model['fit_ids']):
+    validate_model(model)
+    if not records:
+        return dict(n=0, ips=None, scope='one_marked_state_only_not_end_to_end_teacher', clipped=False)
+    for row in records:
+        validate(row)
+    frozen_window(records)
+    ids = [row['base_id'] for row in records]
+    if len(set(ids)) != len(ids):
+        raise ValueError('Evaluation requires independent base questions')
+    fitting, pending = set(), [model]
+    while pending:
+        node = pending.pop()
+        if node is not None:
+            fitting.update(node.get('fit_ids', []))
+            if node.get('format') == MIXTURE:
+                pending.extend((node['previous'], node['proposal']))
+    if set(ids) & fitting:
         raise ValueError('Teacher evaluation must use independent base questions')
     estimates = []
     for row in records:
-        validate(row)
+        if row['interventions'] == 0:
+            estimates.append(row['reward'])
+            continue
         classes = [dict(action=a, alpha=ACTIONS[a], alphas=[ACTIONS[a]]) for a in row['actions']]
         probability = probabilities(model, row['features'], classes)
         index = row['actions'].index(row['chosen'])
@@ -229,28 +282,50 @@ def evaluate(records, model):
     return dict(n=len(estimates), ips=sum(estimates)/len(estimates) if estimates else None,
                 scope='one_marked_state_only_not_end_to_end_teacher', clipped=False)
 def validate_model(model):
-    if model is None:
-        return
-    if model.get('adoption_protocol', PROTOCOL) != PROTOCOL or model.get('target_reference', REFERENCE) != REFERENCE:
-        raise ValueError('Teacher reference or adoption protocol changed')
-    if model.get('format') == MIXTURE:
-        if not math.isfinite(model['delta']) or not 0 <= model['delta'] <= 1:
-            raise ValueError('Invalid conservative policy mixture')
-        validate_model(model['previous'])
-        validate_model(model['proposal'])
-        return
-    if model.get('format') != TEACHER:
-        raise ValueError('Unknown teacher checkpoint')
-    dimension = model['dimension']
-    if type(dimension) is not int or dimension < 1:
-        raise ValueError('Teacher dimension must be a positive integer')
-    for field, shape in (('weights', (3, dimension)), ('mean', (dimension,)), ('scale', (dimension,))):
-        value = np.asarray(model[field], dtype=float)
-        if value.shape != shape or not np.isfinite(value).all() or field == 'scale' and np.any(value <= 0):
-            raise ValueError('Malformed linear teacher checkpoint')
+    dimensions, active = set(), set()
+    def visit(node, level):
+        if node is None:
+            return
+        if not isinstance(node, dict) or id(node) in active or level > 64:
+            raise ValueError('Teacher mixtures must be finite acyclic checkpoints')
+        if node.get('adoption_protocol', PROTOCOL) != PROTOCOL or node.get('target_reference', REFERENCE) != REFERENCE:
+            raise ValueError('Teacher reference or adoption protocol changed')
+        active.add(id(node))
+        if node.get('format') == MIXTURE:
+            if not {'previous', 'proposal'} <= set(node) or not finite(node.get('delta')) or not 0 <= node['delta'] <= 1:
+                raise ValueError('Invalid conservative policy mixture')
+            visit(node['previous'], level+1)
+            visit(node['proposal'], level+1)
+        elif node.get('format') == TEACHER:
+            dimension = node.get('dimension')
+            if type(dimension) is not int or dimension < 1:
+                raise ValueError('Teacher dimension must be a positive integer')
+            dimensions.add(dimension)
+            for field, shape in (('weights', (3, dimension)), ('mean', (dimension,)), ('scale', (dimension,))):
+                try:
+                    value = np.asarray(node.get(field), dtype=float)
+                except (TypeError, ValueError, OverflowError) as error:
+                    raise ValueError('Malformed linear teacher checkpoint') from error
+                if value.shape != shape or not np.isfinite(value).all() or field == 'scale' and np.any(value <= 0):
+                    raise ValueError('Malformed linear teacher checkpoint')
+        else:
+            raise ValueError('Unknown teacher checkpoint')
+        if 'fit_ids' in node and (not isinstance(node['fit_ids'], list) or any(not isinstance(base, str) or not base for base in node['fit_ids']) or len(set(node['fit_ids'])) != len(node['fit_ids'])):
+            raise ValueError('Teacher fitting identities must be unique base questions')
+        active.remove(id(node))
+    visit(model, 0)
+    if len(dimensions) > 1:
+        raise ValueError('Teacher mixture branches must share one feature dimension')
 def reward_model(records, ridge=1.0):
     if not records or any(row.get('interventions') != 1 for row in records):
         raise ValueError('Reward heads require actual randomized training observations')
+    if not finite(ridge) or ridge <= 0:
+        raise ValueError('Reward-head regularization must be finite and positive')
+    for row in records:
+        validate(row)
+    frozen_window(records)
+    if len({row['base_id'] for row in records}) != len(records):
+        raise ValueError('Reward heads require independent base questions')
     features = np.asarray([row['features'] for row in records], dtype=float)
     mean, scale = features.mean(axis=0), features.std(axis=0)
     mean[0], scale[0] = 0.0, 1.0

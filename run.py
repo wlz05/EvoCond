@@ -10,6 +10,7 @@ import subprocess
 import sys
 import study
 from control.contracts import strict_json
+from control.files import relative
 SEEDS = (42, 52, 3047, 3407)
 HERE = Path(__file__).resolve().parent
 def recipes(config):
@@ -24,12 +25,13 @@ def recipes(config):
 def checkpoints(path):
     if path is None:
         return {}
-    value = strict_json(path.read_text(encoding='utf-8'))
+    value = strict_json(path.read_text(encoding='utf-8-sig'))
     if not isinstance(value, dict) or set(value) != {'format', 'checkpoints'} or value['format'] != 'evocond_checkpoints_v1':
         raise ValueError('Expected a declared checkpoint map, not automatic test-based selection')
-    if not isinstance(value['checkpoints'], dict) or any(not isinstance(name, str) or not isinstance(item, str)
-            or not item or Path(item).is_absolute() or '..' in Path(item).parts for name, item in value['checkpoints'].items()):
+    if not isinstance(value['checkpoints'], dict) or not value['checkpoints'] or any(not isinstance(name, str) or not name for name in value['checkpoints']):
         raise ValueError('Checkpoint entries must use experiment-relative repository paths')
+    for item in value['checkpoints'].values():
+        relative(HERE, item)
     return value['checkpoints']
 
 def main(argv=None):
@@ -47,9 +49,14 @@ def main(argv=None):
     parser.add_argument('--allow-test', action='store_true')
     parser.add_argument('--run', action='store_true')
     args = parser.parse_args(argv)
+    if (args.resume or args.checkpoints) and args.stage not in ('train', 'evaluate'):
+        parser.error('Restore arguments apply only to train or evaluate')
     for path in (args.root, args.config, args.resume, args.checkpoints):
-        if path is not None and (path.is_absolute() or '..' in path.parts):
-            parser.error('Use repository-relative paths without parent traversal')
+        if path is not None:
+            try:
+                relative(HERE, path.as_posix())
+            except ValueError as error:
+                parser.error(str(error))
     if args.arm:
         if args.suite != 'main' or args.conditions:
             parser.error('--arm is a main-suite alias; use --conditions for ablations')
@@ -68,7 +75,7 @@ def main(argv=None):
     if args.resume and len(values) != 1:
         parser.error('--resume requires exactly one condition and seed')
     selected = checkpoints(HERE/args.checkpoints if args.checkpoints else None)
-    if selected and set(selected) != set(values):
+    if args.checkpoints is not None and set(selected) != set(values):
         parser.error('Checkpoint map must exactly cover the selected condition/seed jobs')
     if args.stage == 'evaluate' and not (args.resume or selected):
         parser.error('Evaluation requires --resume or --checkpoints; select on validation only')

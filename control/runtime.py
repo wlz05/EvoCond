@@ -222,11 +222,15 @@ class Runtime:
         if config.get('contextual') is not None:
             from control.stage import Engine
             self.engine = Engine(self)
-    def set_policy_step(self, step, policy_drift=None, *, restoring=False):
+    def policy_identity(self, step):
         if type(step) is not int or step < 0:
             raise ValueError("Invalid actual optimizer step")
         if self.arm == "teacher" and not self.engine and step and self.config["teacher_policy_mode"] == "exact_policy":
             raise ValueError("Qwen changed: refresh paired teacher or declare transfer/semantic fallback")
+        return self.config['policy_hash'] if step == 0 else dynamic.digest(
+            {'initial_weights': self.config['policy_hash'], 'run_id': self.config['run_id'], 'optimizer_step': step})
+    def set_policy_step(self, step, policy_drift=None, *, restoring=False):
+        identity = self.policy_identity(step)
         if self.engine and self.contexts:
             raise ValueError('Actor updates require the completed-rollout barrier')
         if self.engine and self.engine.pending_registry is not None:
@@ -234,8 +238,7 @@ class Runtime:
         if not restoring and self.schedule() is not None and not self.schedule()['actor_update_ready']:
             raise ValueError('Actor must remain frozen until the configured window barrier')
         self.policy_step = step
-        self.policy_hash = self.config["policy_hash"] if step == 0 else dynamic.digest(
-            {"initial_weights": self.config["policy_hash"], "run_id": self.config["run_id"], "optimizer_step": step})
+        self.policy_hash = identity
         if self.engine and not restoring:
             return self.engine.actor_changed(self.policy_hash, policy_drift)
     def begin(self, question, plan_text, *, split, episode_id=None):
@@ -597,9 +600,16 @@ class Runtime:
         context = self.context(identity)
         context['visible_fields'] = deepcopy(fields)
         context['selection_cache'] = {}
-    def snapshot(self):
+    def checkpoint_barrier(self):
         if any(not row["completed"] for row in self.contexts.values()):
             raise ValueError("Finish in-flight rollout contexts before checkpoint")
+        if self.contexts and (self.engine or self.config.get('design', {}).get('native')):
+            raise ValueError('Release completed rollouts before checkpoint')
+        schedule = self.schedule()
+        if schedule is not None and not schedule['actor_update_ready']:
+            raise ValueError('Checkpoint requires a released actor-memory barrier')
+    def snapshot(self):
+        self.checkpoint_barrier()
         result = {"format": FORMAT, "config_hash": dynamic.digest(self.config), "policy_step": self.policy_step,
                   "registry": self.dispatcher.registry, "run_id": self.config["run_id"], "arm": self.arm}
         if self.config.get('design', {}).get('native'):
@@ -610,17 +620,23 @@ class Runtime:
             result['contextual'] = self.engine.state()
         return result
     def restore(self, state):
-        if state.get("format") != FORMAT or state.get("config_hash") != dynamic.digest(self.config):
+        if not isinstance(state, dict) or state.get("format") != FORMAT or state.get("config_hash") != dynamic.digest(self.config) or state.get('run_id') != self.config['run_id'] or state.get('arm') != self.arm:
             raise ValueError("Runtime checkpoint differs from experiment identity")
+        self.checkpoint_barrier()
         dynamic.validate(state["registry"])
-        self.dispatcher.reload()
-        self.dispatcher.replace_registry(state["registry"], expected_sha256=dynamic.digest(self.dispatcher.registry))
-        self.contexts.clear()
+        actor = self.policy_identity(state['policy_step'])
+        if self.engine:
+            self.engine.validate_state(state['contextual'], registry_hash=dynamic.digest(state['registry']), actor=actor)
         if self.config.get('design', {}).get('native'):
             from control.windows import barrier
             phase = state.get('native_batches')
             if not barrier(phase, self.config.get('epoch_batches'), self.config.get('actor_batches', 1)):
                 raise ValueError('Native cadence checkpoint is inside an actor window')
+        # Validate the full paired state before replacing the live public inventory.
+        self.dispatcher.reload()
+        self.dispatcher.replace_registry(state["registry"], expected_sha256=dynamic.digest(self.dispatcher.registry))
+        self.contexts.clear()
+        if self.config.get('design', {}).get('native'):
             self.native_batches = phase
         self.set_policy_step(state["policy_step"], restoring=True)
         if self.engine:

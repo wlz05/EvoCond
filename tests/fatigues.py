@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 import fatigue as command
-from control import bandit, dynamic, fatigue
+from control import bandit, dynamic, fatigue, files
 from tests.bandits import records
 
 def observed(base, chosen, *, success, snapshot='fixed'):
@@ -166,12 +166,12 @@ class FatigueTests(unittest.TestCase):
         with self.assertRaises(FileExistsError):
             command.publish(path, '{"complete":false}')
         self.assertEqual(json.loads(path.read_text(encoding='utf-8')), {'complete': True})
-        self.assertEqual(list(path.parent.glob('.fatigue-*.tmp')), [])
-        with patch.object(command.os, 'fsync', side_effect=OSError('Interrupted write')):
+        self.assertEqual(list(path.parent.glob('.evocond-*.tmp')), [])
+        with patch.object(files.os, 'fsync', side_effect=OSError('Interrupted write')):
             with self.assertRaises(OSError):
                 command.publish(path.parent/'failed.json', '{}')
         self.assertFalse((path.parent/'failed.json').exists())
-        self.assertEqual(list(path.parent.glob('.fatigue-*.tmp')), [])
+        self.assertEqual(list(path.parent.glob('.evocond-*.tmp')), [])
 
     def fixture(self, *, adopted=False):
         actors, banks = ['a'*64, 'b'*64], ['c'*64, 'd'*64]

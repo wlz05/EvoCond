@@ -37,9 +37,44 @@ def tensor_pad(value, shape, fill, slices):
     result = value.new_full(shape, fill)
     result[slices] = value
     return result
+def validate_batches(batches):
+    keys = set(batches[0].batch.keys())
+    auxiliary = set(batches[0].non_tensor_batch)
+    if not {'prompts', 'responses', 'attention_mask'} <= keys:
+        raise ValueError('Native windows need prompt, response and attention tensors')
+    if any(set(row.batch.keys()) != keys or set(row.non_tensor_batch) != auxiliary for row in batches):
+        raise ValueError('Native window tensor or reward fields changed')
+    for row in batches:
+        p, r = row.batch['prompts'].shape, row.batch['responses'].shape
+        if len(p) != 2 or len(r) != 2 or not p[0] or not p[1] or not r[1] or p[0] != r[0]:
+            raise ValueError('Native windows require nonempty matched text sequences')
+        if any(not value.shape or value.shape[0] != p[0] for value in row.batch.values()):
+            raise ValueError('Native tensor rows do not match the question batch')
+        if any(not value.shape or value.shape[0] != p[0] for value in row.non_tensor_batch.values()):
+            raise ValueError('Native metadata rows do not match the question batch')
+        for key in keys & FULL:
+            if len(row.batch[key].shape) != 2 or row.batch[key].shape[-1] != p[1]+r[1]:
+                raise ValueError('Full-sequence tensors have inconsistent token offsets')
+        for key in keys & RESPONSE:
+            if len(row.batch[key].shape) != 2 or row.batch[key].shape[-1] != r[1]:
+                raise ValueError('Response tensors must match their own generated tokens')
+        for key in keys & {'tool_use_scores', 'step_rewards'}:
+            if len(row.batch[key].shape) != 2:
+                raise ValueError('Native step tensors must be matrices')
+    for key in keys-FULL-RESPONSE-{'prompts', 'tool_use_scores', 'step_rewards'}:
+        if len({tuple(row.batch[key].shape[1:]) for row in batches}) != 1:
+            raise ValueError('Unknown ragged native tensor cannot be padded safely')
+    for key in auxiliary:
+        arrays = [row.non_tensor_batch[key] for row in batches]
+        if len({value.shape[1:] for value in arrays}) > 1:
+            if key not in ('anchor_obs', 'mcp_name') or len({value.ndim for value in arrays}) != 1 or any(value.dtype != object and not np.issubdtype(value.dtype, np.inexact) for value in arrays):
+                raise ValueError('Unknown or nonnullable ragged native metadata')
+
 def join(batches, concatenate, pad_token):
     if not batches or type(pad_token) is not int:
         raise ValueError('Native windows require a real tokenizer pad id')
+    # Reject inconsistent inputs before padding mutates any tensors.
+    validate_batches(batches)
     keys = set(batches[0].batch.keys())
     auxiliary = set(batches[0].non_tensor_batch)
     if any(set(row.batch.keys()) != keys or set(row.non_tensor_batch) != auxiliary for row in batches):
@@ -95,14 +130,15 @@ def accumulate(pending, batch, ready, count, concatenate):
         raise ValueError('Invalid frozen-window schedule')
     if len(pending) >= count:
         raise ValueError('Native batch window exceeded its fixed budget')
-    pending.append(batch)
+    candidate = [*pending, batch]
     if not ready:
-        if len(pending) == count:
+        if len(candidate) == count:
             raise ValueError('Coordinator withheld a complete actor update window')
+        pending.append(batch)
         return None
-    if len(pending) != count:
+    if len(candidate) != count:
         raise ValueError('Coordinator requested an incomplete actor update window')
-    result = concatenate(pending) if count > 1 else pending[0]
+    result = concatenate(candidate) if count > 1 else candidate[0]
     pending.clear()
     return result
 

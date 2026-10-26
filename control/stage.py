@@ -411,14 +411,14 @@ class Engine:
         return dict(contextual=True, actor_update_ready=self.pending_registry is None,
             phase=self.phase, frozen_batches=windows.width(self.phase, self.runtime.config.get('epoch_batches'), self.options['frozen_batches']), actor=self.actor,
             actor_drift=deepcopy(self.options['actor_drift']), adoption=self.adoption_status())
-    def restore(self, state):
-        if state.get('adoption_protocol') != bandit.PROTOCOL:
+    def validate_state(self, state, *, registry_hash=None, actor=None):
+        if not isinstance(state, dict) or state.get('adoption_protocol') != bandit.PROTOCOL:
             raise ValueError('Adoption protocol changed; require a new frozen window')
         if state.get('format') != FORMAT or state.get('options') != self.options or state.get('encoder_id') != self.encoder_id:
             raise ValueError('Contextual checkpoint protocol or encoder mismatch')
-        if state['registry_hash'] != dynamic.digest(self.runtime.dispatcher.registry):
+        if state['registry_hash'] != (dynamic.digest(self.runtime.dispatcher.registry) if registry_hash is None else registry_hash):
             raise ValueError('Checkpoint bank and representation do not belong together')
-        if state['actor'] != self.runtime.policy_hash:
+        if state['actor'] != (self.runtime.policy_hash if actor is None else actor):
             raise ValueError('Teacher checkpoint and current actor snapshot differ')
         identity.validate(state['alignment'], self.encoder_id)
         if self.options['variant'] == 'whole':
@@ -439,9 +439,15 @@ class Engine:
             teacher=dynamic.digest(state['teacher']), teacher_bottom=binding, options=self.options))
         if expected != state['snapshot']:
             raise ValueError('Inconsistent frozen contextual checkpoint')
+        if not isinstance(state.get('used_holdout'), list) or any(not isinstance(item, list) or len(item) != 2 or any(not isinstance(value, str) or not value for value in item) for item in state['used_holdout']):
+            raise ValueError('Checkpoint holdout history must retain its bottom and base identities')
+        if not isinstance(state.get('actor_updates'), list) or any(not isinstance(item, dict) for item in state['actor_updates']):
+            raise ValueError('Checkpoint actor history must contain identified update records')
+    def restore(self, state):
+        self.validate_state(state)
         self.phase, self.actor = state['phase'], state['actor']
         self.alignment, self.teacher = deepcopy(state['alignment']), deepcopy(state['teacher'])
-        self.teacher_bottom = binding
+        self.teacher_bottom = state.get('teacher_bottom')
         self.whole = deepcopy(state.get('whole'))
         self.metric, self.used_holdout = deepcopy(state['metric']), deepcopy(state['used_holdout'])
         self.actor_updates = deepcopy(state['actor_updates'])
