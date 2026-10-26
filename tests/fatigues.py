@@ -1,0 +1,251 @@
+# -*- coding: utf-8 -*-
+# EvoCond: Preserving Conditional Tool Relations for Co-Evolving Language Agents
+
+'Known-propensity memory diagnostics and paired checkpoint attribution.'
+from copy import deepcopy
+from hashlib import sha256
+import json
+from pathlib import Path
+import tempfile
+import unittest
+from control import bandit, dynamic, fatigue
+from tests.bandits import records
+
+def observed(base, chosen, *, success, snapshot='fixed'):
+    row = records(1)[0]
+    row.update(base_id=str(base), snapshot=snapshot, actions=[0, 2], probabilities=[.8, .2],
+        chosen=chosen, payload_hashes=['semantic', 'structural'], success=success, phase=0)
+    row['reward'] = bandit.reward(success, row['costs'], penalty=row['penalty'], reference=row['reference'])
+    return row
+
+def zero(base, status='unreached'):
+    row = observed(base, 0, success=True)
+    row.update(features=[], actions=[], probabilities=[], chosen=None, payload_hashes=[], interventions=0, status=status)
+    return row
+
+class FatigueTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+
+    def test_known_propensity_estimator_recovers_difference_in_expectation(self):
+        rows = [observed(i, 0 if i < 80 else 2, success=i >= 80) for i in range(100)]
+        report = fatigue.window(rows)
+        self.assertAlmostEqual(report['terminal_success_lift']['mean'], 1.0)
+        self.assertAlmostEqual(report['clipped_cost_lift']['mean'], 0.0)
+        self.assertAlmostEqual(report['net_utility_lift']['mean'], 1.0)
+        self.assertEqual(report['minimum_propensity'], .2)
+        self.assertFalse(report['deployment_decision'])
+
+    def test_absorbing_questions_remain_in_denominator(self):
+        row = observed('active', 2, success=True)
+        active = fatigue.window([row])['net_utility_lift']['mean']
+        report = fatigue.window([row, zero('a'), zero('b', 'unsupported'), zero('c', 'single_class')])
+        self.assertEqual(report['net_utility_lift']['n'], 4)
+        self.assertAlmostEqual(report['net_utility_lift']['mean'], active/4)
+        self.assertEqual(report['observed_marks'], 1)
+
+    def test_no_logging_is_unavailable_not_a_zero_gain(self):
+        self.assertIsNone(fatigue.window([])['net_utility_lift']['mean'])
+        report = fatigue.window([zero('a'), zero('b')])
+        self.assertEqual(report['net_utility_lift']['mean'], 0)
+        self.assertEqual(report['net_utility_lift']['sample_std'], 0)
+
+    def test_utility_components_match_the_logged_reward_scale(self):
+        rows = [observed('a', 0, success=False), observed('b', 2, success=True)]
+        rows[1]['costs']['actor'] = 15.0
+        rows[1]['reward'] = bandit.reward(True, rows[1]['costs'], penalty=.1, reference=10.0)
+        report = fatigue.window(rows)
+        self.assertAlmostEqual(report['net_utility_lift']['mean'], report['terminal_success_lift']['mean']-.1*report['clipped_cost_lift']['mean'])
+        self.assertGreater(report['actual_mean_cost']['mean'], 4)
+
+    def test_uniform_target_uses_real_classes_not_nominal_ratios(self):
+        row = records(1)[0]
+        row.update(chosen=1, success=True)
+        row['reward'] = bandit.reward(True, row['costs'], penalty=.1, reference=10)
+        expected = (.5/.3)*(row['reward']-.45)
+        self.assertAlmostEqual(fatigue.window([row])['net_utility_lift']['mean'], expected)
+
+    def test_reject_duplicate_question_and_mixed_bottom(self):
+        for rows in ([zero('same'), zero('same')], [observed('a', 0, success=True), observed('b', 2, success=True, snapshot='other')]):
+            with self.assertRaises(ValueError):
+                fatigue.window(rows)
+
+    def test_support_counts_are_separate_and_shared_edges_count_once(self):
+        edge = dict(source='a', target='b', mass=3.0, weight=.7)
+        result = dict(candidates=[dict(edges=[edge]), dict(edges=[deepcopy(edge)])], abstention=dict(effective_count=2))
+        support = fatigue.support(result)
+        self.assertEqual(support['conditional_mass'], 3)
+        self.assertEqual(support['queried_edges'], 1)
+        self.assertEqual(support['positive_edges'], 1)
+        row = observed('q', 2, success=False)
+        row['relation_support'] = support
+        report = fatigue.window([row, zero('unseen')])
+        self.assertEqual(report['support_at_randomized_points']['conditional_mass']['n'], 1)
+        self.assertEqual(report['net_utility_lift']['n'], 2)
+        self.assertLess(report['net_utility_lift']['mean'], 0)
+
+    def test_trace_uses_completed_windows_and_exposes_incomplete_tail(self):
+        (self.root/'phases').mkdir()
+        row = zero('q')
+        tail = zero('next')
+        tail.update(phase=1, snapshot='next')
+        (self.root/'interventions.jsonl').write_text(json.dumps(row)+'\n'+json.dumps(tail)+'\n', encoding='utf-8')
+        report = dict(phase=0, snapshot='fixed', base_observations=1, memory_sizes={'read_snapshot': {'relations': 1}})
+        (self.root/'phases/phase0.json').write_text(json.dumps(report), encoding='utf-8')
+        output = fatigue.trace(self.root)
+        self.assertEqual(len(output['phases']), 1)
+        self.assertEqual(output['incomplete_observations'], 1)
+        report['base_observations'] = 2
+        (self.root/'phases/phase0.json').write_text(json.dumps(report), encoding='utf-8')
+        with self.assertRaises(ValueError):
+            fatigue.trace(self.root)
+
+    def fixture(self, *, adopted=False):
+        actors, banks = ['a'*64, 'b'*64], ['c'*64, 'd'*64]
+        protocol = dict(split='validation', dataset_sha256='e'*64, questions=2, base_ids_sha256=dynamic.digest(['q0', 'q1']), capability_pool_sha256='f'*64,
+            execution_sha256='1'*64, presentation='fixed_structure', penalty=.1, reference=10.0)
+        manifest = dict(format=fatigue.PANEL, seed=42, actors=actors, banks=banks, protocol=protocol, cells=[])
+        costs = dict(actor=1.0, tools=1.0, retrieval=1.0)
+        for i, actor in enumerate(actors):
+            for j, bank in enumerate(banks):
+                rows = []
+                for k in range(2):
+                    row = dict(base_id='q'+str(k), semantic=dict(success=i == 1, costs=deepcopy(costs)),
+                        structural=dict(success=i == 1 or j == 0 or k == 0, costs=deepcopy(costs)))
+                    if adopted:
+                        row['adopted'] = deepcopy(row['structural'])
+                    rows.append(row)
+                cell = dict(format=fatigue.CELL, actor=actor, bank=bank, seed=42,
+                    protocol_sha256=dynamic.digest(protocol), records=rows)
+                if adopted:
+                    cell['teacher_sha256'] = '2'*64
+                name = f'cell{i}{j}.json'
+                payload = json.dumps(cell).encode()
+                (self.root/name).write_bytes(payload)
+                manifest['cells'].append(dict(actor=actor, bank=bank, path=name, sha256=sha256(payload).hexdigest()))
+        return manifest
+
+    def save(self, manifest):
+        path = self.root/'panel.json'
+        path.write_text(json.dumps(manifest), encoding='utf-8')
+        return path
+
+    def change(self, manifest, function):
+        entry = manifest['cells'][-1]
+        path = self.root/entry['path']
+        value = json.loads(path.read_text(encoding='utf-8'))
+        function(value)
+        payload = json.dumps(value).encode()
+        path.write_bytes(payload)
+        entry['sha256'] = sha256(payload).hexdigest()
+
+    def test_factorial_panel_separates_actor_bank_and_interaction(self):
+        report = fatigue.panel(self.save(self.fixture()))
+        terms = {name: value['mean'] for name, value in report['decomposition'].items()}
+        self.assertAlmostEqual(terms['actor_at_old_bank'], -1)
+        self.assertAlmostEqual(terms['bank_at_old_actor'], -.5)
+        self.assertAlmostEqual(terms['interaction'], .5)
+        self.assertAlmostEqual(sum(terms[name] for name in ('actor_at_old_bank', 'bank_at_old_actor', 'interaction')), terms['total_change'])
+        self.assertEqual(report['task_count'], 2)
+        self.assertEqual(report['cells']['actor1_bank1']['outcomes']['structural']['success']['mean'], 1)
+        self.assertEqual(report['cells']['actor1_bank1']['net_utility_lift']['mean'], 0)
+
+    def test_optional_adoption_recovery_is_separate_from_fixed_target(self):
+        report = fatigue.panel(self.save(self.fixture(adopted=True)))
+        self.assertEqual(report['cells']['actor1_bank1']['adopted_vs_structural']['mean'], 0)
+        self.assertEqual(report['decomposition']['total_change']['mean'], -1)
+        manifest = self.fixture(adopted=True)
+        self.change(manifest, lambda cell: cell.pop('teacher_sha256'))
+        with self.assertRaises(ValueError):
+            fatigue.panel(self.save(manifest))
+
+    def test_panel_rejects_missing_cell_and_repeated_checkpoint(self):
+        manifest = self.fixture()
+        for name in ('missing', 'repeated'):
+            altered = deepcopy(manifest)
+            if name == 'missing':
+                altered['cells'].pop()
+            else:
+                altered['actors'][1] = altered['actors'][0]
+            with self.assertRaises(ValueError):
+                fatigue.panel(self.save(altered))
+
+    def test_panel_rejects_unpaired_questions_and_duplicate_outcomes(self):
+        for duplicate in (False, True):
+            manifest = self.fixture()
+            self.change(manifest, lambda cell: cell['records'][1].update(base_id='q0' if duplicate else 'unmatched'))
+            with self.assertRaises(ValueError):
+                fatigue.panel(self.save(manifest))
+
+    def test_matching_partial_cells_cannot_shrink_the_reference_denominator(self):
+        manifest = self.fixture()
+        for entry in manifest['cells']:
+            path = self.root/entry['path']
+            cell = json.loads(path.read_text(encoding='utf-8'))
+            cell['records'].pop()
+            payload = json.dumps(cell).encode()
+            path.write_bytes(payload)
+            entry['sha256'] = sha256(payload).hexdigest()
+        with self.assertRaises(ValueError):
+            fatigue.panel(self.save(manifest))
+
+    def test_panel_rejects_wrong_binding_and_corrupt_source(self):
+        manifest = self.fixture()
+        self.change(manifest, lambda cell: cell.update(protocol_sha256='0'*64))
+        with self.assertRaises(ValueError):
+            fatigue.panel(self.save(manifest))
+        manifest = self.fixture()
+        manifest['cells'][0]['sha256'] = '0'*64
+        with self.assertRaises(ValueError):
+            fatigue.panel(self.save(manifest))
+
+    def test_panel_rejects_nonfinite_cost_and_partial_adoption(self):
+        for mode in ('cost', 'adoption'):
+            manifest = self.fixture(adopted=True)
+            if mode == 'cost':
+                self.change(manifest, lambda cell: cell['records'][0]['semantic']['costs'].update(actor=float('nan')))
+            else:
+                self.change(manifest, lambda cell: cell['records'][0].pop('adopted'))
+            with self.assertRaises(ValueError):
+                fatigue.panel(self.save(manifest))
+
+    def test_panel_rejects_training_split_and_path_escape(self):
+        manifest = self.fixture()
+        for mode in ('split', 'path'):
+            altered = deepcopy(manifest)
+            if mode == 'split':
+                altered['protocol']['split'] = 'train'
+            else:
+                altered['cells'][0]['path'] = '../outside.json'
+            with self.assertRaises(ValueError):
+                fatigue.panel(self.save(altered))
+
+    def test_four_seed_summary_uses_runs_as_the_uncertainty_unit(self):
+        original, paths = self.root, []
+        for seed in (42, 52, 3047, 3407):
+            self.root = original/str(seed)
+            self.root.mkdir()
+            manifest = self.fixture()
+            manifest['seed'] = seed
+            for entry in manifest['cells']:
+                path = self.root/entry['path']
+                cell = json.loads(path.read_text(encoding='utf-8'))
+                cell['seed'] = seed
+                payload = json.dumps(cell).encode()
+                path.write_bytes(payload)
+                entry['sha256'] = sha256(payload).hexdigest()
+            paths.append(self.save(manifest))
+        self.root = original
+        report = fatigue.aggregate(paths)
+        self.assertEqual(report['decomposition']['total_change']['n'], 4)
+        self.assertEqual(report['decomposition']['total_change']['mean'], -1)
+        self.assertEqual(report['decomposition']['total_change']['sample_std'], 0)
+        with self.assertRaises(ValueError):
+            fatigue.aggregate(paths[:3])
+        with self.assertRaises(ValueError):
+            fatigue.aggregate([paths[0]]*4)
+
+# Author: Weiliang Zhu
+# Email: wlzchina05@gmail.com

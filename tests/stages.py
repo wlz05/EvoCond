@@ -75,6 +75,10 @@ class StageTests(unittest.TestCase):
         report = json.loads((self.runtime.root/'phases/phase0.json').read_text())
         self.assertEqual(report['extra_rollouts'], 0)
         self.assertEqual(report['original_rollouts'], 2)
+        self.assertEqual(report['memory_value']['net_utility_lift']['n'], report['base_observations'])
+        self.assertEqual(report['memory_sizes']['read_snapshot']['relations'], 0)
+        self.assertGreater(report['memory_sizes']['pending_publication']['relations'], 0)
+        self.assertFalse(report['memory_value']['deployment_decision'])
     def test_checkpoint_restores_all_conditional_artifacts(self):
         for episode in self.episodes():
             self.execute(episode)

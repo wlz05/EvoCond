@@ -2,6 +2,8 @@
 
 **EvoCond** learns how accumulated tool experience should guide a co-evolving language agent. Compatible tools share a capability identity, while their relation events retain the conditions and feedback of each transition. At each retrieval, EvoCond reconstructs supported ordering proposals and learns their value to the current actor from randomized tool-list presentation and terminal task utility. Evidence accumulates across tasks; adoption value is re-estimated as the actor and inventory evolve.
 
+We study **structural memory fatigue**: later training stages accumulate more relation evidence while the utility gained from structural guidance declines relative to semantic retrieval on the same execution basis. An improving actor can make memory-assisted tasks more successful while needing less help from memory. EvoCond separates historical relation support from current adoption value, retaining reusable evidence while adapting its influence through current execution feedback.
+
 EvoCond achieves state-of-the-art pass@1 performance in mathematical and multi-hop reasoning. Experiments use **8 NVIDIA GeForce RTX 4090 GPUs**, with random seeds **42, 52, 3047, and 3407**.
 
 ## Architecture
@@ -55,6 +57,7 @@ EvoCond/
 |-- run.py         # Launch the four eight-GPU seed configurations
 |-- study.py       # Matched main and ablation conditions
 |-- summary.py     # Aggregate complete four-seed test reports
+|-- fatigue.py     # Inspect memory value and actor-by-memory controls
 |-- test.py        # Run regression tests
 ```
 
@@ -166,6 +169,25 @@ python ablation.py --suite statistics
 ```
 
 Each training ablation restarts from the common actor checkpoint and its own empty inventory. The `statistics` suite contains full EvoCond, the combined raw conditional bandit control (`simple`), and the confidence-bound-only control (`bernstein`). Fixed-actor, fixed-memory mechanism evaluation is separate from these independently trained systems. The complete comparison protocol is in [experiments.md](experiments.md).
+
+## Memory Fatigue
+
+Each contextual training phase records the inventory used for retrieval, the pending publication inventory, and a randomized estimate of nonsemantic tool-list value relative to the semantic list. The estimate includes all preselected base questions and separates terminal success lift, clipped cost lift, and net utility. It uses the logged probabilities with a fixed reward midpoint, adding no reward head or adoption threshold.
+
+```bash
+python fatigue.py --root runs/reproduction/main/evocond/seed42/teacher/runtime \
+  --output outputs/memoryvalue.json
+python fatigue.py --panel assets/deployment/fatigue/seed42/panel.json \
+  --output outputs/fatigue42.json
+python fatigue.py --panels \
+  assets/deployment/fatigue/seed42/panel.json \
+  assets/deployment/fatigue/seed52/panel.json \
+  assets/deployment/fatigue/seed3047/panel.json \
+  assets/deployment/fatigue/seed3407/panel.json \
+  --output outputs/fatiguesummary.json
+```
+
+The trace command summarizes completed training windows. The panel commands analyze exported frozen evaluations with old/new actors crossed with old/new relation banks, using common tasks, capabilities, budgets, and a fixed structural presentation rule. They separate actor, relation-bank, and interaction effects; optional adopted outcomes measure the current teacher's recovery separately. Four-seed aggregation uses independent training runs as its uncertainty unit. Prepare the measured cell files and [panel manifest](configs/fatigue.example.json) as specified in [experiments.md](experiments.md#memory-fatigue). The existing DR teacher and deployment rule govern training; diagnostic outputs do not change the policy.
 
 ## Evaluation
 

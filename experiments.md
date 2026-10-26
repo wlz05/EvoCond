@@ -64,3 +64,47 @@ Evaluate each benchmark separately. Shared memory is frozen on test, while newly
 Four training seeds produce four accuracy values per condition and benchmark. Report their mean and sample standard deviation; repeated training rollouts are not extra test questions. Report per-benchmark values first, then explicitly distinguish benchmark macro-average from question-weighted average. `summary.py` requires the complete benchmark-by-seed grid, matching test fingerprints and denominators, and the same judge settings. Question-paired intervals remain separate from between-seed variation.
 
 The [ARPO protocol](https://arxiv.org/html/2507.19849v1) motivates declaring cold-start and sampling budgets explicitly; [AgentFlow, Section 4.3](https://arxiv.org/html/2510.05592#S4.SS3) separates training-strategy changes from fixed execution modules. EvoCond's comparison applies the same separation to actor cadence, condition representation, and adoption decisions.
+
+## Memory Fatigue
+
+Structural memory fatigue is a decline in the incremental terminal utility of structural guidance relative to semantic retrieval as training and relation accumulation proceed. Measure both utility and its components: raw task success, full cost, and the clipped cost used by the declared reward. A shrinking positive gain, zero gain, and negative gain distinguish reduced help, redundant guidance, and harmful interference. Improving memory-assisted accuracy alone does not determine the direction of this incremental value.
+
+The distinction matters during actor learning: successful execution with memory includes both actor capability and memory contribution. Actor progress can raise absolute success while memory's additional contribution declines. EvoCond learns adoption relative to semantic retrieval on the current actor and inventory, while relation feedback retains observational support. Structural guidance can therefore lose influence without deleting a capability needed by another task.
+
+### Training Trace
+
+`phases/phaseN.json` now records `memory_sizes.read_snapshot`, `memory_sizes.pending_publication`, and `memory_value`. Inventory counts refer to distinct capabilities, versions, relations, and retained edge events. `memory_value` compares semantic presentation with a prespecified uniform distribution over distinct nonsemantic actual payload classes at the randomized point. Identical payloads count once. With logging probability `p`, the contrast weight is `(target_probability - semantic_probability) / p`; a fixed reward midpoint centers the estimate. This known-propensity IPS diagnostic requires no fitted reward model. The adoption learner retains its cross-fitted DR objective.
+
+Every preselected question stays in the denominator. Unreached points, unsupported histories, and a single actual class contribute zero. No collected observations yields an unavailable mean rather than a zero-valued memory effect. Reports include the smallest logging probability, largest contrast weight, sample dispersion, and measured success and costs. Relation-support receipts separately record deduplicated queried edges, conditional mass, query effective support, and signed edge counts; their statistics cover only randomized points with recorded support. Legacy logs without these fields keep support unavailable. Training traces summarize the random-point effect under each logged continuation; the frozen panel below evaluates full presentation policies on the same probe tasks. Completed phases are included; an unfinished tail is counted separately. Neither output selects a deployment policy.
+
+### Frozen Actor-by-Memory Panel
+
+Freeze two actor snapshots and two relation banks before the probe evaluation. Keep capability identities, tool versions, task set, candidate-generation rule, payload budget, execution protocol, and cost scale common. Relation banks differ in retained relation evidence. In all four cells, run each scheduled base question under `semantic` and `structural` presentation. Structural presentation uses the same fixed rule in every cell; trained teachers do not enter the attribution target.
+
+| Cell | Actor | Relation evidence | Target |
+|---|---|---|---|
+| `actor0_bank0` | Earlier checkpoint | Earlier bank | Earlier structural lift |
+| `actor0_bank1` | Earlier checkpoint | Later bank | Bank effect at fixed actor |
+| `actor1_bank0` | Later checkpoint | Earlier bank | Actor effect at fixed bank |
+| `actor1_bank1` | Later checkpoint | Later bank | Later structural lift |
+
+Let `B00`, `B01`, `B10`, and `B11` be structural-minus-semantic net utility. Compute paired task contrasts before averaging: actor effect `B10-B00`, bank effect `B01-B00`, interaction `B11-B10-B01+B00`, and total change `B11-B00`. The three effects sum to the total change. Further condition-erasure and budget controls locate the mechanism behind each effect. Repeat on seeds 42, 52, 3047, 3407 and use `--panels` for the mean and sample standard deviation over training runs.
+
+Populate [configs/fatigue.example.json](configs/fatigue.example.json) with actual checkpoint, bank, common-protocol, and cell-file SHA256 values. Set integer `questions` to the full scheduled probe count and `base_ids_sha256` to `control.dynamic.digest(sorted(scheduled_base_ids))`, derived from the frozen probe reference. Paths are relative to the manifest. Each cell file is a JSON object with these fields:
+
+```json
+{
+  "format": "evocond_fatigue_cell_v1",
+  "actor": "<ACTOR_SHA256>",
+  "bank": "<RELATION_BANK_SHA256>",
+  "seed": 42,
+  "protocol_sha256": "<CANONICAL_PROTOCOL_SHA256>",
+  "records": []
+}
+```
+
+`protocol_sha256` is `control.dynamic.digest(manifest["protocol"])`. Export one record per scheduled task with `base_id`, `semantic`, and `structural`. Each outcome has a Boolean `success` and measured `costs` with numeric `actor`, `tools`, and `retrieval` entries. Failed, timed-out, or missing answers remain explicit failed outcomes with their incurred costs. All four files must cover the predeclared reference, including failures; matching subsets cannot reduce the denominator. The importer rejects missing cells, unmatched tasks, repeated checkpoints, corrupt checksums, and nonfinite costs. UTF-8 files with or without a byte-order mark are accepted, while checksums identify the original file bytes.
+
+To measure adoption recovery, add `adopted` outcomes for every task in every cell and a `teacher_sha256` identifying that cell's frozen, current-basis teacher. The report gives adopted-minus-semantic and adopted-minus-structural utility independently of the fixed-structure decomposition. Record call changes alongside payload changes when testing whether recovered utility comes from actual execution decisions.
+
+The comparison targets the learning trajectory of the same actor family. [REM, October 2026](https://arxiv.org/abs/2610.27377v1) studies in-loop recall, eviction, and recipient capability; [CoEvo-Mem](https://arxiv.org/abs/2608.01739v1) alternates retrieval and memory learning with a fixed answering model; [MemRL](https://arxiv.org/abs/2601.03192v2) learns memory utility with a frozen backbone. EvoCond's panel separates changing relation evidence from a changing actor and tests current-value adoption on that evolving execution basis.

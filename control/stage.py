@@ -8,7 +8,7 @@ import json
 import math
 from pathlib import Path
 import time
-from control import bandit, drift, dynamic, mixing as fusion, identity, metric, relations, subtasks, whole, windows
+from control import bandit, drift, dynamic, fatigue, mixing as fusion, identity, metric, relations, subtasks, whole, windows
 from control.context import embedding
 from control.context import visible
 FORMAT = 'evocond_contextual_stage_v6'
@@ -225,7 +225,8 @@ class Engine:
                 horizon=self.options['horizon_steps'], marked_point=context['marked_point'], retrieval_index=index,
                 point_probability=1/self.options['horizon_steps'], rollout_probability=1/self.options['rollouts'],
                 seed=self.options['seed'], continuation_teacher_sha256=dynamic.digest(model),
-                encoder=self.encoder_id, alignment=dynamic.digest(self.alignment), metric=dynamic.digest(self.metric), status='observed')
+                encoder=self.encoder_id, alignment=dynamic.digest(self.alignment), metric=dynamic.digest(self.metric),
+                relation_support=fatigue.support(result), status='observed')
         output = dict(schemas=presentation(classes[selected]['ranking']) if selected is not None else [],
             note='Historical order is optional. Use current task arguments and visible evidence.', contextual=True,
             alpha=classes[selected]['alpha'] if selected is not None else 0.0, payload_classes=len(classes),
@@ -240,7 +241,8 @@ class Engine:
         telemetry = dict(event='contextual_retrieval', task_id=context['task_id'], split=context['split'], turn=turn,
             phase=self.phase, snapshot=self.snapshot, actor=self.actor, alpha=output['alpha'], marked=output['marked'],
             edge_support=output['edge_support'], payload_hash=output['payload_hash'], semantic_payload_hash=output['semantic_payload_hash'], abstention=output['abstention'],
-            teacher_depth=bandit.depth(model), metric_geometry=self.metric['geometry_id'], exposure=output['exposure'], adoption=output['adoption'])
+            teacher_depth=bandit.depth(model), metric_geometry=self.metric['geometry_id'], exposure=output['exposure'],
+            relation_support=fatigue.support(result), adoption=output['adoption'])
         with (self.runtime.root/'retrievals.jsonl').open('a', encoding='utf-8') as stream:
             stream.write(json.dumps(telemetry, sort_keys=True, allow_nan=False)+'\n')
         self.charge(context, 'retrieval', dict(seconds=time.monotonic()-started))
@@ -333,6 +335,8 @@ class Engine:
             original_rollouts=len(training), interventions=sum(row['interventions'] for row in labels), base_observations=len(labels), extra_rollouts=0,
             costs={key: sum(row['costs'][key] for row in training) for key in ('actor', 'tools', 'retrieval')},
             teacher_fitted=False, actor_update='native_searl_trainer_only', test_used=False)
+        report['memory_sizes'] = dict(read_snapshot=fatigue.inventory(self.registry), pending_publication=fatigue.inventory(registry))
+        report['memory_value'] = fatigue.window(labels)
         report['confidence_protocol'] = dict(horizon=self.options['horizon_steps'], penalty=self.options['penalty'],
             epsilon=self.options['epsilon'], beta=self.options['beta']/self.options['maximum_windows'], delta_max=self.options['delta_max'])
         receipts = [receipt for row in training for receipt in row['cost_receipts']]
