@@ -10,11 +10,12 @@ FORMAT = 'evocond_study_v1'
 SEEDS = (42, 52, 3047, 3407)
 SUITES = {
     'main': ('searl', 'pace', 'evocond'),
-    'ablation': ('evocond', 'semantic', 'global', 'identity', 'fixed', 'raw'),
+    'ablation': ('evocond', 'semantic', 'pooled', 'global', 'identity', 'fixed', 'raw'),
     'statistics': ('evocond', 'simple', 'bernstein'),
 }
 CHANGES = {
     'evocond': {}, 'semantic': {'variant': 'semantic', 'fixed_alpha': 0.0},
+    'pooled': {'variant': 'global', 'fixed_alpha': 0.5},
     'global': {'variant': 'global'}, 'identity': {'variant': 'noidentity'},
     'fixed': {'fixed_alpha': 0.5}, 'raw': {'variant': 'raw'},
     'simple': {'variant': 'simple'}, 'bernstein': {'confidence_method': 'bernstein'},

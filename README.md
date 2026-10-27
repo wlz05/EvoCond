@@ -1,8 +1,8 @@
 # EvoCond: Preserving Conditional Tool Relations for Co-Evolving Language Agents
 
-**EvoCond** learns when accumulated tool experience still helps a learning agent. Learning changes what the actor can solve and which guidance it needs, so historical success does not measure the current value of a relation. EvoCond retains conditional evidence, reconstructs ordering proposals for the current task, and learns their incremental terminal utility from randomized tool-list presentation. Evidence persists across tasks; its influence is re-evaluated as the actor and inventory evolve.
+**EvoCond** turns historical tool relations into proposals for the current task, then learns whether presenting them improves the current actor. Shared capability identities retain condition-feedback events. Each query reconstructs directed ordering proposals from applicable evidence, and randomized tool-list presentation supplies their terminal utility relative to semantic retrieval. Evidence accumulates across tasks; adoption is re-evaluated as the actor and inventory evolve.
 
-We study **structural memory fatigue**: relation evidence keeps growing while structural guidance adds less net utility than before, relative to semantic retrieval on the same execution basis. A smaller gain can reflect fewer remaining errors to rescue, more previously successful tasks disrupted, or higher execution cost. EvoCond separates historical support from current adoption value and evaluates these outcomes separately, so a declining average does not automatically become a reason to discard reusable experience.
+We study **structural memory fatigue**: relation evidence keeps growing while its incremental execution benefit declines. Historical support and current benefit answer different questions. Conditions determine which past combinations support a proposal; the current actor's execution determines whether that proposal helps. EvoCond keeps these decisions distinct and learns adoption from their actual outcomes.
 
 EvoCond achieves state-of-the-art pass@1 performance in mathematical and multi-hop reasoning. Experiments use **8 NVIDIA GeForce RTX 4090 GPUs**, with random seeds **42, 52, 3047, and 3407**.
 
@@ -36,9 +36,9 @@ Within a frozen execution window, a preselected retrieval point receives one ran
 
 ### Key Contributions
 
-- **Evidence-preserving relation reuse.** Shared capability identities retain condition-feedback events, from which each query reconstructs directed ordering proposals.
-- **Current-actor adoption value.** Actual tool-list presentation is the intervention, and terminal utility relative to semantic retrieval is the learning target.
-- **Adoption under co-evolution.** Frozen windows support value estimation and deployment on the same execution basis; actor and inventory updates trigger re-evaluation.
+- **Conditional tool-relation reuse.** Accumulated events support task-specific proposals whose influence is learned from current execution benefit.
+- **An executable adoption decision.** Actual tool-list presentation is the intervention, and terminal utility relative to the current actor's semantic execution is the learning target.
+- **A matched study of memory fatigue.** Condition-by-adoption controls test the proposal-to-benefit link; crossed actor-by-bank evaluation tests how that benefit changes during learning.
 
 ## Project Structure
 
@@ -260,12 +260,28 @@ The old contextual `searl` label was a semantic-reading control. Current `main/s
 |---|---|---|
 | `evocond` | Full reference | All components |
 | `semantic` | Semantic-only presentation | Tool admission and common execution |
+| `pooled` | Context-erased statistics and fixed alpha 0.5 | Identity alignment and execution budgets |
 | `global` | Context-erased relation statistics | Identity alignment, adoption teacher, budgets |
 | `identity` | No learned identity projection | Conditional evidence, adoption teacher, budgets |
 | `fixed` | Fixed alpha 0.5; no teacher fitting | Conditional evidence and identity alignment |
 | `raw` | Raw context distance; no learned context projection | Identity alignment and adoption teacher |
 
 These experiments independently train actor and memory from the common starting checkpoint. Their final inventories are outcomes, not matched covariates. For a fixed-actor mechanism comparison, separately freeze the same actor, memory bank, candidate pool, task order, and token budget, then replace only the target retrieval or adoption decision. Do not interpret independently retrained systems as same-prefix interventions.
+
+The core comparison crosses the evidence representation with the adoption rule:
+
+| Relation evidence | Fixed alpha 0.5 | Learned current-value adoption |
+|---|---|---|
+| Context-erased | `pooled` | `global` |
+| Conditional | `fixed` | `evocond` |
+
+Each row tests adoption with a fixed evidence rule; each column tests conditional evidence with a fixed adoption rule. With all four labels present, `summary.py` adds `conditional_adoption`: both evidence contrasts, both adoption contrasts, and `evocond - fixed - global + pooled`, per benchmark and training seed. Differences use accuracy fractions; multiply by 100 for percentage points. These are contrasts between independently trained systems. Compare against `semantic` to measure retained assistance and against `simple` to measure the benefit of learned representations. Frozen paired evaluations distinguish retained rescues from avoided harms, with full cost reported alongside utility.
+
+Generate this four-condition subset in a new run root; frozen matrices and completed experiments are preserved:
+
+```bash
+python run.py configs --root runs/relations --suite ablation --conditions pooled global fixed evocond --run
+```
 
 The statistical suite compares full EvoCond, `simple` (raw geometry and untrained identity with the same conditional bandit), and `bernstein` (only the confidence rule changes). `simple` is a combined reference, not a single-module ablation. Sensitivity sweeps use validation only; test results do not select thresholds, confidence rules, or checkpoints.
 

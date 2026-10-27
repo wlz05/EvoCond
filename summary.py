@@ -11,6 +11,23 @@ from control.contracts import publish, relative, strict_json
 from judge import digest
 from study import SEEDS
 
+def contrasts(conditions):
+    cells = ('pooled', 'global', 'fixed', 'evocond')
+    weights = dict(condition_at_fixed=(-1, 0, 1, 0), condition_at_learned=(0, -1, 0, 1),
+        adoption_at_pooled=(-1, 1, 0, 0), adoption_at_conditional=(0, 0, -1, 1),
+        interaction=(1, -1, -1, 1))
+    benchmarks = {}
+    for benchmark in conditions['evocond']['benchmarks']:
+        effects = {}
+        for name, coefficients in weights.items():
+            scores = [sum(weight*conditions[cell]['benchmarks'][benchmark]['per_seed'][str(seed)]
+                for cell, weight in zip(cells, coefficients)) for seed in SEEDS]
+            effects[name] = dict(mean=statistics.mean(scores), sample_std=statistics.stdev(scores),
+                per_seed=dict(zip(map(str, SEEDS), scores)))
+        benchmarks[benchmark] = effects
+    return dict(metric='pass_at_one_accuracy_difference', unit='fraction', cells=list(cells),
+        seed_unit='independent_training_run', benchmarks=benchmarks)
+
 def aggregate(path):
     path = Path(path).resolve()
     manifest_bytes = path.read_bytes()
@@ -85,8 +102,12 @@ def aggregate(path):
         output[condition] = dict(benchmarks=benchmarks,
             macro=dict(mean=statistics.mean(macro), sample_std=statistics.stdev(macro)),
             question_weighted=dict(mean=statistics.mean(weighted), sample_std=statistics.stdev(weighted)))
-    return dict(format='evocond_results_summary_v1', seeds=list(SEEDS), seed_unit='independent_training_run',
+    result = dict(format='evocond_results_summary_v1', seeds=list(SEEDS), seed_unit='independent_training_run',
         question_unit='scheduled_base_question', source_sha256=sha256(manifest_bytes).hexdigest(), conditions=output)
+    # Emit crossed effects only when all four registered cells are present.
+    if {'pooled', 'global', 'fixed', 'evocond'} <= set(output):
+        result['conditional_adoption'] = contrasts(output)
+    return result
 
 def main():
     parser = argparse.ArgumentParser(description='Summarize complete four-seed test reports.')

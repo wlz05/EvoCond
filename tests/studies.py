@@ -35,7 +35,7 @@ class StudyTests(unittest.TestCase):
             self.assertEqual({value['model'] for value in (native, pace, full)}, {'assets/models/Qwen3-4B'})
         study.inventory(values)
 
-    def test_ablation_changes_only_its_registered_factor(self):
+    def test_ablation_changes_only_its_registered_recipe(self):
         values = study.matrix(self.config(), 'ablation', [42])
         baseline = values['evocond/seed42']['contextual']
         for name, changes in study.CHANGES.items():
@@ -45,6 +45,28 @@ class StudyTests(unittest.TestCase):
             expected = {**baseline, **changes}
             self.assertEqual(values[key]['contextual'], expected)
         self.assertEqual(set(values), {name+'/seed42' for name in study.SUITES['ablation']})
+
+    def test_relation_and_adoption_controls_form_a_matched_factorial(self):
+        names = ('pooled', 'global', 'fixed', 'evocond')
+        values = study.matrix(self.config(), 'ablation', conditions=names)
+        self.assertEqual(len(values), 4*len(study.SEEDS))
+        study.inventory(values)
+        for seed in study.SEEDS:
+            options = [values[f'{name}/seed{seed}']['contextual'] for name in names]
+            self.assertEqual([(row['variant'], row['fixed_alpha']) for row in options],
+                [('global', .5), ('global', None), ('full', .5), ('full', None)])
+            # Both axes preserve the remaining execution settings.
+            shared = [{key: value for key, value in row.items() if key not in ('variant', 'fixed_alpha')}
+                for row in options]
+            self.assertTrue(all(row == shared[0] for row in shared))
+
+    def test_pooled_control_cannot_silently_learn_or_retain_conditions(self):
+        config = study.matrix(self.config(), 'ablation', [42], ['pooled'])['pooled/seed42']
+        for changes in ({'variant': 'full'}, {'fixed_alpha': None}):
+            altered = deepcopy(config)
+            altered['contextual'].update(changes)
+            with self.assertRaisesRegex(ValueError, 'ablation factor'):
+                study.setup(altered)
 
     def test_false_native_labels_and_duplicate_seeds_are_rejected(self):
         value = study.matrix(self.config(), seeds=[42])['searl/seed42']['design']
@@ -190,10 +212,38 @@ class StudyTests(unittest.TestCase):
             path, value = self.result_manifest(Path(folder))
             result = summary.aggregate(path)
             self.assertEqual(result['conditions']['evocond']['macro'], dict(mean=1., sample_std=0.))
+            self.assertNotIn('conditional_adoption', result)
             value['reports'].pop()
             path.write_text(json.dumps(value), encoding='utf-8')
             with self.assertRaisesRegex(ValueError, 'Missing'):
                 summary.aggregate(path)
+
+    def test_summary_computes_crossed_effects_from_complete_seed_reports(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            path, value = self.result_manifest(root)
+            value['conditions'] = ['pooled', 'global', 'fixed', 'evocond']
+            for index, item in enumerate(value['reports']):
+                target = root/item['path']
+                protocol_path = target.parent/'judge_protocol.json'
+                protocol = json.loads(protocol_path.read_text(encoding='utf-8'))
+                protocol.update(reference_count=20, arms={name: {} for name in value['conditions']})
+                protocol_path.write_text(json.dumps(protocol), encoding='utf-8')
+                counts = (2, 4, 6, 10+index)
+                report = dict(complete=True, protocol_sha256=judge.digest(protocol), arms={
+                    name: dict(n=20, correct=count, acc=count/20) for name, count in zip(value['conditions'], counts)})
+                target.write_text(json.dumps(report), encoding='utf-8')
+                item['sha256'] = judge.file_hash(target)
+            path.write_text(json.dumps(value), encoding='utf-8')
+            result = summary.aggregate(path)['conditional_adoption']
+            self.assertEqual(result['unit'], 'fraction')
+            effects = result['benchmarks']['fixture']
+            self.assertAlmostEqual(effects['condition_at_fixed']['mean'], .2)
+            self.assertAlmostEqual(effects['adoption_at_pooled']['mean'], .1)
+            self.assertAlmostEqual(effects['interaction']['mean'], .175)
+            self.assertAlmostEqual(effects['interaction']['per_seed']['42'], .1)
+            self.assertAlmostEqual(effects['interaction']['per_seed']['3407'], .25)
+            self.assertGreater(effects['interaction']['sample_std'], 0.)
 
     def test_summary_does_not_relabel_one_report_as_multiple_training_seeds(self):
         with tempfile.TemporaryDirectory() as folder:
