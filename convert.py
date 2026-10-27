@@ -8,10 +8,12 @@ from collections import Counter
 from hashlib import sha256
 import json
 import math
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
+import re
 import shutil
 import unicodedata
-from control.contracts import strict_json
+from control.contracts import publish, relative, strict_json
+from catalogue import pinned_revision
 FORMAT = "searl_dataset_manifest_v1"
 AUDIT_FORMAT = "searl_dataset_audit_v1"
 SPLITS = ("train", "validation", "test")
@@ -38,7 +40,7 @@ def pointer(row, path: str):
             raise ValueError("Malformed JSON pointer escape")
         part = part.replace("~1", "/").replace("~0", "~")
         if isinstance(value, list):
-            if not part.isdigit() or int(part) >= len(value):
+            if not re.fullmatch(r'0|[1-9][0-9]*', part) or int(part) >= len(value):
                 raise ValueError(f"Missing mapped list element: {path}")
             value = value[int(part)]
         elif isinstance(value, dict) and part in value:
@@ -132,8 +134,10 @@ def read_manifest(path: Path) -> dict:
             raise ValueError("Only explicit JSON arrays, JSONL and Parquet inputs are supported")
         if len(source["sha256"]) != 64 or any(char not in "0123456789abcdef" for char in source["sha256"]):
             raise ValueError("Source SHA256 must be an exact lowercase digest")
-        if source["source_revision"].casefold() in ("main", "master", "latest", "head"):
-            raise ValueError("Floating source revisions are forbidden")
+        try:
+            pinned_revision(source['source_revision'])
+        except ValueError as error:
+            raise ValueError('Floating or invalid source revisions are forbidden') from error
         source_path = Path(source["path"])
         resolved = (path.parent / source_path).resolve() if not source_path.is_absolute() else source_path.resolve()
         if resolved in source_paths:
@@ -199,7 +203,7 @@ def adapt_row(row: dict, source: dict, row_number: int, split_index: int) -> dic
     normalized_question(question)
     answers = _answers(pointer(row, mapping["answer"]))
     original_id = pointer(row, mapping["id"]) if "id" in mapping else str(row_number)
-    if isinstance(original_id, bool) or not isinstance(original_id, (str, int)):
+    if isinstance(original_id, bool) or not isinstance(original_id, (str, int)) or not str(original_id).strip():
         raise ValueError("Mapped row ID must be text or integer")
     result = {"data_source": source["data_source"], "ability": source["ability"],
               "prompt": [{"role": "user", "content": question}], "question": question,
@@ -268,9 +272,54 @@ def build_plan(manifest_path: Path) -> tuple[dict, dict, dict]:
                         "Missing tool-call expectations are not invented; source license/provenance declarations are not verified online."}
     return audit, rows, paths
 def _write_json(path: Path, value: dict) -> None:
-    with path.open("x", encoding="utf-8", newline="\n") as stream:
-        json.dump(value, stream, ensure_ascii=False, indent=2, allow_nan=False)
-        stream.write("\n")
+    publish(path, json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False))
+
+def prepared(paths, *, mode=None, counts=None):
+    if (not isinstance(paths, dict) or not paths or set(paths)-set(SPLITS)
+            or mode not in (None, 'adapted_upstream', 'author_preprocessed')
+            or counts is not None and not isinstance(counts, dict)):
+        raise ValueError('Declare prepared split paths, provenance and optional row counts')
+    verified = {}
+    for split, source in paths.items():
+        path = Path(source).resolve(strict=True)
+        marker, audit_path = path.parent/'preparation_started.json', path.parent/'dataset_audit.json'
+        if not marker.exists() and not audit_path.exists() and mode != 'adapted_upstream':
+            continue
+        if not audit_path.is_file():
+            raise ValueError('Converted datasets require a complete dataset_audit.json')
+        payload = audit_path.read_bytes()
+        audit = strict_json(payload.decode('utf-8-sig'), max_text=64*1024*1024)
+        if (not isinstance(audit, dict) or audit.get('format') != AUDIT_FORMAT or audit.get('complete') is not True
+                or audit.get('files_written') is not True or audit.get('mode') not in ('author_preprocessed', 'adapted_upstream')
+                or mode is not None and audit['mode'] != mode
+                or not isinstance(audit.get('manifest_sha256'), str) or not re.fullmatch('[a-f0-9]{64}', audit['manifest_sha256'])):
+            raise ValueError('Dataset preparation is incomplete or has different provenance')
+        if marker.exists():
+            started = strict_json(marker.read_text(encoding='utf-8-sig'))
+            if (not isinstance(started, dict) or started.get('complete') is not False
+                    or started.get('manifest_sha256') != audit['manifest_sha256']):
+                raise ValueError('Dataset completion audit does not match its preparation marker')
+        outputs, declared_counts = audit.get('outputs'), audit.get('counts')
+        record = outputs.get(split) if isinstance(outputs, dict) else None
+        if (not isinstance(record, dict) or not isinstance(declared_counts, dict)
+                or type(record.get('rows')) is not int or record['rows'] < 1
+                or type(declared_counts.get(split)) is not int
+                or record['rows'] != declared_counts.get(split)
+                or counts is not None and (type(counts.get(split)) is not int or record['rows'] != counts.get(split))
+                or not isinstance(record.get('sha256'), str) or not re.fullmatch('[a-f0-9]{64}', record['sha256'])
+                or not isinstance(record.get('path'), str) or not record['path']):
+            raise ValueError('Prepared split metadata or row counts do not match')
+        name = record['path']
+        declared = PureWindowsPath(name) if PureWindowsPath(name).drive else Path(name)
+        if name.startswith('/') or declared.is_absolute():
+            # Older audits stored absolute paths; content and split identity remain binding.
+            matches = declared.name == path.name
+        else:
+            matches = relative(path.parent, name).resolve() == path
+        if not matches or file_hash(path) != record['sha256']:
+            raise ValueError('Prepared split path or content SHA256 differs from its completion audit')
+        verified[split] = dict(audit_sha256=sha256(payload).hexdigest(), manifest_sha256=audit['manifest_sha256'])
+    return verified
 def prepare(manifest_path: Path, output: Path | None = None, *, run: bool = False) -> dict:
     if output is not None and output.exists():
         raise ValueError("Output must be a new directory; existing datasets are never overwritten")
@@ -303,7 +352,10 @@ def prepare(manifest_path: Path, output: Path | None = None, *, run: bool = Fals
             else:
                 pq.write_table(tables[split], staging, compression="zstd")
             staging.rename(target)
-            outputs[split] = {"path": str(target), "sha256": file_hash(target), "rows": len(rows[split])}
+            outputs[split] = {"path": target.name, "sha256": file_hash(target), "rows": len(rows[split])}
+        if file_hash(manifest_path) != audit['manifest_sha256'] or any(
+                file_hash(Path(source['resolved_path'])) != source['sha256'] for source in audit['sources']):
+            raise ValueError('Manifest or source changed before conversion completed')
         result = {**audit, "run": True, "files_written": True, "complete": True, "outputs": outputs}
         _write_json(output / "dataset_audit.json", result)
         return result

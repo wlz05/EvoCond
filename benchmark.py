@@ -8,7 +8,9 @@ import argparse
 from copy import deepcopy
 from hashlib import sha256
 import json
+import logging
 import math
+from control.isolation import SandboxInfrastructureError
 from catalogue import benchmark, pinned_revision, relative_path
 from convert import file_hash, normalized_question, read_rows
 class NativeEvaluator(ABC):
@@ -19,12 +21,15 @@ class NativeEvaluator(ABC):
     def grade(self, private_reference, trajectory: dict, protocol: dict) -> dict:
         raise NotImplementedError("Use the benchmark's native evaluator; no generic answer-match fallback")
 def load_cases(path):
-    cases = list(read_rows(path, "jsonl"))
+    return checked(list(read_rows(path, 'jsonl')))
+def checked(cases):
+    if not isinstance(cases, (list, tuple)) or not cases:
+        raise ValueError('Require a nonempty list of scheduled evaluation cases')
     ids = set()
     for case in cases:
         if not isinstance(case, dict) or set(case) != {"id", "prompt", "context", "reference", "group", "group_keys"}:
             raise ValueError("Use normalized dataset_split records")
-        if not isinstance(case["id"], str) or not case["id"] or case["id"] in ids:
+        if not isinstance(case["id"], str) or not case["id"].strip() or case["id"] in ids:
             raise ValueError("Cases need unique nonempty string IDs")
         ids.add(case["id"])
         normalized_question(case["prompt"])
@@ -41,10 +46,12 @@ def make_protocol(name, data_sha256, source_revision, evaluator_revision, model_
     spec = benchmark(name)
     pinned_revision(source_revision)
     pinned_revision(evaluator_revision)
-    if len(data_sha256) != 64 or any(char not in "0123456789abcdef" for char in data_sha256):
+    if not isinstance(data_sha256, str) or len(data_sha256) != 64 or any(char not in "0123456789abcdef" for char in data_sha256):
         raise ValueError("Declare the exact evaluation data SHA256")
-    if not model_id.strip() or not arm.strip():
+    if not isinstance(model_id, str) or not model_id.strip() or not isinstance(arm, str) or not arm.strip():
         raise ValueError("Declare a fixed model/checkpoint identity and method arm")
+    if type(seed) is not int or seed < 0:
+        raise ValueError('Evaluation seeds must be nonnegative integers')
     protocol = {"benchmark": name, "data_sha256": data_sha256, "source_revision": source_revision, "evaluator": spec.evaluation, "evaluator_revision": evaluator_revision, "model_id": model_id, "arm": arm, "seed": seed, "samples_per_task": 1}
     protocol["sha256"] = sha256(json.dumps(protocol, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     return protocol
@@ -65,10 +72,21 @@ def receipt(case_id, result, protocol):
         raise ValueError("Errors and timeouts must have zero score")
     return {"id": case_id, "protocol_sha256": protocol["sha256"], "evaluator": protocol["evaluator"], "evaluator_revision": protocol["evaluator_revision"], "status": result["status"], "score": float(value), "passed": None if continuous else value}
 def evaluate(cases, evaluator: NativeEvaluator, protocol):
-    for case in cases:
-        trajectory = evaluator.run(public_case(case), dict(protocol))
+    for case in checked(cases):
+        try:
+            trajectory = evaluator.run(public_case(case), deepcopy(protocol))
+        except SandboxInfrastructureError:
+            raise
+        except Exception as error:
+            logging.getLogger(__name__).warning('Execution failed for case %s: %s', case['id'], type(error).__name__)
+            status = 'timeout' if isinstance(error, TimeoutError) else 'error'
+            key = 'score' if benchmark(protocol['benchmark']).score_kind == 'continuous' else 'passed'
+            yield receipt(case['id'], {'status': status, key: 0. if key == 'score' else False}, protocol)
+            continue
+        # Grading failures abort evaluation instead of becoming false task labels.
         yield receipt(case["id"], evaluator.grade(case["reference"], trajectory, dict(protocol)), protocol)
 def summarize(cases, receipts, protocol):
+    checked(cases)
     expected, observed = {case["id"] for case in cases}, {}
     continuous = benchmark(protocol["benchmark"]).score_kind == "continuous"
     for row in receipts:

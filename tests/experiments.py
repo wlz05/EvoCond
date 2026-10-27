@@ -121,6 +121,20 @@ class ExperimentTests(unittest.TestCase):
         folder.mkdir(parents=True)
         (folder/'main.py').write_text('value = 2', encoding='utf-8')
         self.assertEqual(experiment.directory_digest(self.root), expected)
+
+    def test_method_fingerprint_ignores_disposable_test_dependencies(self):
+        (self.root/'main.py').write_text('value = 1', encoding='utf-8')
+        expected = experiment.directory_digest(self.root)
+        folder = self.root/'.test-tmp/arrow'
+        folder.mkdir(parents=True)
+        (folder/'temporary.py').write_text('value = 2', encoding='utf-8')
+        self.assertEqual(experiment.directory_digest(self.root), expected)
+
+    def test_encoder_inside_a_parent_cache_directory_is_valid(self):
+        folder = self.root/'.cache/encoder'
+        folder.mkdir(parents=True)
+        (folder/'model.safetensors').write_bytes(b'CPU_ENCODER_FIXTURE')
+        self.assertEqual(len(experiment.directory_digest_encoder(folder)), 64)
     def test_three_arms_receive_same_training_budget_and_private_outputs(self):
         frozen = self.frozen()
         commands, environments = {}, {}
@@ -136,6 +150,17 @@ class ExperimentTests(unittest.TestCase):
         self.assertEqual({env["RL_FACTORY_EMBEDDING_MODEL"] for env in environments.values()}, {frozen["config"]["encoder"]})
         namespaces = [next(value for value in commands[arm] if value.startswith("++ray_init.namespace=")) for arm in experiment.ARMS]
         self.assertEqual(len(set(namespaces)), 3)
+
+    def test_launch_pins_native_roots_and_prompt_mode_from_dirty_shell(self):
+        frozen = self.frozen()
+        with patch.dict(experiment.os.environ, {'RL_FACTORY_ROOT': 'other-project', 'SEARL_OFFICIAL_ROOT': 'other-source',
+                'DYNAMIC_PROMPT': 'True', 'PYTHONPATH': 'unrelated-source'}):
+            command, environment = experiment.launch_spec(frozen, self.root, 'evocond', attempt='cpu')
+        self.assertEqual(environment['RL_FACTORY_ROOT'], frozen['config']['official_root'])
+        self.assertEqual(environment['SEARL_OFFICIAL_ROOT'], frozen['config']['official_root'])
+        self.assertEqual(environment['DYNAMIC_PROMPT'], 'False')
+        self.assertNotIn('unrelated-source', environment['PYTHONPATH'])
+        self.assertIn('++actor_rollout_ref.env.dynamic_prompt=false', command)
     def test_runtime_registries_are_arm_private(self):
         configurations = experiment.runtimes(self.frozen(), self.root)
         self.assertEqual(len({row["registry_path"] for row in configurations.values()}), 3)

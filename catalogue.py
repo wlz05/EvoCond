@@ -5,6 +5,7 @@
 from __future__ import annotations
 from dataclasses import asdict, dataclass
 import json
+import re
 @dataclass(frozen=True)
 class Benchmark:
     name: str
@@ -25,13 +26,17 @@ def benchmark(name: str) -> Benchmark:
         raise ValueError(f"Unknown benchmark: {name}; choose {', '.join(BENCHMARKS)}")
     return BENCHMARKS[name]
 def pinned_revision(value: str) -> str:
-    if not isinstance(value, str) or not value.strip() or value.casefold() in {"main", "master", "head", "latest"}:
+    if (not isinstance(value, str) or not value.strip() or value != value.strip()
+            or value.casefold().startswith(('refs/heads/', 'refs/remotes/', 'origin/'))
+            or re.split(r'[~^@]', value.casefold(), maxsplit=1)[0] in {'main', 'master', 'head', 'latest'}):
         raise ValueError("Declare a fixed source revision or immutable release")
     return value
 def relative_path(value: str):
     from pathlib import Path, PureWindowsPath
-    if not value or Path(value).is_absolute() or PureWindowsPath(value).drive or PureWindowsPath(value).root:
+    from control.contracts import relative
+    if not isinstance(value, str) or not value or Path(value).is_absolute() or PureWindowsPath(value).drive or PureWindowsPath(value).root:
         raise ValueError("Use a relative filesystem path")
+    relative(Path.cwd(), value)
     return Path(value)
 if __name__ == "__main__":
     print(json.dumps({"benchmarks": [asdict(item) for item in BENCHMARKS.values()], "notice": "Reserved integration contracts, not installed native evaluators. Preserve official splits; group prompt variants by task identity."}, indent=2))

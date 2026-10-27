@@ -64,9 +64,9 @@ EvoCond/
 
 ## Requirements
 
-- Linux with NVIDIA drivers and a CUDA-compatible PyTorch installation.
+- Linux with NVIDIA drivers and a CUDA-compatible [PyTorch installation](https://pytorch.org/get-started/locally/).
 - **8 RTX 4090 GPUs** for the distributed actor experiment.
-- Python 3.10 or newer, Ray, vLLM, Transformers, PyArrow, and the dependencies of the bundled SEARL runtime.
+- Python 3.10 or newer, [Ray](https://docs.ray.io/en/latest/), [vLLM](https://docs.vllm.ai/en/latest/), Transformers, [PyArrow](https://arrow.apache.org/docs/python/), and the dependencies of the bundled [SEARL runtime](https://github.com/circles-post/SEARL).
 - An isolated tool-execution service, a retrieval service, and configured judge endpoints.
 
 The actor is [Qwen3-4B](https://huggingface.co/Qwen/Qwen3-4B). Tool retrieval uses [e5-base-v2](https://huggingface.co/intfloat/e5-base-v2). The training and evaluation judge configurations support [QwQ-32B](https://huggingface.co/Qwen/QwQ-32B) and [Qwen3-32B](https://huggingface.co/Qwen/Qwen3-32B), respectively. Judge services run separately from the eight-GPU actor allocation.
@@ -82,7 +82,7 @@ python install.py --profile native --requirements assets/deployment/requirements
 python -B test.py
 ```
 
-Run `source.py --run` once after cloning to restore the pinned configurations, prompts, package map, and native launch scripts. Existing local settings are preserved. The command downloads no models or datasets.
+Run [source.py](source.py) with `--run` once after cloning to restore the pinned configurations, prompts, package map, and native launch scripts. Existing local settings are preserved. The command downloads no models or datasets.
 
 Place the exact dependency lock for the selected CUDA environment at `assets/deployment/requirements.txt`. The first installation command checks dependency provenance; the second installs that lock. Keep the repository root on `PYTHONPATH` when invoking the bundled baseline directly. The experiment launcher sets this automatically for its workers.
 
@@ -111,7 +111,33 @@ python convert.py --manifest assets/deployment/datasets.json
 python convert.py --manifest assets/deployment/datasets.json --output assets/splits --run
 ```
 
-Use a conversion manifest that specifies the source files, checksums, field mapping, and train/validation/test assignments. `python convert.py --help` and `python partition.py --help` expose the conversion and grouped-split interfaces. Keep related task variants in the same partition. Downloaded upstream sources and converted experiment splits are separate artifacts.
+Use a conversion manifest that specifies the source files, checksums, field mapping, and train/validation/test assignments. [convert.py](convert.py) validates the source schema; [partition.py](partition.py) prepares grouped splits. Keep related task variants in the same partition. Downloaded upstream sources and converted experiment splits are separate artifacts.
+
+For a JSONL source with `question` and `answer` fields, an entry in `assets/deployment/datasets.json` has this form:
+
+```json
+{
+  "format": "searl_dataset_manifest_v1",
+  "mode": "adapted_upstream",
+  "sources": [{
+    "name": "custom_train",
+    "path": "../raw/train.jsonl",
+    "sha256": "<source-sha256-from-inspection>",
+    "format": "jsonl",
+    "split": "train",
+    "source_split": "train",
+    "source_uri": "<dataset-source-url>",
+    "source_revision": "<immutable-release-or-commit>",
+    "mapping": {"question": "/question", "answer": "/answer"},
+    "data_source": "arpo",
+    "ability": "reasoning"
+  }]
+}
+```
+
+Replace the source identity and pointers with inspected values, then add distinct validation and test entries. Source paths are relative to the manifest. A single-source manifest supports conversion inspection; native training requires all three disjoint splits. Use `mode: author_preprocessed` only for preserved author Parquet inputs, without mapping or relabelling.
+
+Keep `dataset_audit.json` with the converted Parquet files. Training checks its completion, split counts, source-manifest identity, and content checksums; a missing or damaged audit blocks adapted inputs. Audit output paths are relative to the conversion directory, so the completed directory can be moved together. An interrupted conversion retains its incomplete output for inspection; rerun into a new output directory.
 
 Arrange local artifacts as follows:
 
@@ -160,6 +186,7 @@ The collection batch is 256 base questions, with eight rollouts per question. Fu
 | Condition | Change from full EvoCond |
 |---|---|
 | `semantic` | Present semantic retrieval only |
+| `pooled` | Erase relation conditions and use fixed fusion, alpha = 0.5 |
 | `global` | Erase context conditioning from relation evidence; retain the learned teacher |
 | `identity` | Remove learned identity alignment; retain conditional reading and the teacher |
 | `fixed` | Replace learned adoption with fixed fusion, alpha = 0.5 |
@@ -205,7 +232,7 @@ python run.py evaluate --suite main --conditions evocond --seeds 42 \
 
 Choose the checkpoint on validation, then use `--split test --allow-test` with the same checkpoint. `global_step_40` illustrates the 10,000-question schedule; use the actual validation-selected checkpoint shown by `status`. Batch evaluation accepts a frozen map through `--checkpoints`; see `configs/checkpoints.example.json`. No latest-checkpoint guessing or test-score selection is performed.
 
-The example map contains the three main conditions for seed 42. Use `--seeds 42` with that map, or extend it to the exact selected seed/condition grid. Judge and result manifest paths are relative to the manifest file, not the shell's working directory. Set the real file checksums before running either manifest.
+The checkpoint map restored by [source.py](source.py) at `configs/checkpoints.example.json` contains the three main conditions for seed 42. Use `--seeds 42` with that map, or extend it to the exact selected seed/condition grid. Judge and result manifest paths are relative to the manifest file, not the shell's working directory. Set the real file checksums before running either manifest.
 
 Evaluation uses one greedy rollout per scheduled question, a frozen tool inventory, and task-private newly created tools. Failure, timeout, and missing prediction count as zero in the v2 judge manifest; duplicates and unaligned identities are rejected. The final Qwen3-32B scoring uses the author answer parser:
 
@@ -216,7 +243,7 @@ python judge.py --manifest assets/deployment/judge.json \
 python summary.py --manifest assets/deployment/results.json --output outputs/summary.json
 ```
 
-Use `configs/judge.example.json` for the actual study labels and `configs/results.example.json` for aggregation. Run scoring after the actor job or on a separate allocation. `summary.py` reports per-benchmark mean and sample standard deviation over the four training seeds, plus macro and question-weighted summaries. A complete test denominator is required in every condition.
+Use `configs/judge.example.json` for the actual study labels and `configs/results.example.json` for aggregation. These examples are restored by [source.py](source.py). Run [judge.py](judge.py) after the actor job or on a separate allocation. [summary.py](summary.py) reports per-benchmark mean and sample standard deviation over the four training seeds, plus macro and question-weighted summaries. A complete test denominator is required in every condition.
 
 For interrupted training, select one condition and seed and pass its paired checkpoint through `run.py train --resume`. Checkpoints bind actor weights, optimizer and data position, tool graph, registry, and adoption state. Existing frozen runs retain their original configuration; create the new `runs/reproduction` study for this protocol.
 

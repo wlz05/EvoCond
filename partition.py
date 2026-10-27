@@ -54,7 +54,10 @@ def normalize(rows, id_field, prompt_field, group_fields, reference_field, conte
         record["group"] = sha256(json.dumps(sorted(components[find(index)]), ensure_ascii=True).encode()).hexdigest()
     return records
 def partition(records, fractions, seed):
-    if len(fractions) != 3 or any(not math.isfinite(value) or value < 0 for value in fractions) or not math.isclose(sum(fractions), 1.0, abs_tol=1e-9):
+    if type(seed) is not int or seed < 0:
+        raise ValueError('Partition seeds must be nonnegative integers')
+    if (len(fractions) != 3 or any(type(value) not in (int, float) or not 0 <= value <= 1 for value in fractions)
+            or not math.isclose(math.fsum(fractions), 1.0, rel_tol=0., abs_tol=1e-9)):
         raise ValueError("Fractions must be three finite nonnegative numbers summing to one")
     groups = sorted({row["group"] for row in records}, key=lambda group: (sha256(f"{seed}:{group}".encode()).hexdigest(), group))
     counts = [math.floor(len(groups) * value) for value in fractions]

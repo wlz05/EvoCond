@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 from catalogue import benchmark, relative_path
 from partition import normalize, partition, prepare
 from leakage import audit
@@ -77,6 +78,55 @@ class DatasetInterfacesTests(unittest.TestCase):
                 return {"status": "ok", "passed": False}
         cases, protocol = self.normalized(), self.protocol()
         self.assertEqual(summarize(cases, list(evaluate(cases, FakeNative(), protocol)), protocol)["passed"], 0)
+
+    def test_inference_execution_failures_remain_in_the_denominator(self):
+        class Failing(NativeEvaluator):
+            def run(self, case, protocol):
+                if case['id'] == 'view0':
+                    raise TimeoutError('request timed out')
+                if case['id'] == 'view1':
+                    raise RuntimeError('execution failed')
+                return {'answer': 'fixture'}
+            def grade(self, reference, trajectory, protocol):
+                return {'status': 'ok', 'passed': True}
+        cases = self.normalized(self.rows(3))
+        with self.assertLogs('benchmark', level='WARNING'):
+            rows = list(evaluate(cases, Failing(), self.protocol()))
+        report = summarize(cases, rows, self.protocol())
+        self.assertEqual((report['n'], report['passed'], report['timeouts'], report['errors']), (3, 1, 1, 1))
+
+    def test_grader_failures_and_interruptions_are_not_task_failures(self):
+        class Broken(NativeEvaluator):
+            def run(self, case, protocol):
+                return {}
+            def grade(self, reference, trajectory, protocol):
+                raise RuntimeError('grader unavailable')
+        cases = self.normalized(self.rows(1))
+        with self.assertRaisesRegex(RuntimeError, 'grader unavailable'):
+            list(evaluate(cases, Broken(), self.protocol()))
+        with patch.object(Broken, 'run', side_effect=KeyboardInterrupt), self.assertRaises(KeyboardInterrupt):
+            list(evaluate(cases, Broken(), self.protocol()))
+        from control.isolation import SandboxInfrastructureError
+        with patch.object(Broken, 'run', side_effect=SandboxInfrastructureError('executor unavailable')):
+            with self.assertRaises(SandboxInfrastructureError):
+                list(evaluate(cases, Broken(), self.protocol()))
+
+    def test_direct_evaluation_rejects_duplicate_cases_before_execution(self):
+        cases = self.normalized(self.rows(1))
+        protocol = self.protocol()
+        rows = [receipt(cases[0]['id'], {'status': 'ok', 'passed': True}, protocol)]
+        with self.assertRaises(ValueError):
+            summarize(cases+cases, rows, protocol)
+
+    def test_split_ratios_and_revision_labels_are_not_coerced(self):
+        for seed in (True, -1, '42'):
+            with self.subTest(seed=seed), self.assertRaises(ValueError):
+                partition(self.normalized(), (.8, .1, .1), seed)
+        with self.assertRaises(ValueError):
+            partition(self.normalized(), (True, 0, 0), 42)
+        for revision in (' main ', 'refs/heads/main', 'HEAD~1'):
+            with self.subTest(revision=revision), self.assertRaises(ValueError):
+                make_protocol('toolhop', 'a'*64, revision, 'v1', 'qwen', 'arm', 42)
     def test_preparation_dry_run_preserves_test_and_rejects_training(self):
         with tempfile.TemporaryDirectory(dir=".") as folder:
             root = Path(folder).resolve().relative_to(Path.cwd())

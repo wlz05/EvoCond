@@ -8,6 +8,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
+import experiment
 import convert as datasets
 class TableFactory:
     @staticmethod
@@ -166,7 +167,7 @@ class DatasetPrepareTests(unittest.TestCase):
         self.assertTrue(report["complete"])
         self.assertTrue((self.output / "dataset_audit.json").is_file())
         for record in report["outputs"].values():
-            self.assertEqual(datasets.file_hash(Path(record["path"])), record["sha256"])
+            self.assertEqual(datasets.file_hash(self.output/record['path']), record["sha256"])
     def test_writer_error_does_not_publish_complete_audit(self):
         self.manifest_file([self.source("train", "train")])
         with patch.object(datasets, "_pyarrow", return_value=(FakeArrow, FakeParquet)), \
@@ -175,6 +176,82 @@ class DatasetPrepareTests(unittest.TestCase):
                 datasets.prepare(self.manifest, self.output, run=True)
         self.assertTrue((self.output / "preparation_started.json").is_file())
         self.assertFalse((self.output / "dataset_audit.json").exists())
+
+    def test_final_audit_failure_cannot_leave_a_complete_looking_file(self):
+        self.manifest_file([self.source('train', 'train')])
+        with patch.object(datasets, '_pyarrow', return_value=(FakeArrow, FakeParquet)), \
+                patch('control.contracts.os.fsync', side_effect=[None, OSError('audit disk failure')]):
+            with self.assertRaises(OSError):
+                datasets.prepare(self.manifest, self.output, run=True)
+        self.assertFalse((self.output/'dataset_audit.json').exists())
+
+    def test_prepared_inputs_require_complete_matching_audit(self):
+        self.manifest_file([self.source('train', 'train')])
+        with patch.object(datasets, '_pyarrow', return_value=(FakeArrow, FakeParquet)):
+            report = datasets.prepare(self.manifest, self.output, run=True)
+        paths = {'train': self.output/'train.parquet'}
+        verified = datasets.prepared(paths, mode='adapted_upstream', counts={'train': 1})
+        self.assertIn('train', verified)
+        audit_path = self.output/'dataset_audit.json'
+        for changes in ({'complete': False}, {'counts': {'train': 2}}, {'counts': {'train': True}}, {'mode': 'author_preprocessed'}):
+            audit_path.write_text(json.dumps({**report, **changes}), encoding='utf-8')
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                datasets.prepared(paths, mode='adapted_upstream', counts={'train': 1})
+        audit_path.unlink()
+        with self.assertRaises(ValueError):
+            datasets.prepared(paths, mode='adapted_upstream')
+        (self.output/'preparation_started.json').unlink()
+        with self.assertRaises(ValueError):
+            datasets.prepared(paths, mode='adapted_upstream')
+
+    def test_prepared_data_hash_and_completion_marker_are_bound(self):
+        self.manifest_file([self.source('train', 'train')])
+        with patch.object(datasets, '_pyarrow', return_value=(FakeArrow, FakeParquet)):
+            datasets.prepare(self.manifest, self.output, run=True)
+        paths = {'train': self.output/'train.parquet'}
+        marker = self.output/'preparation_started.json'
+        original = marker.read_bytes()
+        marker.write_text(json.dumps({'manifest_sha256': 'a'*64, 'complete': False}), encoding='utf-8')
+        with self.assertRaises(ValueError):
+            datasets.prepared(paths, mode='adapted_upstream')
+        marker.write_bytes(original)
+        paths['train'].write_bytes(b'changed after conversion')
+        with self.assertRaises(ValueError):
+            datasets.prepared(paths, mode='adapted_upstream')
+
+    def test_completed_conversion_can_be_moved_as_one_directory(self):
+        self.manifest_file([self.source('train', 'train')])
+        with patch.object(datasets, '_pyarrow', return_value=(FakeArrow, FakeParquet)):
+            report = datasets.prepare(self.manifest, self.output, run=True)
+        self.assertFalse(Path(report['outputs']['train']['path']).is_absolute())
+        moved = self.root/'moved'
+        self.output.rename(moved)
+        self.assertIn('train', datasets.prepared({'train': moved/'train.parquet'}, mode='adapted_upstream'))
+        for previous in ('/legacy/server/train.parquet', 'D:/legacy/train.parquet'):
+            report['outputs']['train']['path'] = previous
+            (moved/'dataset_audit.json').write_text(json.dumps(report), encoding='utf-8')
+            self.assertIn('train', datasets.prepared({'train': moved/'train.parquet'}, mode='adapted_upstream'))
+
+    def test_json_pointer_indices_and_source_ids_are_unambiguous(self):
+        for pointer in ('/items/01', '/items/\u0661'):
+            with self.subTest(pointer=pointer), self.assertRaises(ValueError):
+                datasets.pointer({'items': ['a', 'b']}, pointer)
+        source = self.source('train', 'train', rows=[{'q': 'Question?', 'a': 'Answer', 'id': ' '}])
+        source['mapping']['id'] = '/id'
+        self.manifest_file([source])
+        with self.assertRaises(ValueError):
+            datasets.build_plan(self.manifest)
+
+    def test_source_and_manifest_are_rechecked_before_completion(self):
+        self.manifest_file([self.source('train', 'train')])
+        original = FakeParquet.write_table
+        def write(table, path, compression):
+            original(table, path, compression)
+            self.manifest.write_text('{}', encoding='utf-8')
+        with patch.object(datasets, '_pyarrow', return_value=(FakeArrow, FakeParquet)), \
+                patch.object(FakeParquet, 'write_table', side_effect=write), self.assertRaises(ValueError):
+            datasets.prepare(self.manifest, self.output, run=True)
+        self.assertFalse((self.output/'dataset_audit.json').exists())
     def test_author_parquet_is_byte_preserved(self):
         source = self.source("author", "train")
         path = self.root / "author.parquet"
@@ -259,6 +336,39 @@ class DatasetPrepareTests(unittest.TestCase):
         restored = list(datasets.read_rows(self.output / "train.parquet", "parquet"))
         self.assertEqual(restored[0]["question"], "What is 2+2?")
         self.assertEqual(restored[0]["reward_model"]["ground_truth"]["target"], ["4"])
+
+    @unittest.skipUnless(importlib.util.find_spec('pyarrow') is not None, 'pyarrow is required for native freeze integration')
+    def test_real_converted_splits_reach_native_freeze_and_reject_missing_audit(self):
+        from tests.isolation import deployment
+        import study
+        sources = [self.source('train', 'train', rows=[{'q': f'Training question {i}?', 'a': str(i)} for i in range(256)]),
+            self.source('valid', 'validation', 'Validation question?'), self.source('test', 'test', 'Test question?')]
+        datasets.prepare(self.manifest_file(sources), self.output, run=True)
+        config = experiment.read(experiment.HERE/'configs/contextual.json')
+        config = study.matrix(config, seeds=[42], conditions=['evocond'])['evocond/seed42']
+        model, encoder = self.root/'model', self.root/'encoder'
+        model.mkdir()
+        encoder.mkdir()
+        architecture = dict(model_type='qwen3', hidden_size=2560, intermediate_size=9728, num_hidden_layers=36,
+            num_attention_heads=32, num_key_value_heads=8, vocab_size=151936, max_position_embeddings=32768)
+        (model/'config.json').write_text(json.dumps(architecture), encoding='utf-8')
+        for name in ('tokenizer_config.json', 'tokenizer.json'):
+            (model/name).write_text('{}', encoding='utf-8')
+        # Tiny byte fixtures exercise freezing without loading a model or GPU.
+        (model/'model.safetensors').write_bytes(b'CPU_FIXTURE_NOT_MODEL_WEIGHTS')
+        (encoder/'model.safetensors').write_bytes(b'CPU_FIXTURE_NOT_ENCODER_WEIGHTS')
+        isolation, inspection = deployment()
+        for name, value in (('isolation.json', isolation), ('inspection.json', inspection)):
+            (self.root/name).write_text(json.dumps(value), encoding='utf-8')
+        config.update(model=str(model), encoder=str(encoder), official_root=str(experiment.HERE/'baselines/SEARL-official'),
+            isolation_config=str(self.root/'isolation.json'), isolation_receipt=str(self.root/'inspection.json'),
+            datasets={name: str(self.output/(name+'.parquet')) for name in datasets.SPLITS})
+        frozen = experiment.freeze(config)
+        self.assertEqual(set(frozen['fingerprints']['dataset_preparation']), set(datasets.SPLITS))
+        self.assertEqual(frozen['split_audit']['datasets']['train']['rows'], 256)
+        (self.output/'dataset_audit.json').unlink()
+        with self.assertRaisesRegex(ValueError, 'dataset_audit'):
+            experiment.freeze(config)
 if __name__ == "__main__":
     unittest.main()
 

@@ -21,7 +21,7 @@ from control.isolation import canonical_hash, validate_deployment
 from control.runtime import load_config as load_runtime
 from control.runtime import execution_context_fingerprint
 from splits import audit, file_digest, rows
-from convert import validate_official_row, question_hash
+from convert import prepared, validate_official_row, question_hash
 from control.contracts import publish, strict_json
 from namespace import install as install_packages
 from source import reviewed
@@ -62,7 +62,7 @@ def directory_digest(path, *, model=False):
     else:
         files = sorted(p for p in path.rglob("*") if p.is_file() and
                        (p.suffix in (".py", ".sh", ".yaml", ".yml", ".pydata", ".jinja2") or p.relative_to(path).as_posix() == 'configs/packages.json') and
-                       not set(p.relative_to(path).parts) & {".git", "__pycache__", "runs", "outputs", "tests", "baselines", "archives", "assets"}
+                       not set(p.relative_to(path).parts) & {".git", "__pycache__", ".test-tmp", ".pytest_cache", ".venv", "venv", "runs", "outputs", "tests", "baselines", "archives", "assets"}
                        and not any(part.startswith(("tmp", ".evocond-backup-")) for part in p.relative_to(path).parts))
     if not files:
         raise ValueError("Empty artifact directory")
@@ -196,10 +196,12 @@ def freeze(config, *, collection=False, base=None):
         raise ValueError("Training dataset is smaller than one frozen batch")
     if result.get("dataset_provenance") not in ("author_preprocessed", "adapted_upstream"):
         raise ValueError("Declare author_preprocessed or adapted_upstream data provenance")
+    preparation = prepared(paths, mode=result['dataset_provenance'],
+        counts={name: value['rows'] for name, value in split['datasets'].items()})
     fingerprints = {"model": directory_digest(result["model"], model=True),
                     "official_source": directory_digest(root), "method_source": directory_digest(HERE),
                     "encoder": directory_digest_encoder(Path(result["encoder"])),
-                    "isolation": file_digest(Path(result["isolation_config"]))}
+                    "isolation": file_digest(Path(result["isolation_config"])), 'dataset_preparation': preparation}
     position_limit = read(Path(result["model"]) / "config.json").get("max_position_embeddings")
     if result.get('design') is not None:
         from study import actor
@@ -262,7 +264,8 @@ def freeze(config, *, collection=False, base=None):
     return {"config": result, "split_audit": split, "fingerprints": fingerprints,
             "upstream_commit": PIN, "claim": "modified online SEARL environment; not verified paper reproduction"}
 def directory_digest_encoder(path):
-    files = sorted(p for p in path.rglob("*") if p.is_file() and not set(p.parts) & {".cache", ".git"})
+    path = Path(path).resolve(strict=True)
+    files = sorted(p for p in path.rglob("*") if p.is_file() and not set(p.relative_to(path).parts) & {".cache", ".git"})
     if not files or not any(p.suffix in (".safetensors", ".bin") for p in files):
         raise ValueError("Encoder weights are missing")
     return canonical_hash({p.relative_to(path).as_posix(): file_digest(p) for p in files})
@@ -322,9 +325,10 @@ def launch_spec(frozen, root, arm, *, stage="train", split="validation", resume=
                SEARL_GPUS_PER_NODE=str(budget["gpus"]), PYTHON_BIN=sys.executable,
                MAX_PROMPT_LENGTH=str(budget["max_prompt"]), MAX_RESPONSE_LENGTH=str(budget["max_response"]),
                SEARL_SEARCH_URL=config["search_url"], RL_FACTORY_EMBEDDING_MODEL=config["encoder"],
+               RL_FACTORY_ROOT=config['official_root'], SEARL_OFFICIAL_ROOT=config['official_root'], DYNAMIC_PROMPT='False',
                SEARL_ISOLATION_CONFIG=config["isolation_config"], SEARL_ISOLATION_RECEIPT=config["isolation_receipt"],
                SEARL_DYNAMIC_REGISTRY=str(arm_root / "runtime" / "registry.json"),
-               PYTHONPATH=os.pathsep.join([str(HERE), config["official_root"], env.get("PYTHONPATH", "")]),
+               PYTHONPATH=os.pathsep.join([str(HERE), config["official_root"]]),
                WANDB_DIR=str(arm_root / "wandb"))
     env['PYTHONHASHSEED'] = str(budget['seed'])
     params = {"data.train_batch_size": budget["batch_size"], "data.seed": budget["seed"],
@@ -343,6 +347,7 @@ def launch_spec(frozen, root, arm, *, stage="train", split="validation", resume=
               "actor_rollout_ref.rollout.val_kwargs.temperature": 0.0,
               "actor_rollout_ref.rollout.val_kwargs.top_p": 1.0,
               "actor_rollout_ref.env.enable_thinking": False,
+              'actor_rollout_ref.env.dynamic_prompt': False,
               "data.filter_overlong_prompts": False,
               "data.validation_shuffle": False,
               "actor_rollout_ref.rollout.max_turns": budget["max_turns"],
