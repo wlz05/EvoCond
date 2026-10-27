@@ -128,6 +128,71 @@ class DatasetPrepareTests(unittest.TestCase):
         self.manifest_file([self.source("train", "train", rows=[{"q": "Q", "a": "A"}, {"q": "Q", "a": "B"}])])
         with self.assertRaisesRegex(ValueError, "no automatic deduplication"):
             datasets.prepare(self.manifest)
+    def test_group_identity_crosses_files_even_with_different_questions_and_field_aliases(self):
+        train = self.source('train', 'train', rows=[dict(q='Original task?', a='A', task=17, template='family')])
+        heldout = self.source('heldout', 'test', rows=[dict(q='Rephrased task?', a='A', original='17', template='other')])
+        train['grouping'] = dict(namespace='benchmark', fields=dict(task='/task', template='/template'))
+        heldout['grouping'] = dict(namespace='benchmark', fields=dict(task='/original', template='/template'))
+        self.manifest_file([train, heldout])
+        with self.assertRaisesRegex(ValueError, 'Task/template group crosses'):
+            datasets.prepare(self.manifest, self.output, run=True)
+        self.assertFalse(self.output.exists())
+
+    def test_template_variants_stay_together_and_coverage_is_reported(self):
+        train = self.source('train', 'train', rows=[dict(q='Q1', a='A', task='one', template='shared'),
+            dict(q='Q2', a='A', task='two', template='shared')])
+        train['grouping'] = dict(namespace='benchmark', fields=dict(task='/task', template='/template'))
+        heldout = self.source('heldout', 'test', 'Different?')
+        audit, rows, _ = datasets.build_plan(self.manifest_file([train, heldout]))
+        first, second = (set(datasets.group_keys(row)) for row in rows['train'])
+        self.assertEqual(len(first & second), 1)
+        self.assertEqual(audit['split_group_coverage']['train'], dict(grouped_rows=2, ungrouped_rows=0))
+        self.assertEqual(audit['split_group_coverage']['test'], dict(grouped_rows=0, ungrouped_rows=1))
+        heldout = self.source('heldout', 'test', rows=[dict(q='New task same template?', a='A', task='three', template='shared')])
+        heldout['grouping'] = train['grouping']
+        self.manifest_file([train, heldout])
+        with self.assertRaisesRegex(ValueError, 'Task/template group crosses'):
+            datasets.build_plan(self.manifest)
+
+    def test_independent_dataset_namespaces_do_not_merge_local_ids(self):
+        sources = [self.source(name, split, rows=[dict(q=name, a='A', id=0)])
+            for name, split in (('first', 'train'), ('second', 'test'))]
+        for source in sources:
+            source['grouping'] = dict(namespace=source['name'], fields=dict(task='/id'))
+        _, rows, _ = datasets.build_plan(self.manifest_file(sources))
+        self.assertNotEqual(datasets.group_keys(rows['train'][0]), datasets.group_keys(rows['test'][0]))
+
+    def test_one_group_namespace_cannot_drop_an_identity_label(self):
+        first, second = self.source('first', 'train'), self.source('second', 'test', 'Other?')
+        first['grouping'] = dict(namespace='shared', fields=dict(task='/id', template='/family'))
+        second['grouping'] = dict(namespace='shared', fields=dict(task='/id'))
+        with self.assertRaisesRegex(ValueError, 'same identity labels'):
+            datasets.read_manifest(self.manifest_file([first, second]))
+
+    def test_declared_groups_never_fall_back_to_row_numbers(self):
+        for value in (None, True, '', ' ', [], {}, 1.5):
+            source = self.source('train', 'train', rows=[dict(q='Q', a='A', id=value)])
+            source['grouping'] = dict(namespace='shared', fields=dict(task='/id'))
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'group identity'):
+                datasets.build_plan(self.manifest_file([source]))
+        source = self.source('train', 'train')
+        source['grouping'] = dict(namespace='shared', fields=dict(task='/missing'))
+        with self.assertRaisesRegex(ValueError, 'Missing mapped field'):
+            datasets.build_plan(self.manifest_file([source]))
+
+    def test_group_declaration_and_preserved_keys_are_validated(self):
+        for declaration in (None, {}, dict(namespace=' ', fields=dict(task='/id')),
+                dict(namespace='shared', fields={}), dict(namespace='shared', fields=dict(task='id'))):
+            source = self.source('train', 'train')
+            source['grouping'] = declaration
+            with self.subTest(declaration=declaration), self.assertRaises(ValueError):
+                datasets.read_manifest(self.manifest_file([source]))
+        for keys in ([], 'a'*64, ['A'*64], [None], ['a'*64, 'a'*64]):
+            row = self.ready_row()
+            row['extra_info']['split_group_keys'] = keys
+            with self.subTest(keys=keys), self.assertRaisesRegex(ValueError, 'split_group_keys'):
+                datasets.validate_official_row(row)
+
     def test_bad_source_hash_fails(self):
         source = self.source("train", "train")
         source["sha256"] = "a" * 64
@@ -343,19 +408,26 @@ class DatasetPrepareTests(unittest.TestCase):
         self.assertNotIn("secret_answer", json.dumps(report))
     @unittest.skipUnless(importlib.util.find_spec("pyarrow") is not None, "pyarrow not installed; real Parquet roundtrip unverified")
     def test_real_parquet_roundtrip_when_dependency_present(self):
-        self.manifest_file([self.source("train", "train"), self.source("valid", "validation", "Validation?")])
+        grouped = self.source('grouped', 'train', rows=[dict(q='Variant?', a='A', task='original')])
+        grouped['grouping'] = dict(namespace='benchmark', fields=dict(task='/task'))
+        self.manifest_file([self.source("train", "train"), grouped, self.source("valid", "validation", "Validation?")])
         report = datasets.prepare(self.manifest, self.output, run=True)
         self.assertTrue(report["complete"])
         restored = list(datasets.read_rows(self.output / "train.parquet", "parquet"))
         self.assertEqual(restored[0]["question"], "What is 2+2?")
         self.assertEqual(restored[0]["reward_model"]["ground_truth"]["target"], ["4"])
+        self.assertFalse(datasets.group_keys(restored[0]))
+        self.assertEqual(datasets.group_keys(restored[1]), datasets.mapped_groups(dict(task='original'), grouped['grouping']))
 
     @unittest.skipUnless(importlib.util.find_spec('pyarrow') is not None, 'pyarrow is required for native freeze integration')
     def test_real_converted_splits_reach_native_freeze_and_reject_missing_audit(self):
         from tests.isolation import deployment
         import study
-        sources = [self.source('train', 'train', rows=[{'q': f'Training question {i}?', 'a': str(i)} for i in range(256)]),
-            self.source('valid', 'validation', 'Validation question?'), self.source('test', 'test', 'Test question?')]
+        sources = [self.source('train', 'train', rows=[{'q': f'Training question {i}?', 'a': str(i), 'task': str(i)} for i in range(256)]),
+            self.source('valid', 'validation', rows=[dict(q='Validation question?', a='A', task='validation')]),
+            self.source('test', 'test', rows=[dict(q='Test question?', a='A', task='test')])]
+        for source in sources:
+            source['grouping'] = dict(namespace='benchmark', fields=dict(task='/task'))
         datasets.prepare(self.manifest_file(sources), self.output, run=True)
         config = experiment.read(experiment.HERE/'configs/contextual.json')
         config = study.matrix(config, seeds=[42], conditions=['evocond'])['evocond/seed42']
@@ -379,6 +451,17 @@ class DatasetPrepareTests(unittest.TestCase):
         frozen = experiment.freeze(config)
         self.assertEqual(set(frozen['fingerprints']['dataset_preparation']), set(datasets.SPLITS))
         self.assertEqual(frozen['split_audit']['datasets']['train']['rows'], 256)
+        self.assertTrue(frozen['split_audit']['group_metadata_complete'])
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        heldout = self.output/'test.parquet'
+        original = heldout.read_bytes()
+        row = list(datasets.read_rows(heldout, 'parquet'))[0]
+        row['extra_info']['split_group_keys'] = datasets.mapped_groups(dict(task='0'), sources[0]['grouping'])
+        pq.write_table(pa.Table.from_pylist([row]), heldout)
+        with self.assertRaisesRegex(ValueError, 'task/template groups overlap'):
+            experiment.freeze(config)
+        heldout.write_bytes(original)
         (self.output/'dataset_audit.json').unlink()
         with self.assertRaisesRegex(ValueError, 'dataset_audit'):
             experiment.freeze(config)

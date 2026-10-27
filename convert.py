@@ -31,6 +31,42 @@ def normalized_question(question: str) -> str:
     return " ".join(unicodedata.normalize("NFKC", question).casefold().split())
 def question_hash(question: str) -> str:
     return sha256(normalized_question(question).encode("utf-8")).hexdigest()
+def grouping(value):
+    if (not isinstance(value, dict) or set(value) != {'namespace', 'fields'}
+            or not isinstance(value['namespace'], str) or not value['namespace'].strip()
+            or value['namespace'] != value['namespace'].strip()
+            or not isinstance(value['fields'], dict) or not value['fields']):
+        raise ValueError('Grouping requires a stable namespace and explicit identity fields')
+    for label, path in value['fields'].items():
+        if (not isinstance(label, str) or not label.strip() or label != label.strip()
+                or not isinstance(path, str) or not path.startswith('/')):
+            raise ValueError('Group labels must be stable names mapped to JSON pointers')
+    return value
+
+def mapped_groups(row, specification):
+    declaration = grouping(specification)
+    result = []
+    for label, path in sorted(declaration['fields'].items()):
+        value = pointer(row, path)
+        if isinstance(value, bool) or not isinstance(value, (str, int)) or not str(value).strip():
+            raise ValueError('Mapped group identity must be nonempty text or integer')
+        # Share identities across source files, split names and field aliases.
+        identity = unicodedata.normalize('NFKC', str(value)).strip()
+        payload = json.dumps([declaration['namespace'], label, identity], ensure_ascii=True, separators=(',', ':'))
+        result.append(sha256(payload.encode('utf-8')).hexdigest())
+    return sorted(result)
+
+def group_keys(row):
+    extra = row.get('extra_info')
+    keys = extra.get('split_group_keys') if isinstance(extra, dict) else None
+    if keys is None:
+        return []
+    if (not isinstance(keys, list) or not keys
+            or any(not isinstance(key, str) or not re.fullmatch('[a-f0-9]{64}', key) for key in keys)
+            or len(keys) != len(set(keys))):
+        raise ValueError('split_group_keys must contain unique lowercase SHA256 identities')
+    return keys
+
 def pointer(row, path: str):
     'Read an explicit RFC 6901-style JSON pointer; no guessed field names.'
     if not isinstance(path, str) or not path.startswith("/"):
@@ -117,10 +153,10 @@ def read_manifest(path: Path) -> dict:
             or manifest["mode"] not in ("author_preprocessed", "adapted_upstream")
             or not isinstance(manifest["sources"], list) or not manifest["sources"]):
         raise ValueError("Expected format, mode and nonempty sources in the manifest")
-    labels, source_paths = set(), set()
+    labels, source_paths, namespaces = set(), set(), {}
     for source in manifest["sources"]:
         required = {"name", "path", "sha256", "format", "split", "source_split", "source_uri", "source_revision"}
-        optional = {"mapping", "ability", "data_source"}
+        optional = {"mapping", "ability", "data_source", "grouping"}
         if not isinstance(source, dict) or not required <= set(source) or set(source) - required - optional:
             raise ValueError("Source metadata is missing or contains unknown keys")
         if not all(isinstance(source[key], str) and source[key].strip() for key in required):
@@ -161,6 +197,12 @@ def read_manifest(path: Path) -> dict:
                 raise ValueError("Mappings must be JSON pointers")
             if source.get("data_source") != "arpo" or not isinstance(source.get("ability"), str) or not source["ability"].strip():
                 raise ValueError("Adapted mode requires explicit arpo reward route and ability")
+            if 'grouping' in source:
+                declaration = grouping(source['grouping'])
+                namespace, fields = declaration['namespace'], set(declaration['fields'])
+                if namespace in namespaces and namespaces[namespace] != fields:
+                    raise ValueError('One grouping namespace must use the same identity labels across sources')
+                namespaces[namespace] = fields
     if manifest["mode"] == "author_preprocessed":
         counts = Counter(source["split"] for source in manifest["sources"])
         if max(counts.values()) > 1:
@@ -193,6 +235,7 @@ def validate_official_row(row: dict) -> str:
     extra = row.get("extra_info")
     if not isinstance(extra, dict) or type(extra.get("index")) is not int or extra["index"] < 0:
         raise ValueError("Every row needs a nonnegative extra_info.index")
+    group_keys(row)
     for key in ("mcp_worthiness", "tool_call_count"):
         value = row.get(key)
         if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)):
@@ -217,6 +260,8 @@ def adapt_row(row: dict, source: dict, row_number: int, split_index: int) -> dic
                              "source_sha256": source["sha256"], "source_split": source["source_split"],
                              "source_revision": source["source_revision"], "source_uri": source["source_uri"],
                              "preprocessing": "adapted_upstream_not_author_preprocessed"}}
+    if 'grouping' in source:
+        result['extra_info']['split_group_keys'] = mapped_groups(row, source['grouping'])
     for key in ("mcp_worthiness", "tool_call_count"):
         if key in mapping:
             result[key] = pointer(row, mapping[key])
@@ -227,13 +272,14 @@ def build_plan(manifest_path: Path) -> tuple[dict, dict, dict]:
     manifest_digest = file_hash(manifest_path)
     manifest = read_manifest(manifest_path)
     rows, paths, identities, sources = {}, {}, {}, []
-    row_ids, source_ids = set(), set()
+    row_ids, source_ids, groups, coverage = set(), set(), {}, {}
     for source in manifest["sources"]:
         path = (manifest_path.parent / source["path"]).resolve()
         if file_hash(path) != source["sha256"]:
             raise ValueError(f"Source digest mismatch: {source['name']}")
         split = source["split"]
         target = rows.setdefault(split, [])
+        statistics = coverage.setdefault(split, dict(grouped_rows=0, ungrouped_rows=0))
         seen = 0
         for row_number, raw in enumerate(read_rows(path, source["format"]), 1):
             row = raw if manifest["mode"] == "author_preprocessed" else adapt_row(raw, source, row_number, len(target))
@@ -243,6 +289,12 @@ def build_plan(manifest_path: Path) -> tuple[dict, dict, dict]:
                     raise ValueError('Duplicate mapped source ID within one source; no automatic renumbering')
                 source_ids.add(source_key)
             question = validate_official_row(row)
+            keys = group_keys(row)
+            for group in keys:
+                if group in groups and groups[group] != split:
+                    raise ValueError(f'Task/template group crosses {groups[group]} and {split}; partition related variants together')
+                groups[group] = split
+            statistics['grouped_rows' if keys else 'ungrouped_rows'] += 1
             key = question_hash(question)
             if key in identities:
                 previous = identities[key]
@@ -270,6 +322,8 @@ def build_plan(manifest_path: Path) -> tuple[dict, dict, dict]:
              "training_inputs_present": "train" in rows and "validation" in rows,
              "counts": {split: len(items) for split, items in rows.items()}, "sources": sources,
              "normalized_question_sha256": identities, "cross_split_duplicates": 0,
+             'split_group_coverage': coverage, 'cross_split_group_overlap': 0,
+             'grouping_scope': 'Explicit task/template identities only; uncovered variants require upstream grouping',
              "normalization": "NFKC + casefold + collapsed whitespace; no semantic deduplication",
              "question_order": "manifest source order, then source row order; no shuffle or filtering",
              "reward_contract": "MCPBase computes reward_model.ground_truth.target via data_source route",

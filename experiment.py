@@ -180,7 +180,7 @@ def freeze(config, *, collection=False, base=None):
         raise ValueError("Upstream online trainer requires prepared Parquet datasets")
     split = audit(paths, "question")
     if not split["disjoint"]:
-        raise ValueError("Train/validation/test questions overlap")
+        raise ValueError("Train/validation/test questions or declared task/template groups overlap")
     identities = {}
     for name, path in paths.items():
         identities[name] = set()

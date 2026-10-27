@@ -63,6 +63,22 @@ class StageTests(unittest.TestCase):
         self.runtime.release_completed()
         self.assertEqual(dynamic.digest(self.dispatcher.registry), before)
         self.assertEqual(self.runtime.engine.phase, 0)
+    def test_evaluation_feedback_and_tools_do_not_enter_any_training_artifact(self):
+        before = self.runtime.engine.state()
+        for split in ('validation', 'test'):
+            episode = self.runtime.begin('unseen '+split, PLAN, split=split)
+            context = self.runtime.context(episode)
+            spec = fixtures.RuntimeTests.tool(None, 'heldout')
+            context['dispatcher'].create(spec, {'x': 1, 'y': 2}, task_id='heldout-only')
+            with self.assertRaisesRegex(ValueError, 'active training plan'):
+                self.runtime.subtask_feedback(episode, 'ST1', 1, source='heldout-grader')
+            self.execute(episode)
+            self.runtime.release_completed()
+            self.assertEqual(self.runtime.engine.state(), before)
+            self.assertFalse(self.runtime.engine.logs)
+            self.assertFalse(self.runtime.engine.groups)
+            self.assertNotIn('heldout', self.dispatcher.registry['aliases'])
+
     def test_no_extra_rollouts_or_execution_truth_labels(self):
         episodes = self.episodes()
         for episode in episodes:

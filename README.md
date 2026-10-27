@@ -139,6 +139,21 @@ Replace the source identity and pointers with inspected values, then add distinc
 
 Keep `dataset_audit.json` with the converted Parquet files. Training checks its completion, split counts, source-manifest identity, and content checksums; a missing or damaged audit blocks adapted inputs. Audit output paths are relative to the conversion directory, so the completed directory can be moved together. An interrupted conversion retains its incomplete output for inspection; rerun into a new output directory.
 
+Seal the official evaluation sets first. Remove repeated questions and evaluation overlaps from the training candidate pool, keeping a record of the excluded training identities. Split the remaining training pool by original task and template family, then freeze the same files for every method and all four seeds. The seeds `42`, `52`, `3047`, and `3407` vary training randomness; they do not redraw the test set. Keep official evaluation questions and denominators unchanged. If earlier training used contaminated data, prepare a new run from the base model with fresh memory.
+
+For sources with task or template identities, add this declaration to each adapted source entry, using the same namespace and logical labels across its splits:
+
+```json
+"grouping": {
+  "namespace": "dataset-name",
+  "fields": {"task": "/task_id", "template": "/template_id"}
+}
+```
+
+Each pointer must exist in every row of that source. Omit a label only when that identity is unavailable throughout the source family; use another namespace for an independent dataset whose IDs restart. For [partition.py](partition.py) output, map a common logical label to `/group`. Conversion preserves the resulting identities in `extra_info.split_group_keys`, outside the actor prompt. Both conversion and native training reject cross-split group overlap even when the question wording differs. The [split audit](splits.py) reports normalized-text overlap, declared-group overlap, and rows without group metadata. Missing metadata requires checking task variants upstream; exact-text checks do not identify every paraphrase or base-model pretraining overlap.
+
+Validation selects checkpoints. Test evaluation uses the selected checkpoint and frozen training memory; its trajectories, newly created tools, correctness feedback, and retrieval statistics do not update later training state. Use [leakage.py](leakage.py) to audit normalized benchmark JSONL splits and the native training preflight to audit prepared Parquet splits.
+
 Arrange local artifacts as follows:
 
 ```text
