@@ -1375,7 +1375,10 @@ BUNDLE = (
 
 def resources():
     payload = gzip.decompress(base64.b64decode(BUNDLE)).decode('ascii')
-    return {name: content.encode('latin1') for name, content in strict_json(payload, max_text=2_000_000).items()}
+    value = strict_json(payload, max_text=2_000_000)
+    # The README carries the current experiment protocol.
+    value.pop('experiments.md', None)
+    return {name: content.encode('latin1') for name, content in value.items()}
 
 def materialize(root, *, run=False):
     root = Path(root).resolve()

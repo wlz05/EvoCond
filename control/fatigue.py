@@ -181,7 +181,36 @@ def outcome(row, protocol):
     if not math.isfinite(total):
         raise ValueError('Panel cost total overflowed')
     utility = bandit.reward(row['success'], row['costs'], penalty=protocol['penalty'], reference=protocol['reference'])
-    return dict(success=float(row['success']), cost=total, utility=utility)
+    return dict(success=float(row['success']), cost=total, clipped_cost=min(total/protocol['reference'], 1.0), utility=utility)
+
+def success_pairs(rows, alternative='structural', reference='semantic'):
+    pairs = [(row[reference]['success'], row[alternative]['success']) for row in rows]
+    if any(type(value) not in (bool, int, float) or value not in (0, 1) for pair in pairs for value in pair):
+        raise ValueError('Paired success transitions require binary observed outcomes')
+    matrix, n = Counter(pairs), len(pairs)
+    counts = dict(both_failed=matrix[0, 0], rescued=matrix[0, 1], harmed=matrix[1, 0], both_succeeded=matrix[1, 1])
+    failed = counts['both_failed']+counts['rescued']
+    succeeded = counts['harmed']+counts['both_succeeded']
+    return dict(n=n, reference=reference, alternative=alternative, counts=counts,
+        reference_failures=failed, reference_successes=succeeded,
+        rates=dict(rescue_share=counts['rescued']/n if n else None, harm_share=counts['harmed']/n if n else None,
+            success_lift=(counts['rescued']-counts['harmed'])/n if n else None,
+            reference_failure_rate=failed/n if n else None, reference_success_rate=succeeded/n if n else None,
+            rescue_rate=counts['rescued']/failed if failed else None,
+            harm_rate=counts['harmed']/succeeded if succeeded else None),
+        scope='paired_observed_success_transitions')
+
+def summarize_pairs(entries):
+    result = dict(per_seed={str(seed): row for seed, row in entries}, rates={}, defined_seeds={})
+    for name in entries[0][1]['rates']:
+        values = [(seed, row['rates'][name]) for seed, row in entries if row['rates'][name] is not None]
+        result['defined_seeds'][name] = [seed for seed, _ in values]
+        metric = moments(value for _, value in values)
+        # A subset of defined conditional rates is not a complete seed average.
+        if len(values) != len(entries):
+            metric.update(mean=None, sample_std=None, standard_error=None)
+        result['rates'][name] = metric
+    return result
 
 def panel(path):
     path = Path(path).resolve()
@@ -262,12 +291,16 @@ def panel(path):
             gains[i, j] = [rows[base]['structural']['utility']-rows[base]['semantic']['utility'] for base in order]
             summary = dict(actor=actor, bank=bank, **sources[actor, bank], net_utility_lift=moments(gains[i, j]),
                 success_lift=moments(rows[base]['structural']['success']-rows[base]['semantic']['success'] for base in order),
+                clipped_cost_lift=moments(rows[base]['structural']['clipped_cost']-rows[base]['semantic']['clipped_cost'] for base in order),
                 cost_lift=moments(rows[base]['structural']['cost']-rows[base]['semantic']['cost'] for base in order))
             summary['outcomes'] = {arm: {metric: moments(rows[base][arm][metric] for base in order)
-                for metric in ('success', 'cost', 'utility')} for arm in sorted(arms)}
+                for metric in ('success', 'cost', 'clipped_cost', 'utility')} for arm in sorted(arms)}
+            summary['paired_success'] = dict(structural_vs_semantic=success_pairs(rows.values()))
             if 'adopted' in arms:
                 summary['adopted_vs_semantic'] = moments(rows[base]['adopted']['utility']-rows[base]['semantic']['utility'] for base in order)
                 summary['adopted_vs_structural'] = moments(rows[base]['adopted']['utility']-rows[base]['structural']['utility'] for base in order)
+                summary['paired_success']['adopted_vs_semantic'] = success_pairs(rows.values(), 'adopted')
+                summary['paired_success']['adopted_vs_structural'] = success_pairs(rows.values(), 'adopted', 'structural')
             summaries[f'actor{i}_bank{j}'] = summary
     # Pair each task before averaging the factorial contrasts.
     first, bank, actor, last = gains[0, 0], gains[0, 1], gains[1, 0], gains[1, 1]
@@ -294,7 +327,7 @@ def aggregate(paths):
     result['decomposition'] = {name: moments(row['decomposition'][name]['mean'] for row in reports)
         for name in reports[0]['decomposition']}
     optional = {'adopted_vs_semantic', 'adopted_vs_structural'}
-    fields = {'net_utility_lift', 'success_lift', 'cost_lift'}
+    fields = {'net_utility_lift', 'success_lift', 'cost_lift', 'clipped_cost_lift'}
     for row in reports:
         for cell in row['cells'].values():
             if {key for key in cell if key in optional} != {key for key in reports[0]['cells']['actor0_bank0'] if key in optional}:
@@ -304,7 +337,10 @@ def aggregate(paths):
         for name in sorted(fields)} for cell in reports[0]['cells']}
     for name, summary in result['cells'].items():
         summary['outcomes'] = {arm: {metric: moments(row['cells'][name]['outcomes'][arm][metric]['mean'] for row in reports)
-            for metric in ('success', 'cost', 'utility')} for arm in reports[0]['cells'][name]['outcomes']}
+            for metric in ('success', 'cost', 'clipped_cost', 'utility')} for arm in reports[0]['cells'][name]['outcomes']}
+        summary['paired_success'] = {comparison: summarize_pairs(sorted(
+            (row['seed'], row['cells'][name]['paired_success'][comparison]) for row in reports))
+            for comparison in reports[0]['cells'][name]['paired_success']}
     return result
 
 # Author: Weiliang Zhu

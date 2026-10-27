@@ -1,8 +1,8 @@
 # EvoCond: Preserving Conditional Tool Relations for Co-Evolving Language Agents
 
-**EvoCond** learns how accumulated tool experience should guide a co-evolving language agent. Compatible tools share a capability identity, while their relation events retain the conditions and feedback of each transition. At each retrieval, EvoCond reconstructs supported ordering proposals and learns their value to the current actor from randomized tool-list presentation and terminal task utility. Evidence accumulates across tasks; adoption value is re-estimated as the actor and inventory evolve.
+**EvoCond** learns when accumulated tool experience still helps a learning agent. Learning changes what the actor can solve and which guidance it needs, so historical success does not measure the current value of a relation. EvoCond retains conditional evidence, reconstructs ordering proposals for the current task, and learns their incremental terminal utility from randomized tool-list presentation. Evidence persists across tasks; its influence is re-evaluated as the actor and inventory evolve.
 
-We study **structural memory fatigue**: later training stages accumulate more relation evidence while the utility gained from structural guidance declines relative to semantic retrieval on the same execution basis. An improving actor can make memory-assisted tasks more successful while needing less help from memory. EvoCond separates historical relation support from current adoption value, retaining reusable evidence while adapting its influence through current execution feedback.
+We study **structural memory fatigue**: relation evidence keeps growing while structural guidance adds less net utility than before, relative to semantic retrieval on the same execution basis. A smaller gain can reflect fewer remaining errors to rescue, more previously successful tasks disrupted, or higher execution cost. EvoCond separates historical support from current adoption value and evaluates these outcomes separately, so a declining average does not automatically become a reason to discard reusable experience.
 
 EvoCond achieves state-of-the-art pass@1 performance in mathematical and multi-hop reasoning. Experiments use **8 NVIDIA GeForce RTX 4090 GPUs**, with random seeds **42, 52, 3047, and 3407**.
 
@@ -193,6 +193,8 @@ python fatigue.py --panels \
 
 The trace command summarizes completed training windows. The panel commands analyze exported frozen evaluations with old/new actors crossed with old/new relation banks, using common tasks, capabilities, budgets, and a fixed structural presentation rule. They separate actor, relation-bank, and interaction effects; optional adopted outcomes measure the current teacher's recovery separately. Four-seed aggregation uses independent training runs as its uncertainty unit. Prepare the measured cell files and `configs/fatigue.example.json` as specified in [the experimental protocol](#experimental-protocol). The existing DR teacher and deployment rule govern training; diagnostic outputs do not change the policy.
 
+Each panel cell reports `paired_success`: observed rescues, harms, unchanged successes, and unchanged failures. Conditional rescue and harm rates retain their opportunity counts. The panel also reports `clipped_cost_lift`, making the net-utility change traceable to success changes and the exact cost scale used by the reward.
+
 ## Evaluation
 
 ```bash
@@ -293,7 +295,7 @@ The [ARPO protocol](https://arxiv.org/html/2507.19849v1) motivates declaring col
 
 ### Memory Fatigue
 
-Structural memory fatigue is a decline in the incremental terminal utility of structural guidance relative to semantic retrieval as training and relation accumulation proceed. Measure both utility and its components: raw task success, full cost, and the clipped cost used by the declared reward. A shrinking positive gain, zero gain, and negative gain distinguish reduced help, redundant guidance, and harmful interference. Improving memory-assisted accuracy alone does not determine the direction of this incremental value.
+Structural memory fatigue is a decline in the incremental terminal utility of structural guidance relative to semantic retrieval as training and relation accumulation proceed. Measure both utility and its components: raw task success, full cost, and the clipped cost used by the declared reward. A zero net gain can hide offsetting rescues and harms. A negative net gain can also arise from additional cost without any lost successes. Paired transitions and cost differences identify which observed changes contribute to the average.
 
 The distinction matters during actor learning: successful execution with memory includes both actor capability and memory contribution. Actor progress can raise absolute success while memory's additional contribution declines. EvoCond learns adoption relative to semantic retrieval on the current actor and inventory, while relation feedback retains observational support. Structural guidance can therefore lose influence without deleting a capability needed by another task.
 
@@ -320,7 +322,20 @@ Freeze two actor snapshots and two relation banks before the probe evaluation. K
 
 Let `B00`, `B01`, `B10`, and `B11` be structural-minus-semantic net utility. Compute paired task contrasts before averaging: actor effect `B10-B00`, bank effect `B01-B00`, interaction `B11-B10-B01+B00`, and total change `B11-B00`. The three effects sum to the total change. Further condition-erasure and budget controls locate the mechanism behind each effect. Repeat on seeds 42, 52, 3047, 3407 and use `--panels` for the mean and sample standard deviation over training runs.
 
-The four-seed output also retains absolute success, cost, and utility for every presentation arm in every cell. These values distinguish an actor that improves while needing less structural help from a structural policy that damages otherwise successful execution.
+The four-seed output retains absolute success, cost, clipped cost, and utility for every presentation arm. Each cell's `paired_success.structural_vs_semantic` contains the following observed transitions:
+
+| Semantic result | Structural result | Count |
+|---|---|---|
+| Failure | Failure | `both_failed` |
+| Failure | Success | `rescued` |
+| Success | Failure | `harmed` |
+| Success | Success | `both_succeeded` |
+
+`rescue_share` and `harm_share` divide their counts by all scheduled questions; their difference is the success-rate lift. `rescue_rate` divides by semantic failures, while `harm_rate` divides by semantic successes. A stronger semantic execution reduces the available errors and expands the initially successful group. Even unchanged conditional rescue and harm rates can therefore produce a reversal in net success lift. Compare these counts and rates across the frozen actor-by-bank cells before attributing a smaller gain to memory quality.
+
+If an opportunity group is empty, its conditional rate is `null`. Four-seed summaries keep the full `per_seed` counts and `defined_seeds`; a conditional metric missing in any seed has no four-seed mean or standard deviation. Unconditional success lift and net utility retain all four seeds. Optional adopted outcomes add both `adopted_vs_semantic` and `adopted_vs_structural` transition reports.
+
+Paired transitions require both observed outcomes for the same task under the declared decoding and execution protocol. The single-branch randomized training trace estimates marginal contrasts and does not reconstruct a joint transition table. These conditional rates explain the evaluation; the adoption learner continues to optimize net utility over the complete question denominator.
 
 Populate `configs/fatigue.example.json` with actual checkpoint, bank, common-protocol, and cell-file SHA256 values. Set integer `questions` to the full scheduled probe count and `base_ids_sha256` to `control.dynamic.digest(sorted(scheduled_base_ids))`, derived from the frozen probe reference. Paths are relative to the manifest. Each cell file is a JSON object with these fields:
 
@@ -339,7 +354,7 @@ Populate `configs/fatigue.example.json` with actual checkpoint, bank, common-pro
 
 To measure adoption recovery, add `adopted` outcomes for every task in every cell and a `teacher_sha256` identifying that cell's frozen, current-basis teacher. The report gives adopted-minus-semantic and adopted-minus-structural utility independently of the fixed-structure decomposition. Record call changes alongside payload changes when testing whether recovered utility comes from actual execution decisions.
 
-The comparison targets the learning trajectory of the same actor family. [REM, October 2026](https://arxiv.org/abs/2610.27377v1) studies in-loop recall, eviction, and recipient capability; [CoEvo-Mem](https://arxiv.org/abs/2608.01739v1) alternates retrieval and memory learning with a fixed answering model; [MemRL](https://arxiv.org/abs/2601.03192v2) learns memory utility with a frozen backbone. EvoCond's panel separates changing relation evidence from a changing actor and tests current-value adoption on that evolving execution basis.
+The comparison targets the learning trajectory of the same actor family. [REM](https://arxiv.org/abs/2610.27377v1) studies in-loop recall and recipient capability; [Anti-Persistence](https://arxiv.org/abs/2610.27406v1) reconstructs temporary guidance from retained trajectories; [the continual-learning study](https://arxiv.org/abs/2610.25858v1) exposes interference under drifting workflows. [CMP](https://arxiv.org/abs/2610.02070v3) identifies query-level utility through randomized retrieval exposure, and [MemCoRL](https://aclanthology.org/2026.acl-long.1804.pdf) alternates retrieval and utilization training. EvoCond studies conditional tool relations whose adoption value changes as the same actor learns, using the crossed panel to distinguish opportunity changes, observed harms, and cost.
 
 ## Acknowledgments
 

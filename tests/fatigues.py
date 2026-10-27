@@ -223,6 +223,63 @@ class FatigueTests(unittest.TestCase):
         self.assertEqual(report['cells']['actor1_bank1']['outcomes']['structural']['success']['mean'], 1)
         self.assertEqual(report['cells']['actor1_bank1']['net_utility_lift']['mean'], 0)
 
+    def test_zero_average_success_lift_can_hide_rescues_and_harm(self):
+        rows = [dict(semantic=dict(success=left), structural=dict(success=right))
+            for left, right in ((False, True), (True, False), (False, False), (True, True))]
+        report = fatigue.success_pairs(rows)
+        self.assertEqual(report['counts'], dict(both_failed=1, rescued=1, harmed=1, both_succeeded=1))
+        self.assertEqual(report['rates']['success_lift'], 0)
+        self.assertEqual(report['rates']['rescue_rate'], .5)
+        self.assertEqual(report['rates']['harm_rate'], .5)
+        self.assertEqual(report['rates']['rescue_share']-report['rates']['harm_share'], 0)
+
+    def test_actor_progress_can_remove_rescue_opportunities_without_harm(self):
+        report = fatigue.panel(self.save(self.fixture()))
+        old = report['cells']['actor0_bank0']['paired_success']['structural_vs_semantic']
+        new = report['cells']['actor1_bank0']['paired_success']['structural_vs_semantic']
+        self.assertEqual(old['counts']['rescued'], 2)
+        self.assertEqual(old['rates']['rescue_rate'], 1)
+        self.assertEqual(new['reference_failures'], 0)
+        self.assertIsNone(new['rates']['rescue_rate'])
+        self.assertEqual(new['counts']['harmed'], 0)
+        self.assertEqual(new['rates']['success_lift'], 0)
+
+    def test_unchanged_conditional_rates_can_reverse_the_observed_value(self):
+        old = [(0, 1)]*3+[(0, 0)]*3+[(1, 0), (1, 1)]
+        new = [(0, 1), (0, 0)]+[(1, 0)]*3+[(1, 1)]*3
+        def report(pairs):
+            return fatigue.success_pairs([dict(semantic=dict(success=a), structural=dict(success=b)) for a, b in pairs])
+        previous, current = report(old), report(new)
+        for name in ('rescue_rate', 'harm_rate'):
+            self.assertEqual(previous['rates'][name], .5)
+            self.assertEqual(current['rates'][name], .5)
+        self.assertEqual(previous['rates']['success_lift'], .25)
+        self.assertEqual(current['rates']['success_lift'], -.25)
+        self.assertEqual(previous['rates']['reference_failure_rate'], .75)
+        self.assertEqual(current['rates']['reference_failure_rate'], .25)
+
+    def test_empty_transition_groups_stay_undefined_and_nonbinary_outcomes_fail(self):
+        report = fatigue.success_pairs([])
+        self.assertEqual(report['n'], 0)
+        self.assertTrue(all(value is None for value in report['rates'].values()))
+        with self.assertRaises(ValueError):
+            fatigue.success_pairs([dict(semantic=dict(success=0), structural=dict(success=.5))])
+
+    def test_extra_cost_can_lower_utility_without_success_interference(self):
+        manifest = self.fixture()
+        self.change(manifest, lambda cell: [row['structural']['costs'].update(actor=20., tools=20., retrieval=20.) for row in cell['records']])
+        report = fatigue.panel(self.save(manifest))
+        cell = report['cells']['actor1_bank1']
+        self.assertEqual(cell['success_lift']['mean'], 0)
+        self.assertEqual(cell['paired_success']['structural_vs_semantic']['counts']['harmed'], 0)
+        self.assertEqual(cell['cost_lift']['mean'], 57)
+        self.assertAlmostEqual(cell['clipped_cost_lift']['mean'], .7)
+        self.assertAlmostEqual(cell['net_utility_lift']['mean'], -.07)
+        self.assertAlmostEqual(cell['net_utility_lift']['mean'], cell['success_lift']['mean']-.1*cell['clipped_cost_lift']['mean'])
+
+    def test_randomized_single_branch_logs_do_not_supply_paired_outcomes(self):
+        self.assertNotIn('paired_success', fatigue.window([observed('q', 2, success=True)]))
+
     def test_optional_adoption_recovery_is_separate_from_fixed_target(self):
         report = fatigue.panel(self.save(self.fixture(adopted=True)))
         self.assertEqual(report['cells']['actor1_bank1']['adopted_vs_structural']['mean'], 0)
@@ -231,6 +288,17 @@ class FatigueTests(unittest.TestCase):
         self.change(manifest, lambda cell: cell.pop('teacher_sha256'))
         with self.assertRaises(ValueError):
             fatigue.panel(self.save(manifest))
+
+    def test_adoption_reports_which_structural_failures_it_recovers(self):
+        manifest = self.fixture(adopted=True)
+        self.change(manifest, lambda cell: cell['records'][0]['structural'].update(success=False))
+        cell = fatigue.panel(self.save(manifest))['cells']['actor1_bank1']
+        report = cell['paired_success']['adopted_vs_structural']
+        self.assertEqual(report['reference'], 'structural')
+        self.assertEqual(report['alternative'], 'adopted')
+        self.assertEqual(report['counts']['rescued'], 1)
+        self.assertEqual(report['counts']['harmed'], 0)
+        self.assertEqual(cell['paired_success']['adopted_vs_semantic']['rates']['success_lift'], 0)
 
     def test_panel_rejects_missing_cell_and_repeated_checkpoint(self):
         manifest = self.fixture()
@@ -305,22 +373,28 @@ class FatigueTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 fatigue.panel(self.save(altered))
 
-    def test_four_seed_summary_uses_runs_as_the_uncertainty_unit(self):
+    def panels(self):
         original, paths = self.root, []
-        for seed in (42, 52, 3047, 3407):
-            self.root = original/str(seed)
-            self.root.mkdir()
-            manifest = self.fixture()
-            manifest['seed'] = seed
-            for entry in manifest['cells']:
-                path = self.root/entry['path']
-                cell = json.loads(path.read_text(encoding='utf-8'))
-                cell['seed'] = seed
-                payload = json.dumps(cell).encode()
-                path.write_bytes(payload)
-                entry['sha256'] = sha256(payload).hexdigest()
-            paths.append(self.save(manifest))
-        self.root = original
+        try:
+            for seed in (42, 52, 3047, 3407):
+                self.root = original/str(seed)
+                self.root.mkdir()
+                manifest = self.fixture()
+                manifest['seed'] = seed
+                for entry in manifest['cells']:
+                    path = self.root/entry['path']
+                    cell = json.loads(path.read_text(encoding='utf-8'))
+                    cell['seed'] = seed
+                    payload = json.dumps(cell).encode()
+                    path.write_bytes(payload)
+                    entry['sha256'] = sha256(payload).hexdigest()
+                paths.append(self.save(manifest))
+        finally:
+            self.root = original
+        return paths
+
+    def test_four_seed_summary_uses_runs_as_the_uncertainty_unit(self):
+        paths = self.panels()
         report = fatigue.aggregate(paths)
         self.assertEqual(report['decomposition']['total_change']['n'], 4)
         self.assertEqual(report['decomposition']['total_change']['mean'], -1)
@@ -333,6 +407,25 @@ class FatigueTests(unittest.TestCase):
             fatigue.aggregate(paths[:3])
         with self.assertRaises(ValueError):
             fatigue.aggregate([paths[0]]*4)
+
+    def test_undefined_conditional_rates_cannot_be_averaged_over_selected_seeds(self):
+        paths = self.panels()
+        manifest = json.loads(paths[0].read_text(encoding='utf-8'))
+        original = self.root
+        try:
+            self.root = paths[0].parent
+            self.change(manifest, lambda cell: cell['records'][0]['semantic'].update(success=False))
+            self.save(manifest)
+        finally:
+            self.root = original
+        paired = fatigue.aggregate(paths)['cells']['actor1_bank1']['paired_success']['structural_vs_semantic']
+        self.assertEqual(paired['defined_seeds']['rescue_rate'], [42])
+        self.assertEqual(paired['rates']['rescue_rate']['n'], 1)
+        self.assertIsNone(paired['rates']['rescue_rate']['mean'])
+        self.assertEqual(paired['rates']['success_lift']['n'], 4)
+        self.assertEqual(paired['rates']['success_lift']['mean'], .125)
+        self.assertEqual(paired['per_seed']['42']['reference_failures'], 1)
+        self.assertEqual(paired['per_seed']['52']['reference_failures'], 0)
 
 # Author: Weiliang Zhu
 # Email: wlzchina05@gmail.com
