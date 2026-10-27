@@ -168,6 +168,17 @@ class DatasetPrepareTests(unittest.TestCase):
         self.assertTrue((self.output / "dataset_audit.json").is_file())
         for record in report["outputs"].values():
             self.assertEqual(datasets.file_hash(self.output/record['path']), record["sha256"])
+        self.assertEqual(report['source_path_base'], 'input_manifest_directory')
+        for source in report['sources']:
+            self.assertFalse(Path(source['path']).is_absolute())
+            self.assertNotIn('resolved_path', source)
+
+    def test_manifest_rejects_machine_specific_absolute_source_paths(self):
+        source = self.source('train', 'train')
+        for path in (str((self.root/source['path']).resolve()), '/root/train.jsonl', 'C:/data/train.jsonl', 'data\\train.jsonl'):
+            self.manifest_file([{**source, 'path': path}])
+            with self.subTest(path=path), self.assertRaisesRegex(ValueError, 'relative paths'):
+                datasets.read_manifest(self.manifest)
     def test_writer_error_does_not_publish_complete_audit(self):
         self.manifest_file([self.source("train", "train")])
         with patch.object(datasets, "_pyarrow", return_value=(FakeArrow, FakeParquet)), \
@@ -324,6 +335,8 @@ class DatasetPrepareTests(unittest.TestCase):
     def test_inspect_source_prints_shapes_not_answers(self):
         source = self.source("train", "train", question="secret_question", answer="secret_answer")
         report = datasets.inspect_source(self.root / source["path"], "jsonl")
+        self.assertFalse(Path(report['path']).is_absolute())
+        self.assertEqual(report['path_base'], 'working_directory')
         self.assertEqual(report["first_distinct_shapes"], [{"q": "str", "a": "str"}])
         self.assertEqual(report["rows"], 1)
         self.assertNotIn("secret_question", json.dumps(report))

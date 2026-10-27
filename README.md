@@ -135,7 +135,7 @@ For a JSONL source with `question` and `answer` fields, an entry in `assets/depl
 }
 ```
 
-Replace the source identity and pointers with inspected values, then add distinct validation and test entries. Source paths are relative to the manifest. A single-source manifest supports conversion inspection; native training requires all three disjoint splits. Use `mode: author_preprocessed` only for preserved author Parquet inputs, without mapping or relabelling.
+Replace the source identity and pointers with inspected values, then add distinct validation and test entries. Source paths use forward slashes relative to the manifest directory; absolute source paths are rejected. Inspection reports use paths relative to the working directory. A single-source manifest supports conversion inspection; native training requires all three disjoint splits. Use `mode: author_preprocessed` only for preserved author Parquet inputs, without mapping or relabelling.
 
 Keep `dataset_audit.json` with the converted Parquet files. Training checks its completion, split counts, source-manifest identity, and content checksums; a missing or damaged audit blocks adapted inputs. Audit output paths are relative to the conversion directory, so the completed directory can be moved together. An interrupted conversion retains its incomplete output for inspection; rerun into a new output directory.
 

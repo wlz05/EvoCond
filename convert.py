@@ -8,6 +8,7 @@ from collections import Counter
 from hashlib import sha256
 import json
 import math
+import os
 from pathlib import Path, PureWindowsPath
 import re
 import shutil
@@ -105,7 +106,8 @@ def inspect_source(path: Path, source_format: str) -> dict:
                 shapes.append(candidate)
     if file_hash(path) != digest:
         raise ValueError("Source changed during inspection")
-    return {"path": str(path), "format": source_format, "sha256": digest,
+    return {"path": Path(os.path.relpath(path, Path.cwd())).as_posix(), 'path_base': 'working_directory',
+            "format": source_format, "sha256": digest,
             "rows": count, "first_distinct_shapes": shapes,
             "notice": "No field mapping, split assignment or author provenance inferred"}
 def read_manifest(path: Path) -> dict:
@@ -139,7 +141,9 @@ def read_manifest(path: Path) -> dict:
         except ValueError as error:
             raise ValueError('Floating or invalid source revisions are forbidden') from error
         source_path = Path(source["path"])
-        resolved = (path.parent / source_path).resolve() if not source_path.is_absolute() else source_path.resolve()
+        if source_path.is_absolute() or PureWindowsPath(source['path']).drive or PureWindowsPath(source['path']).root or '\\' in source['path']:
+            raise ValueError('Source paths must use portable relative paths from the manifest directory')
+        resolved = (path.parent / source_path).resolve()
         if resolved in source_paths:
             raise ValueError("The same source file cannot be assigned more than once")
         source_paths.add(resolved)
@@ -254,12 +258,13 @@ def build_plan(manifest_path: Path) -> tuple[dict, dict, dict]:
             raise ValueError(f"Empty source: {source['name']}")
         if file_hash(path) != source["sha256"]:
             raise ValueError("Source changed during validation")
-        sources.append({**source, "resolved_path": str(path), "rows": seen})
+        sources.append({**source, "rows": seen})
         if manifest["mode"] == "author_preprocessed":
             paths[split] = path
     if file_hash(manifest_path) != manifest_digest:
         raise ValueError("Manifest changed during validation")
     audit = {"format": AUDIT_FORMAT, "manifest_sha256": manifest_digest, "mode": manifest["mode"],
+             'source_path_base': 'input_manifest_directory',
              "official_author_preprocessing_claim": manifest["mode"] == "author_preprocessed",
              "author_provenance_independently_verified": False,
              "training_inputs_present": "train" in rows and "validation" in rows,
@@ -321,6 +326,7 @@ def prepared(paths, *, mode=None, counts=None):
         verified[split] = dict(audit_sha256=sha256(payload).hexdigest(), manifest_sha256=audit['manifest_sha256'])
     return verified
 def prepare(manifest_path: Path, output: Path | None = None, *, run: bool = False) -> dict:
+    manifest_path = Path(manifest_path).resolve()
     if output is not None and output.exists():
         raise ValueError("Output must be a new directory; existing datasets are never overwritten")
     if run and output is None:
@@ -339,7 +345,7 @@ def prepare(manifest_path: Path, output: Path | None = None, *, run: bool = Fals
     outputs = {}
     try:
         for source in audit["sources"]:
-            if file_hash(Path(source["resolved_path"])) != source["sha256"]:
+            if file_hash(manifest_path.parent/source['path']) != source["sha256"]:
                 raise ValueError("Source changed before materialization")
         for split in rows:
             target = output / f"{split}.parquet"
@@ -354,7 +360,7 @@ def prepare(manifest_path: Path, output: Path | None = None, *, run: bool = Fals
             staging.rename(target)
             outputs[split] = {"path": target.name, "sha256": file_hash(target), "rows": len(rows[split])}
         if file_hash(manifest_path) != audit['manifest_sha256'] or any(
-                file_hash(Path(source['resolved_path'])) != source['sha256'] for source in audit['sources']):
+                file_hash(manifest_path.parent/source['path']) != source['sha256'] for source in audit['sources']):
             raise ValueError('Manifest or source changed before conversion completed')
         result = {**audit, "run": True, "files_written": True, "complete": True, "outputs": outputs}
         _write_json(output / "dataset_audit.json", result)
