@@ -11,7 +11,7 @@ from .base import CacheBase, CacheMode, EvictionPolicy
 class CacheBoxCache(CacheBase):
     def __init__(self, max_size: int = 1000, mode: CacheMode = CacheMode.SINGLE,
                  eviction_policy: EvictionPolicy = EvictionPolicy.LRU):
-        '\u521d\u59cb\u5316\u7f13\u5b58\n        \n        Args:\n            max_size: \u6700\u5927\u7f13\u5b58\u6761\u76ee\u6570\n            mode: \u7f13\u5b58\u6a21\u5f0f\n            eviction_policy: \u7f13\u5b58\u6dd8\u6c70\u7b56\u7565\n        '
+        'Initialize the cache capacity, mode and eviction policy.'
         self.cache = Cache(maxsize=max_size)
         self.mode = mode
         self.eviction_policy = eviction_policy
@@ -25,7 +25,7 @@ class CacheBoxCache(CacheBase):
         self.ttl_map = {}
 
     def _hash_key(self, method_name: str, params: dict) -> str:
-        '\u751f\u6210\u7f13\u5b58\u952e\n        \n        Args:\n            method_name: \u65b9\u6cd5\u540d\n            params: \u53c2\u6570\u5b57\u5178\n            \n        Returns:\n            str: \u54c8\u5e0c\u540e\u7684\u952e\n        '
+        'Hash a method name and parameter mapping into a cache key.'
         key_str = f"{method_name}:{json.dumps(params, sort_keys=True)}"
         return hashlib.md5(key_str.encode()).hexdigest()
 

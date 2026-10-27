@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 # EvoCond: Preserving Conditional Tool Relations for Co-Evolving Language Agents
 
-'\u6d4b\u8bd5\u5d4c\u5957\u8f93\u51fa\u683c\u5f0f'
+'Test nested result formatting.'
 
 import json
 from pathlib import Path
 
 def test_nested_structure():
-    '\u6d4b\u8bd5\u4e09\u5c42\u5d4c\u5957\u7ed3\u6784\u7684\u6784\u5efa\u903b\u8f91'
+    'Test three-level result nesting.'
 
-    print('\u6d4b\u8bd5\u4e09\u5c42\u5d4c\u5957\u7ed3\u6784\u6784\u5efa\u903b\u8f91')
+    print('Testing three-level result nesting')
     print("=" * 80)
 
     test_scenarios = [
@@ -59,36 +59,36 @@ def test_nested_structure():
 
             all_results[model_name][json_file] = file_results
 
-    print('\n\u751f\u6210\u7684\u7ed3\u6784:')
+    print('\nGenerated structure:')
     print(json.dumps(all_results, indent=2, ensure_ascii=False))
 
-    print('\n\n\u7ed3\u6784\u9a8c\u8bc1:')
+    print('\n\nStructure validation:')
     print("=" * 80)
 
     for model_name, files_results in all_results.items():
-        print(f"\u2713 \u7b2c\u4e00\u5c42 - \u6a21\u578b\u540d\u79f0: {model_name}")
+        print(f"Level 1 - Model name: {model_name}")
         for file_name, datasets_results in files_results.items():
-            print(f"  \u2713 \u7b2c\u4e8c\u5c42 - JSON\u6587\u4ef6: {file_name}")
+            print(f"  Level 2 - JSON file: {file_name}")
             for dataset_name, eval_results in datasets_results.items():
-                print(f"    \u2713 \u7b2c\u4e09\u5c42 - \u6570\u636e\u96c6: {dataset_name}")
+                print(f"    Level 3 - Dataset: {dataset_name}")
                 if "overall" in eval_results:
                     acc = eval_results["overall"]["acc"]
-                    print(f"      \u2192 acc={acc:.2f}")
+                    print(f"      -> acc={acc:.2f}")
 
     print("\n" + "=" * 80)
-    print('\u2713 \u4e09\u5c42\u5d4c\u5957\u7ed3\u6784\u6b63\u786e\uff01')
+    print('Three-level nesting is correct.')
     print("=" * 80)
 
-    print('\n\u671f\u671b\u7684JSON\u8f93\u51fa\u683c\u5f0f:')
+    print('\nExpected JSON output:')
     print("-" * 80)
     expected_format = '\n{\n  "grpo_baseline_1gpu": {\n    "validation_samples_20251223_232253.json": {\n      "hotpotqa": {...},\n      "gsm8k": {...}\n    },\n    "validation_samples_20251224_100000.json": {\n      "hotpotqa": {...},\n      "gsm8k": {...}\n    }\n  },\n  "grpo_baseline_6gpu": {\n    "validation_samples_20251223_150000.json": {\n      "hotpotqa": {...},\n      "gsm8k": {...}\n    }\n  }\n}\n    '
     print(expected_format)
     print("-" * 80)
 
 def test_model_name_extraction():
-    '\u6d4b\u8bd5\u6a21\u578b\u540d\u79f0\u63d0\u53d6\u903b\u8f91'
+    'Test model-name extraction.'
 
-    print('\n\n\u6d4b\u8bd5\u6a21\u578b\u540d\u79f0\u63d0\u53d6\u903b\u8f91')
+    print('\n\nTesting model-name extraction')
     print("=" * 80)
 
     test_cases = [
@@ -107,10 +107,10 @@ def test_model_name_extraction():
         else:
             extracted = p.name
 
-        status = '\u2713' if extracted == expected else '\u2717'
+        status = 'PASS' if extracted == expected else 'FAIL'
         print(f"{status} {input_path}")
-        print(f"   \u671f\u671b: {expected}")
-        print(f"   \u63d0\u53d6: {extracted}")
+        print(f"   Expected: {expected}")
+        print(f"   Extracted: {extracted}")
         print()
 
 if __name__ == "__main__":

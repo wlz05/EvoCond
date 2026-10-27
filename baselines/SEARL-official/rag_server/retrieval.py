@@ -218,10 +218,10 @@ class DenseRetriever(BaseRetriever):
     def __init__(self, config):
         super().__init__(config)
 
-        print(f"\u52a0\u8f7d\u8bed\u6599\u6587\u4ef6: {args.corpus_path}")
+        print(f"Loading corpus: {args.corpus_path}")
         self.corpus = load_corpus(self.corpus_path)
 
-        print(f"\u521d\u59cb\u5316 Encoder \u6a21\u578b: {config.retrieval_model_path}")
+        print(f"Initializing encoder: {config.retrieval_model_path}")
         self.encoder = Encoder(
             model_name = self.retrieval_method,
             model_path = config.retrieval_model_path,
@@ -232,10 +232,10 @@ class DenseRetriever(BaseRetriever):
 
         torch.cuda.empty_cache()
 
-        print(f"\u52a0\u8f7d\u7d22\u5f15\u6587\u4ef6: {args.index_path}")
+        print(f"Loading index: {args.index_path}")
         self.index = faiss.read_index(self.index_path)
         if config.faiss_gpu:
-            print('\u5c06 FAISS \u7d22\u5f15\u79fb\u52a8\u5230 GPU...')
+            print('Moving the FAISS index to GPU...')
 
             # res = faiss.StandardGpuResources()
             # res.setTempMemory(1024 * 1024 * 512) # 512 MB
@@ -382,7 +382,7 @@ def retrieve_endpoint(request: QueryRequest):
 
 if __name__ == "__main__":
     # 3) Launch the server. By default, it listens on http://127.0.0.1:5003
-    print('\u5f00\u59cb\u542f\u52a8\u670d\u52a1')
+    print('Starting the service')
     uvicorn.run(app, host="0.0.0.0", port=5003)
 
 # Author: Weiliang Zhu

@@ -24,7 +24,7 @@ from verl.utils.filesystem import copy, makedirs
 import argparse
 
 def make_prefix(dp, template_type):
-    '\u6839\u636e\u6a21\u677f\u7c7b\u578b\u751f\u6210\u524d\u7f00\n    \n    Args:\n        dp: \u6570\u636e\u6837\u672c\uff0c\u5305\u542b\u67e5\u8be2\u548c\u5176\u4ed6\u4fe1\u606f\n        template_type: \u6a21\u677f\u7c7b\u578b\uff0c\u7528\u4e8e\u9009\u62e9\u4e0d\u540c\u7684\u63d0\u793a\u6a21\u677f\n        \n    Returns:\n        \u751f\u6210\u7684\u524d\u7f00\u5b57\u7b26\u4e32\n    '
+    'Build a prompt prefix from the data record and template type.'
     question = dp['query']
     with open('scripts/data_process/PROMPT.txt', 'r', encoding='utf-8') as f:
         prefix = f.read().replace(r'INSTRUCTION', question)

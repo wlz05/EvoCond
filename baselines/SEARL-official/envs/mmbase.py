@@ -26,7 +26,7 @@ class MMEnv(ABC): # Serves as the base environment for multimodal environments
             tool_manager_name = "adaptive"
         if tool_manager_name.startswith('centralized_'):
             if centralized_actor is None:
-                raise ValueError(f"\u4f7f\u7528\u96c6\u4e2d\u5f0f\u5de5\u5177\u7ba1\u7406\u5668 '{tool_manager_name}' \u9700\u8981\u63d0\u4f9b centralized_actor \u53c2\u6570")
+                raise ValueError(f"Centralized tool manager \'{tool_manager_name}\' requires centralized_actor")
             self.tool_manager = TOOL_MANAGER_REGISTRY[tool_manager_name](
                 verl_config=config,
                 centralized_actor_handle=centralized_actor
@@ -45,7 +45,7 @@ class MMEnv(ABC): # Serves as the base environment for multimodal environments
                     tool_manager_name = 'llama3'
                 else:
                     tool_manager_name = model_type
-                    raise ValueError(f"'{tool_manager_name}' \u9700\u8981\u8fdb\u884c\u9002\u914d\uff0c\u8bf7\u6dfb\u52a0\u4e00\u4e2a\u5bf9\u5e94\u7684tool_manager")
+                    raise ValueError(f"'{tool_manager_name}\' requires a matching tool_manager adapter")
 
             self.tool_manager = TOOL_MANAGER_REGISTRY[tool_manager_name](verl_config=config)
         # breakpoint()
@@ -94,7 +94,7 @@ class MMEnv(ABC): # Serves as the base environment for multimodal environments
         }
     def _replace_all_image_pads(self, original_str, count, processor):
 
-        "\n        \u5c06\u4e00\u4e2a\u5b57\u7b26\u4e32\u4e2d\u6240\u6709\u7684 '<image_pad>' \u66ff\u6362\u4e3a\u6307\u5b9a\u6570\u91cf\u7684 '<image_pad>'\u3002\n\n        \u53c2\u6570:\n        original_str (str): \u539f\u59cb\u8f93\u5165\u5b57\u7b26\u4e32\u3002\n        count (int): \u5e0c\u671b\u66ff\u6362\u6210\u7684 '<image pad>' \u7684\u6570\u91cf\u3002\n\n        \u8fd4\u56de:\n        str: \u66ff\u6362\u540e\u7684\u65b0\u5b57\u7b26\u4e32\u3002\n        "
+        'Replace each <image_pad> marker with count copies.'
 
         replacement = ' '.join(['<|image_pad|>'] * count)
 
@@ -107,7 +107,7 @@ class MMEnv(ABC): # Serves as the base environment for multimodal environments
         return step_reward
 
     def _mm_process(self, mm_output, image_result, temp_next_obs, processor):
-        '\u5904\u7406\u591a\u6a21\u6001\u8f93\u51fa\uff0c\u751f\u6210\u591a\u6a21\u6001\u6570\u636e\u548c\u66f4\u65b0\u540e\u7684\u89c2\u5bdf\u3002'
+        'Process multimodal output into updated observations and media.'
         if not mm_output:
             return None, None, temp_next_obs
         mm_data = processor.image_processor(image_result, return_tensors='pt')
@@ -117,7 +117,7 @@ class MMEnv(ABC): # Serves as the base environment for multimodal environments
         return temp_multi_modal_data, temp_image_data, temp_next_obs
 
     def step(self, responses, processor, image_data: List[List[Image.Image]]):
-        '\u6267\u884c\u73af\u5883\u6b65\u9aa4\uff0c\u6839\u636e\u6a21\u578b\u54cd\u5e94\u548c\u56fe\u50cf\u6570\u636e\u66f4\u65b0\u73af\u5883\u72b6\u6001\u3002\n        \n        Args:\n            responses: \u6a21\u578b\u751f\u6210\u7684\u54cd\u5e94\u5217\u8868\n            processor: \u6a21\u578b\u5904\u7406\u5668\uff0c\u7528\u4e8e\u5904\u7406\u56fe\u50cf\u6570\u636e\n            image_data: \u8f93\u5165\u7684\u56fe\u50cf\u6570\u636e\u5217\u8868\uff0c\u6bcf\u4e2a\u5143\u7d20\u4e3a\u4e00\u4e2a\u56fe\u50cf\u6279\u6b21\n            \n        Returns:\n            \u5305\u542b\u66f4\u65b0\u540e\u7684\u89c2\u5bdf\u3001\u5b8c\u6210\u6807\u5fd7\u3001\u6709\u6548\u64cd\u4f5c\u3001\u662f\u5426\u4e3a\u5de5\u5177\u8c03\u7528\u3001\u65b0\u56fe\u50cf\u6570\u636e\u3001\u6709\u6548\u5de5\u5177\u8c03\u7528\u548c\u539f\u59cb\u63d0\u793a\u7684\u5143\u7ec4\n        '
+        'Step the environment with model responses and images; return observations, completion flags, action validity, tool calls, media and raw prompts.'
         tokenizer = processor.tokenizer
         print("start to the env step", file=sys.stderr, flush=True)
         cur_actions, tool_results = self.tool_manager.execute_actions(responses=responses, image_data=image_data)
@@ -218,7 +218,7 @@ class MMEnv(ABC): # Serves as the base environment for multimodal environments
         return scores
 
     def get_prompt_for_reward(self, reward_tokenizer, data: DataProto):
-        '\u83b7\u53d6\u5956\u52b1\u6a21\u578b\u4f7f\u7528\u7684prompt'
+        'Build the reward-model prompt.'
         reward_prompt_strs = []
 
         for i in range(len(data)):

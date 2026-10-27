@@ -16,7 +16,7 @@ ZONE = os.getenv('BRIGHTDATA_ZONE', 'sxh_bing_search')
 from urllib.parse import urlencode
 
 async def single_search(session: aiohttp.ClientSession, query: str, task_id: int):
-    '\u6a21\u62df\u5355\u6b21\u641c\u7d22\u8bf7\u6c42'
+    'Simulate one search request.'
 
     search_params = {
         "q": query,
@@ -68,14 +68,14 @@ async def single_search(session: aiohttp.ClientSession, query: str, task_id: int
         return False, time.time() - start_time, f"Error: {str(e)}"
 
 async def run_stress_test(concurrency: int, total_requests: int):
-    '\u8fd0\u884c\u9ad8\u5e76\u53d1\u538b\u6d4b'
+    'Run a concurrent search stress test.'
     if not API_KEY:
-        print('\u9519\u8bef: \u8bf7\u8bbe\u7f6e BRIGHTDATA_API_KEY \u73af\u5883\u53d8\u91cf')
+        print('ERROR: Set the BRIGHTDATA_API_KEY environment variable.')
         return
 
-    print(f"=== \u5f00\u59cb\u9ad8\u5e76\u53d1\u641c\u7d22\u6d4b\u8bd5 ===")
-    print(f"\u76ee\u6807 API: Brightdata ({ZONE})")
-    print(f"\u5e76\u53d1\u6570: {concurrency}, \u603b\u8bf7\u6c42\u6570: {total_requests}")
+    print(f"=== Concurrent search test ===")
+    print(f"Target API: Brightdata ({ZONE})")
+    print(f"Concurrency: {concurrency}, total requests: {total_requests}")
     print("---------------------------------------")
 
     queries = [
@@ -90,8 +90,8 @@ async def run_stress_test(concurrency: int, total_requests: int):
         async with semaphore:
             success, duration, msg = await single_search(session, query, i)
             completed += 1
-            status_str = '\u2705 \u6210\u529f' if success else f"\u274c \u5931\u8d25 ({msg})"
-            print(f"[{completed}/{total_requests}] {status_str} | \u8017\u65f6: {duration:.2f}s | Query: {query[:20]}...")
+            status_str = 'SUCCESS' if success else f"FAILED ({msg})"
+            print(f"[{completed}/{total_requests}] {status_str} | Duration: {duration:.2f}s | Query: {query[:20]}...")
             return success, duration, msg
 
     timeout = aiohttp.ClientTimeout(total=45, connect=10)
@@ -104,25 +104,25 @@ async def run_stress_test(concurrency: int, total_requests: int):
 
     avg_lat = sum(r[1] for r in results) / len(results) if results else 0
 
-    print('\n=== \u6d4b\u8bd5\u7ed3\u679c\u62a5\u544a ===')
-    print(f"\u603b\u8bf7\u6c42\u6570: {total_requests}")
-    print(f"\u6210\u529f\u6b21\u6570: {len(successes)} ({(len(successes)/total_requests)*100:.1f}%)")
-    print(f"\u5931\u8d25\u6b21\u6570: {len(failures)} ({(len(failures)/total_requests)*100:.1f}%)")
-    print(f"\u5e73\u5747\u8017\u65f6: {avg_lat:.2f}s")
+    print('\n=== Test results ===')
+    print(f"Total requests: {total_requests}")
+    print(f"Succeeded: {len(successes)} ({(len(successes)/total_requests)*100:.1f}%)")
+    print(f"Failed: {len(failures)} ({(len(failures)/total_requests)*100:.1f}%)")
+    print(f"Mean duration: {avg_lat:.2f}s")
 
     if failures:
-        print('\n--- \u9519\u8bef\u7c7b\u578b\u5206\u5e03 ---')
+        print('\n--- Error distribution ---')
         error_counts = {}
         for f in failures:
             err_msg = f[2]
             error_counts[err_msg] = error_counts.get(err_msg, 0) + 1
         for msg, count in sorted(error_counts.items(), key=lambda x: x[1], reverse=True):
-            print(f"- {msg}: {count} \u6b21")
+            print(f"- {msg}: {count} times")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--c", type=int, default=10, help='\u5e76\u53d1\u6570')
-    parser.add_argument("--n", type=int, default=20, help='\u603b\u8bf7\u6c42\u6570')
+    parser.add_argument("--c", type=int, default=10, help='Concurrency')
+    parser.add_argument("--n", type=int, default=20, help='Total requests')
     args = parser.parse_args()
 
     asyncio.run(run_stress_test(args.c, args.n))

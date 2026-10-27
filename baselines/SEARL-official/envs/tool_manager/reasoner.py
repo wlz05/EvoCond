@@ -33,7 +33,7 @@ def parse_mcp_tools_config(file_path, project_name):
         data = literal_eval(content)
         return data
     except Exception as e:
-        print(f"\u89e3\u6790\u9519\u8bef: {e}")
+        print(f"Parse error: {e}")
         return None
 
 class QwenManager(ToolManager):
@@ -80,17 +80,17 @@ class QwenManager(ToolManager):
         self._load_search_cache()
 
     def get_tool(self, name_or_short_name: str):
-        '\u901a\u8fc7\u540d\u79f0\u6216\u7b80\u5199\u83b7\u53d6\u5de5\u5177\n        \n        Args:\n            name_or_short_name: \u5de5\u5177\u540d\u79f0\u6216\u7b80\u5199\n            \n        Returns:\n            \u627e\u5230\u7684\u5de5\u5177\uff0c\u5982\u679c\u6ca1\u627e\u5230\u5219\u8fd4\u56deNone\n        '
+        'Find a tool by name or alias; return None when absent.'
         name_or_short_name = str(name_or_short_name)
         return self.tool_map.get(name_or_short_name, None)
 
     @property
     def all_tools(self):
-        '\u83b7\u53d6\u6240\u6709\u5de5\u5177\n\n        Returns:\n            \u6240\u6709\u5de5\u5177\u7684\u5217\u8868\n        '
+        'List all tools.'
         return self.tool_map
 
     def _load_search_cache(self) -> None:
-        '\u52a0\u8f7d\u641c\u7d22\u7f13\u5b58'
+        'Load the search cache.'
         if not self._search_cache_file.exists():
             return
 
@@ -116,7 +116,7 @@ class QwenManager(ToolManager):
             self._search_cache = {}
 
     def _check_search_cache_update(self) -> bool:
-        '\u68c0\u67e5\u641c\u7d22\u7f13\u5b58\u6587\u4ef6\u662f\u5426\u66f4\u65b0'
+        'Check whether the search cache file changed.'
         now = time.time()
         if now - self._search_cache_last_check < self._search_cache_refresh_interval:
             return False
@@ -138,7 +138,7 @@ class QwenManager(ToolManager):
         return False
 
     def _save_search_cache_sync(self, query: str, response: str) -> None:
-        '\u540c\u6b65\u4fdd\u5b58\u641c\u7d22\u7f13\u5b58\u5230\u6587\u4ef6'
+        'Save the search cache synchronously.'
 
         os.makedirs(self._search_cache_path, exist_ok=True)
 
@@ -151,7 +151,7 @@ class QwenManager(ToolManager):
                 os.fsync(f.fileno())
             print(f"DEBUG: Successfully saved search cache entry. File size: {os.path.getsize(self._search_cache_file)}")
         except Exception as e:
-            print(f"\u4fdd\u5b58\u641c\u7d22\u7f13\u5b58\u6587\u4ef6\u65f6\u5931\u8d25: {str(e)}")
+            print(f"Failed to save the search cache: {str(e)}")
             traceback.print_exc()
 
     def _build_tools(self):
@@ -168,9 +168,9 @@ class QwenManager(ToolManager):
             self.functions = []
 
     async def execute_all_tools_with_limiter(self, actions, tools, temp_dict=None):
-        '\u5e76\u884c\u6267\u884c\u5de5\u5177\u8c03\u7528'
+        'Execute tool calls in parallel.'
         async def execute_single_tool(tool):
-            '\u6267\u884c\u5355\u4e2a\u5de5\u5177\u8c03\u7528'
+            'Execute one tool call.'
             try:
                 tool_name = tool.get("name", "default")
 
@@ -247,8 +247,8 @@ class QwenManager(ToolManager):
                                     del self._in_flight_requests[query_str]
 
             except Exception as e:
-                print(f"\u5de5\u5177\u8c03\u7528\u5931\u8d25: {e}")
-                return f"# \u5de5\u5177\u8c03\u7528\u5931\u8d25: {str(e)}"
+                print(f"Tool call failed: {e}")
+                return f"# Tool call failed: {str(e)}"
 
         tasks = []
         for action, tool_list in zip(actions, tools):
@@ -260,7 +260,7 @@ class QwenManager(ToolManager):
         return results
 
     async def execute_all_tools(self, actions, tool_list, temp_dict=None):
-        '\u5f02\u6b65\u5e76\u884c\u6267\u884c\u6240\u6709\u5de5\u5177\u5217\u8868\n        \n        Args:\n            tool_list: \u5de5\u5177\u5217\u8868\u7684\u5217\u8868\n            temp_dict: \u7528\u4e8e\u5b58\u50a8\u52a8\u6001\u521b\u5efa\u7684MCP\u5de5\u5177\u7684\u5b57\u5178\n            \n        Returns:\n            \u6240\u6709\u5de5\u5177\u6267\u884c\u7ed3\u679c\u7684\u5217\u8868\n        '
+        'Execute tool batches asynchronously, sharing the temporary MCP mapping.'
 
         tasks = []
         for temp_action, temp_tool_list in zip(actions, tool_list):
@@ -271,7 +271,7 @@ class QwenManager(ToolManager):
         return results
 
     async def _execute_tool_batch(self, action, tools, temp_dict=None):
-        '\u5f02\u6b65\u5e76\u884c\u6267\u884c\u4e00\u6279\u5de5\u5177\n        \n        Args:\n            tools: \u5de5\u5177\u5217\u8868\n            temp_dict: \u7528\u4e8e\u5b58\u50a8\u52a8\u6001\u521b\u5efa\u7684MCP\u5de5\u5177\u7684\u5b57\u5178\n            \n        Returns:\n            \u5de5\u5177\u6267\u884c\u7ed3\u679c\u7684\u5217\u8868\n        '
+        'Execute one tool batch asynchronously with the temporary MCP mapping.'
         async def execute_single_tool(tool):
             try:
                 tool_name = tool.get("name", "default")
@@ -384,8 +384,8 @@ class QwenManager(ToolManager):
 
                 return result
             except Exception as e:
-                print(f"\u5de5\u5177\u8c03\u7528\u5931\u8d25: {e}")
-                return f"# \u5de5\u5177\u8c03\u7528\u5931\u8d25: {str(e)}"
+                print(f"Tool call failed: {e}")
+                return f"# Tool call failed: {str(e)}"
 
         if action == 'answer':
             # 'tools' is a str (the answer)
@@ -473,7 +473,7 @@ class QwenManager(ToolManager):
         return actions, tool_results
 
     def parse_response(self, response_content: str) -> Optional[Dict[str, Any]]:
-        '\u6267\u884c\u52a8\u4f5c\n        \n        Args:\n            response_content: \u54cd\u5e94\u6587\u672c\n            \n        Returns:\n            \u89e3\u6790\u540e\u7684\u52a8\u4f5c\u4fe1\u606f\uff0c\u5305\u542bname\u548cargs\uff08\u5982\u679c\u5b58\u5728\uff09\n            \u5982\u679c\u6ca1\u6709\u52a8\u4f5c\u6807\u7b7e\u6216\u683c\u5f0f\u4e0d\u6b63\u786e\uff0c\u8fd4\u56deNone\n        '
+        'Parse action name and arguments; return None for missing or malformed action tags.'
 
         if_answer, answer = self.parse_end_flag(response_content)
         if if_answer:
@@ -488,7 +488,7 @@ class QwenManager(ToolManager):
             return 'answer', tools
 
     def parse_end_flag(self, response_content: str) -> tuple[bool, str]:
-        '\u89e3\u6790\u7b54\u6848\u6807\u7b7e\uff0c\u652f\u6301 \x08oxed{} \u683c\u5f0f\u548c\u5176\u4ed6\u7b54\u6848\u683c\u5f0f'
+        'Parse boxed answers and supported answer tags.'
         answer = None
 
         answer_pattern = r'<answer>(.*?)</answer>'
@@ -622,8 +622,8 @@ if __name__ == "__main__":
     import sys
 
     def test_qwen_manager():
-        '\u6d4b\u8bd5 QwenManager \u7684\u57fa\u672c\u529f\u80fd'
-        print('\U0001f680 \u5f00\u59cb\u6d4b\u8bd5 QwenManager...')
+        'Test basic QwenManager behavior.'
+        print('Starting QwenManager tests...')
 
         test_config = {
             'config_path': 'envs/configs/mcp_tools.pydata',
@@ -637,82 +637,82 @@ if __name__ == "__main__":
         }
 
         try:
-            print('1. \u521d\u59cb\u5316 QwenManager...')
+            print('1. Initializing QwenManager...')
             manager = QwenManager(test_config)
-            print('\u2705 QwenManager \u521d\u59cb\u5316\u6210\u529f')
+            print('QwenManager initialized.')
 
-            print('\n2. \u68c0\u67e5\u5de5\u5177\u6620\u5c04...')
-            print(f"   \u53ef\u7528\u5de5\u5177\u6570\u91cf: {len(manager.tool_map)}")
+            print('\n2. Checking tool mappings...')
+            print(f"   Available tools: {len(manager.tool_map)}")
             for tool_name, tool in manager.tool_map.items():
                 print(f"   - {tool_name}: {type(tool).__name__}")
-            print('\u2705 \u5de5\u5177\u6620\u5c04\u68c0\u67e5\u5b8c\u6210')
+            print('Tool mappings checked.')
 
-            print('\n3. \u6d4b\u8bd5\u83b7\u53d6\u5de5\u5177...')
+            print('\n3. Testing tool lookup...')
             if manager.tool_map:
                 first_tool_name = list(manager.tool_map.keys())[0]
                 tool = manager.get_tool(first_tool_name)
                 if tool:
-                    print(f"\u2705 \u6210\u529f\u83b7\u53d6\u5de5\u5177: {first_tool_name}")
+                    print(f"Tool retrieved: {first_tool_name}")
                 else:
-                    print(f"\u274c \u83b7\u53d6\u5de5\u5177\u5931\u8d25: {first_tool_name}")
+                    print(f"Tool lookup failed: {first_tool_name}")
             else:
-                print('\u26a0\ufe0f \u6ca1\u6709\u53ef\u7528\u5de5\u5177')
+                print('No tools available.')
 
-            print('\n4. \u6d4b\u8bd5\u5de5\u5177\u6267\u884c...')
+            print('\n4. Testing tool execution...')
 
             import time
-            unique_query = f"\u4ec0\u4e48\u662f\u4eba\u5de5\u667a\u80fd\u5462"
+            unique_query = f"What is artificial intelligence?"
             test_response = f"""<tool_call>\n{{\n    "name": "search",\n    "arguments": {{\n        "query": "{unique_query}",\n        "topk": 2\n    }}\n}}\n</tool_call>"""
 
             try:
                 action, tools = manager.parse_response(test_response)
-                print(f"   \u89e3\u6790\u7ed3\u679c - \u52a8\u4f5c: {action}")
+                print(f"   Parsed action: {action}")
                 if action == 'actions':
-                    print(f"   \u5de5\u5177\u6570\u91cf: {len(tools)}")
+                    print(f"   Tool count: {len(tools)}")
                     for i, tool in enumerate(tools):
-                        print(f"   \u5de5\u5177{i+1}: {tool}")
+                        print(f"   Tool{i+1}: {tool}")
 
                     if tools:
-                        print('   \u5c1d\u8bd5\u6267\u884c\u5de5\u5177...')
+                        print('   Executing the tool...')
                         actions_list, tool_results = manager.execute_actions([test_response])
-                        print('   \u6267\u884c\u7ed3\u679c:')
+                        print('   Execution result:')
                         for i, result in enumerate(tool_results):
-                            print(f"   \u7ed3\u679c{i+1}: {result[:200]}..." if len(str(result)) > 200 else f"   \u7ed3\u679c{i+1}: {result}")
+                            print(f"   Result{i+1}: {result[:200]}..." if len(str(result)) > 200 else f"   Result{i+1}: {result}")
                 else:
-                    print(f"   \u54cd\u5e94\u5185\u5bb9: {tools}")
-                print('\u2705 \u5de5\u5177\u6267\u884c\u6d4b\u8bd5\u5b8c\u6210')
+                    print(f"   Response content: {tools}")
+                print('Tool execution tests completed.')
 
             except Exception as e:
-                print(f"\u274c \u5de5\u5177\u6267\u884c\u6d4b\u8bd5\u5931\u8d25: {str(e)}")
+                print(f"Tool execution test failed: {str(e)}")
                 traceback.print_exc()
 
-            print('\n5. \u6d4b\u8bd5 Python \u5de5\u5177...')
+            print('\n5. Testing the Python tool...')
 
             python_test_response = '<tool_call>\n{\n    "name": "execute_python_code",\n    "arguments": {\n        "code": "print(\'Hello from test!\')\\nresult = 2 + 3\\nprint(f\'2 + 3 = {result}\')",\n        "timeout": 10.0\n    }\n}\n</tool_call>'
 
             try:
                 action, tools = manager.parse_response(python_test_response)
-                print(f"   Python \u5de5\u5177\u89e3\u6790\u7ed3\u679c - \u52a8\u4f5c: {action}")
+                print(f"   Parsed Python action: {action}")
                 if action == 'actions' and tools:
-                    print('   \u5c1d\u8bd5\u6267\u884c Python \u5de5\u5177...')
+                    print('   Executing the Python tool...')
                     actions_list, tool_results = manager.execute_actions([python_test_response])
-                    print('   Python \u5de5\u5177\u6267\u884c\u7ed3\u679c:')
+                    print('   Python tool result:')
                     for i, result in enumerate(tool_results):
-                        print(f"   \u7ed3\u679c{i+1}: {result[:300]}..." if len(str(result)) > 300 else f"   \u7ed3\u679c{i+1}: {result}")
+                        print(f"   Result{i+1}: {result[:300]}..." if len(str(result)) > 300 else f"   Result{i+1}: {result}")
 
                     result_str = str(tool_results[0]) if tool_results else ""
                     if "Hello from test!" in result_str or "2 + 3 = 5" in result_str:
-                        print('\u2705 Python \u5de5\u5177\u6267\u884c\u7ed3\u679c\u6b63\u786e')
+                        print('Python tool result is correct.')
                     else:
-                        print('\u26a0\ufe0f Python \u5de5\u5177\u6267\u884c\u7ed3\u679c\u53ef\u80fd\u4e0d\u6b63\u786e')
+                        print('Python tool result may be incorrect.')
                 else:
-                    print('\u26a0\ufe0f Python \u5de5\u5177\u89e3\u6790\u5931\u8d25')
-                print('\u2705 Python \u5de5\u5177\u6d4b\u8bd5\u5b8c\u6210')
+                    print('Python tool parsing failed.')
+                print('Python tool tests completed.')
             except Exception as e:
-                print(f"\u274c Python \u5de5\u5177\u6d4b\u8bd5\u5931\u8d25: {str(e)}")
+                print(f"Python tool test failed: {str(e)}")
                 traceback.print_exc()
 
-            print('\n6. \u6d4b\u8bd5\u7b54\u6848\u89e3\u6790...')
+            print('\n6. Testing answer parsing...')
             test_answers = [
                 "<answer>\\boxed{[2, 1]}</answer>",
                 "<answer>42</answer>",
@@ -723,30 +723,30 @@ if __name__ == "__main__":
             for test_answer in test_answers:
                 try:
                     found, parsed = manager.parse_end_flag(test_answer)
-                    print(f"   \u8f93\u5165: {test_answer}")
-                    print(f"   \u89e3\u6790\u7ed3\u679c: found={found}, parsed='{parsed}'")
+                    print(f"   Input: {test_answer}")
+                    print(f"   Parsed result: found={found}, parsed='{parsed}'")
                 except Exception as e:
-                    print(f"   \u89e3\u6790\u5931\u8d25: {str(e)}")
+                    print(f"   Parsing failed: {str(e)}")
 
-            print('\u2705 \u7b54\u6848\u89e3\u6790\u6d4b\u8bd5\u5b8c\u6210')
+            print('Answer parsing tests completed.')
 
-            print('\n7. \u6d4b\u8bd5\u641c\u7d22\u7f13\u5b58...')
+            print('\n7. Testing the search cache...')
             if hasattr(manager, '_search_cache'):
-                print(f"   \u7f13\u5b58\u6761\u76ee\u6570\u91cf: {len(manager._search_cache)}")
-                print('\u2705 \u641c\u7d22\u7f13\u5b58\u68c0\u67e5\u5b8c\u6210')
+                print(f"   Cache entries: {len(manager._search_cache)}")
+                print('Search cache checked.')
             else:
-                print('\u26a0\ufe0f \u641c\u7d22\u7f13\u5b58\u672a\u521d\u59cb\u5316')
+                print('Search cache is not initialized.')
 
             return True
 
         except Exception as e:
-            print(f"\u274c \u6d4b\u8bd5\u5931\u8d25: {str(e)}")
+            print(f"Test failed: {str(e)}")
             traceback.print_exc()
             return False
 
     def test_config_parsing():
-        '\u6d4b\u8bd5\u914d\u7f6e\u6587\u4ef6\u89e3\u6790'
-        print('\n\U0001f527 \u6d4b\u8bd5\u914d\u7f6e\u6587\u4ef6\u89e3\u6790...')
+        'Test configuration parsing.'
+        print('\nTesting configuration parsing...')
 
         config_path = 'envs/configs/mcp_tools.pydata'
         if not os.path.exists(config_path):
@@ -759,22 +759,22 @@ if __name__ == "__main__":
             try:
                 function_list = parse_mcp_tools_config(config_path, "baseline_gpu6_grpo_prm")
                 if function_list is None:
-                    print('\u274c \u914d\u7f6e\u6587\u4ef6\u89e3\u6790\u8fd4\u56de None')
+                    print('Configuration parser returned None.')
                     return False
 
-                print(f"\u2705 \u914d\u7f6e\u6587\u4ef6\u89e3\u6790\u6210\u529f\uff0c\u5305\u542b {len(function_list)} \u4e2a\u5de5\u5177\u914d\u7f6e")
+                print(f"Configuration parsed; found {len(function_list)} tool configurations")
                 for i, tool_config in enumerate(function_list):
-                    print(f"   \u914d\u7f6e{i+1}: {tool_config}")
+                    print(f"   Configuration{i+1}: {tool_config}")
                 return True
             except Exception as e:
-                print(f"\u274c \u914d\u7f6e\u6587\u4ef6\u89e3\u6790\u5931\u8d25: {str(e)}")
+                print(f"Configuration parsing failed: {str(e)}")
                 return False
         else:
-            print(f"\u274c \u914d\u7f6e\u6587\u4ef6\u4e0d\u5b58\u5728: {config_path}")
+            print(f"Configuration file not found: {config_path}")
             return False
 
     class DummyTool:
-        '\u7528\u4e8e\u79bb\u7ebf\u5168\u94fe\u8def\u6d4b\u8bd5\u7684\u5047\u5de5\u5177\uff0c\u907f\u514d\u5916\u90e8\u4f9d\u8d56'
+        'Provide an offline test tool without external dependencies.'
         def __init__(self, name: str = "dummy"):
             self.name = name
 
@@ -786,8 +786,8 @@ if __name__ == "__main__":
             return {"echo": payload}
 
     def test_full_pipeline_without_external_deps():
-        '\u9a8c\u8bc1\u89e3\u6790->\u6267\u884c->\u8fd4\u56de\u7684\u5168\u94fe\u8def\u53ef\u7528\uff08\u4f7f\u7528\u672c\u5730\u5047\u5de5\u5177\uff09'
-        print('\n8. \u6d4b\u8bd5\u5168\u94fe\u8def\uff08\u89e3\u6790->\u6267\u884c->\u8fd4\u56de\uff09...')
+        'Test parsing, execution and response using local stub tools.'
+        print('\n8. Testing parsing, execution and response...')
         cfg = {
             'config_path': None,
             'mcp_mode': 'stdio',
@@ -809,21 +809,21 @@ if __name__ == "__main__":
 
         action, tools = manager.parse_response(test_response)
         manager._build_tools()
-        assert action == 'actions', f"\u89e3\u6790\u52a8\u4f5c\u5931\u8d25\uff0c\u5f97\u5230 {action}"
-        assert len(tools) == 1 and tools[0]['name'] == dummy.name, '\u5de5\u5177\u89e3\u6790\u7ed3\u679c\u4e0d\u7b26\u5408\u9884\u671f'
+        assert action == 'actions', f"Failed to parse action; got {action}"
+        assert len(tools) == 1 and tools[0]['name'] == dummy.name, 'Unexpected tool parsing result'
 
         actions_list, tool_results = manager.execute_actions([test_response])
-        assert actions_list == ['actions'], f"\u52a8\u4f5c\u5217\u8868\u5f02\u5e38: {actions_list}"
-        assert tool_results and isinstance(tool_results[0], list), '\u8fd4\u56de\u7ed3\u679c\u683c\u5f0f\u5f02\u5e38'
+        assert actions_list == ['actions'], f"Unexpected action list: {actions_list}"
+        assert tool_results and isinstance(tool_results[0], list), 'Unexpected result format'
         result_item = tool_results[0][0]
-        assert isinstance(result_item, dict) and result_item.get('role') == 'tool', '\u5de5\u5177\u7ed3\u679c\u89d2\u8272\u5b57\u6bb5\u7f3a\u5931'
-        assert 'echo' in str(result_item.get('content', '')), '\u5de5\u5177\u7ed3\u679c\u672a\u5305\u542b\u56de\u663e\u5b57\u6bb5'
+        assert isinstance(result_item, dict) and result_item.get('role') == 'tool', 'Tool result has no role field'
+        assert 'echo' in str(result_item.get('content', '')), 'Tool result has no echoed field'
 
-        print('\u2705 \u5168\u94fe\u8def\u6d4b\u8bd5\u901a\u8fc7\uff08\u65e0\u5916\u90e8\u4f9d\u8d56\uff09')
+        print('End-to-end offline test passed.')
         return True
 
     print("=" * 60)
-    print('QwenManager \u8c03\u8bd5\u6d4b\u8bd5')
+    print('QwenManager diagnostics')
     print("=" * 60)
 
     config_test_passed = test_config_parsing()
@@ -833,16 +833,16 @@ if __name__ == "__main__":
     full_pipeline_passed = test_full_pipeline_without_external_deps()
 
     print("\n" + "=" * 60)
-    print('\u6d4b\u8bd5\u7ed3\u679c\u603b\u7ed3:')
-    print(f"\u914d\u7f6e\u6587\u4ef6\u89e3\u6790\u6d4b\u8bd5: {'\u2705 \u901a\u8fc7' if config_test_passed else '\u274c \u5931\u8d25'}")
-    print(f"\u7ba1\u7406\u5668\u529f\u80fd\u6d4b\u8bd5: {'\u2705 \u901a\u8fc7' if manager_test_passed else '\u274c \u5931\u8d25'}")
-    print(f"\u5168\u94fe\u8def\u79bb\u7ebf\u6d4b\u8bd5: {'\u2705 \u901a\u8fc7' if full_pipeline_passed else '\u274c \u5931\u8d25'}")
+    print('Test summary:')
+    print(f"Configuration parsing: {'PASS' if config_test_passed else 'FAIL'}")
+    print(f"Manager functions: {'PASS' if manager_test_passed else 'FAIL'}")
+    print(f"Offline end-to-end test: {'PASS' if full_pipeline_passed else 'FAIL'}")
 
     if config_test_passed and manager_test_passed and full_pipeline_passed:
-        print('\U0001f389 \u6240\u6709\u6d4b\u8bd5\u901a\u8fc7\uff01')
+        print('All tests passed.')
         sys.exit(0)
     else:
-        print('\u26a0\ufe0f \u90e8\u5206\u6d4b\u8bd5\u5931\u8d25\uff0c\u8bf7\u68c0\u67e5\u76f8\u5173\u914d\u7f6e\u548c\u670d\u52a1')
+        print('Some tests failed; check configuration and services.')
         sys.exit(1)
 
 # Author: Weiliang Zhu

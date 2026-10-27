@@ -104,7 +104,7 @@ class RLHFDataset(Dataset):
 
         self.use_tool = config.get("use_tool", True)
 
-        self.cache_dir = os.path.expanduser(config.get("cache_dir", "~/.cache/verl/rlhf"))
+        self.cache_dir = os.path.expanduser(config.get("cache_dir", "cache/verl/rlhf"))
         self.prompt_key = config.get("prompt_key", "prompt")
         self.image_key = config.get("image_key", "images")
         self.video_key = config.get("video_key", "videos")
@@ -362,7 +362,7 @@ class RLHFDataset(Dataset):
         return self.__dict__.copy()
 
 def test_rlhf_dataset():
-    '\u6d4b\u8bd5 RLHFDataset \u7684\u57fa\u672c\u529f\u80fd'
+    'Test basic RLHFDataset behavior.'
     import sys
     import traceback
     from transformers import AutoTokenizer
@@ -370,14 +370,14 @@ def test_rlhf_dataset():
     from envs.bases import MCPBaseEnv
     from envs.tool_manager.reasoner import QwenManager
 
-    print('\U0001f680 \u5f00\u59cb\u6d4b\u8bd5 RLHFDataset...')
+    print('Starting RLHFDataset tests...')
     from qwen_agent.llm.schema import ASSISTANT, SYSTEM, USER, FUNCTION, ContentItem
     print(ASSISTANT, SYSTEM, USER, FUNCTION, ContentItem, "ASSISTANT SYSTEM USER FUNCTION ContentItem")
     try:
 
-        print('1. \u8bbe\u7f6e\u6d4b\u8bd5\u914d\u7f6e...')
+        print('1. Preparing test configuration...')
         config = OmegaConf.create({
-            "cache_dir": "~/.cache/verl/test",
+            "cache_dir": "cache/verl/test",
             "prompt_key": "prompt",
             "image_key": "images",
             "video_key": "videos",
@@ -392,12 +392,12 @@ def test_rlhf_dataset():
             "serialize_dataset": False
         })
 
-        print('2. \u521d\u59cb\u5316 tokenizer...')
+        print('2. Initializing the tokenizer...')
         tokenizer = AutoTokenizer.from_pretrained('assets/models/Qwen3-8B')
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
 
-        print('3. \u521b\u5efa\u73af\u5883\u5bf9\u8c61...')
+        print('3. Creating the environment...')
 
         env_config = OmegaConf.create({
             'use_verify_tool': False,
@@ -417,7 +417,7 @@ def test_rlhf_dataset():
         env_object = MCPBaseEnv(env_config)
         env_object.tool_manager = tool_manager
 
-        print('4. \u521d\u59cb\u5316 RLHFDataset...')
+        print('4. Initializing RLHFDataset...')
         dataset = RLHFDataset(
             data_files=data_path,
             tokenizer=tokenizer,
@@ -426,49 +426,49 @@ def test_rlhf_dataset():
             processor=None
         )
 
-        print('\u2705 RLHFDataset \u521d\u59cb\u5316\u6210\u529f')
+        print('RLHFDataset initialized.')
 
-        print('5. \u6d4b\u8bd5\u6570\u636e\u96c6\u57fa\u672c\u5c5e\u6027...')
-        print(f"   \u6570\u636e\u96c6\u5927\u5c0f: {len(dataset)}")
-        print(f"   \u6570\u636e\u6587\u4ef6: {dataset.data_files}")
-        print(f"   \u63d0\u793a\u952e: {dataset.prompt_key}")
-        print(f"   \u6700\u5927\u63d0\u793a\u957f\u5ea6: {dataset.max_prompt_length}")
+        print('5. Testing dataset properties...')
+        print(f"   Dataset size: {len(dataset)}")
+        print(f"   Data files: {dataset.data_files}")
+        print(f"   Prompt key: {dataset.prompt_key}")
+        print(f"   Maximum prompt length: {dataset.max_prompt_length}")
 
-        print('6. \u6d4b\u8bd5\u83b7\u53d6\u7b2c\u4e00\u4e2a\u6570\u636e\u9879\u76ee...')
+        print('6. Reading the first dataset item...')
         if len(dataset) > 0:
             try:
                 first_item = dataset[0]
-                print('\u2705 \u6210\u529f\u83b7\u53d6\u7b2c\u4e00\u4e2a\u6570\u636e\u9879\u76ee')
+                print('Read the first dataset item.')
 
                 keys = list(first_item.keys())
-                print(f"   \u9879\u76ee\u5305\u542b\u7684\u952e: {keys}")
+                print(f"   Item keys: {keys}")
                 print(first_item)
                 print(tokenizer.decode(first_item["input_ids"]))
 
             except Exception as e:
-                print(f"\u274c \u83b7\u53d6\u7b2c\u4e00\u4e2a\u6570\u636e\u9879\u76ee\u5931\u8d25: {str(e)}")
+                print(f"Failed to read the first dataset item: {str(e)}")
                 traceback.print_exc()
         else:
-            print('\u26a0\ufe0f \u6570\u636e\u96c6\u4e3a\u7a7a')
+            print('WARNING: The dataset is empty.')
 
-        print('7. \u6d4b\u8bd5\u6279\u91cf\u83b7\u53d6\u6570\u636e...')
+        print('7. Testing batch reads...')
         test_indices = [0, min(1, len(dataset)-1), min(2, len(dataset)-1)]
         for idx in test_indices:
             try:
                 item = dataset[idx]
-                print(f"   \u7d22\u5f15 {idx}: \u83b7\u53d6\u6210\u529f")
+                print(f"   Index {idx}: read succeeded")
             except Exception as e:
-                print(f"   \u7d22\u5f15 {idx}: \u83b7\u53d6\u5931\u8d25 - {str(e)}")
+                print(f"   Index {idx}: read failed - {str(e)}")
 
-        print('8. \u6570\u636e\u96c6\u7edf\u8ba1\u4fe1\u606f...')
-        print(f"   \u603b\u6837\u672c\u6570: {len(dataset)}")
-        print(f"   \u4f7f\u7528\u7684\u7f13\u5b58\u76ee\u5f55: {dataset.cache_dir}")
-        print(f"   \u4f7f\u7528\u5de5\u5177: {dataset.use_tool}")
+        print('8. Dataset statistics...')
+        print(f"   Total samples: {len(dataset)}")
+        print(f"   Cache directory: {dataset.cache_dir}")
+        print(f"   Tools enabled: {dataset.use_tool}")
 
-        print('\u2705 RLHFDataset \u6d4b\u8bd5\u5b8c\u6210')
+        print('RLHFDataset tests completed.')
 
     except Exception as e:
-        print(f"\u274c RLHFDataset \u6d4b\u8bd5\u5931\u8d25: {str(e)}")
+        print(f"RLHFDataset test failed: {str(e)}")
         traceback.print_exc()
         return False
 
@@ -481,10 +481,10 @@ if __name__ == "__main__":
     success = test_rlhf_dataset()
 
     if success:
-        print('\n\U0001f389 \u6240\u6709\u6d4b\u8bd5\u901a\u8fc7\uff01')
+        print('\nAll tests passed.')
         sys.exit(0)
     else:
-        print('\n\u274c \u6d4b\u8bd5\u5931\u8d25')
+        print('\nTest failed.')
         sys.exit(1)
 
 # Author: Weiliang Zhu

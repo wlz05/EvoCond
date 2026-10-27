@@ -9,9 +9,9 @@ import re
 import pandas as pd
 
 class DistanceRequest(BaseModel):
-    origin: str = Field(..., description='\u51fa\u53d1\u5730')
-    destination: str = Field(..., description='\u76ee\u7684\u5730')
-    mode: str = Field(default="driving", description='\u4ea4\u901a\u65b9\u5f0f')
+    origin: str = Field(..., description='Origin')
+    destination: str = Field(..., description='Destination')
+    mode: str = Field(default="driving", description='Transport mode')
 
 class DistanceResponse(BaseModel):
     origin: str
@@ -22,7 +22,7 @@ class DistanceResponse(BaseModel):
 
 class DistanceServer(BaseServer):
     def __init__(self):
-        super().__init__('\u8ddd\u79bb', 8006)
+        super().__init__('distance', 8006)
         self.load_data()
         self.setup_routes()
 

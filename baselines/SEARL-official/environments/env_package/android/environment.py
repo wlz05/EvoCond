@@ -236,7 +236,7 @@ class AndroidEnv(BaseEnv):
             action_dict = json.loads(parsed_action["action_content"])
             action_is_valid = True
         except Exception as exc:
-            logger.warning('[%s] Action parse failed: %s \u2014 fallback click.', self.rollout_id, exc)
+            logger.warning('[%s] Action parse failed: %s - fallback click.', self.rollout_id, exc)
             action_dict = {"action_type": "click", "x": 400, "y": 800}
             action_is_valid = False
             info["fallback_used"] = True

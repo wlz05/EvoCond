@@ -217,7 +217,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             self.config.ref.log_prob_micro_batch_size_per_gpu = self.config.ref.log_prob_micro_batch_size
 
     def _init_centralized_tool_actor(self):
-        '\u521d\u59cb\u5316\u96c6\u4e2d\u5f0f\u5de5\u5177\u7ba1\u7406\u5668Actor'
+        'Initialize the centralized tool actor.'
         import ray
         from envs.tool_manager.centralized.central import CentralizedToolActor
 
@@ -225,10 +225,10 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             try:
 
                 centralized_actor = ray.get_actor("centralized_tool_actor")
-                print('\u53d1\u73b0\u5df2\u5b58\u5728\u7684\u96c6\u4e2d\u5f0f\u5de5\u5177Actor')
+                print('Found the centralized tool actor')
             except ValueError:
 
-                print('\u521b\u5efa\u65b0\u7684\u96c6\u4e2d\u5f0f\u5de5\u5177Actor - rank {}'.format(self.rank))
+                print('Creating a centralized tool actor - rank {}'.format(self.rank))
                 centralized_actor = CentralizedToolActor.options(
                     name="centralized_tool_actor",
                     max_concurrency=self.config.actor_rollout_ref.env.get('max_concurrency', 10)
@@ -244,13 +244,13 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             while time.time() - start_time < max_wait_time:
                 try:
                     self.centralized_tool_actor = ray.get_actor("centralized_tool_actor")
-                    print(f"Worker {self.rank} \u6210\u529f\u83b7\u53d6\u96c6\u4e2d\u5f0f\u5de5\u5177Actor")
+                    print(f"Worker {self.rank} obtained the centralized tool actor")
                     break
                 except ValueError:
                     time.sleep(1)
 
             if self.centralized_tool_actor is None:
-                raise RuntimeError(f"Worker {self.rank} \u5728{max_wait_time}\u79d2\u5185\u65e0\u6cd5\u83b7\u53d6\u96c6\u4e2d\u5f0f\u5de5\u5177Actor")
+                raise RuntimeError(f"Worker {self.rank} within {max_wait_time} seconds: could not get the centralized tool actor")
 
     def _build_model_optimizer(
         self,

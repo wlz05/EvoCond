@@ -39,7 +39,7 @@ from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.utils.tracking import ValidationGenerationsLogger
 
 def softmean(x: torch.Tensor, beta: float, dim: int = -1, keepdim: bool = False) -> torch.Tensor:
-    '\n    Compute SoftMean_\u03b2(x) = (1/\u03b2) * log( (1/n) * \u03a3 exp(\u03b2 * x_i) )\n    Falls back to arithmetic mean when \u03b2=0.\n    '
+    'Compute smooth log-mean-exp with beta; use the arithmetic mean when beta=0.'
     if beta == 0.0:
         return x.mean(dim=dim, keepdim=keepdim)
 

@@ -98,6 +98,14 @@ class ContractTests(unittest.TestCase):
             result = check_call(user(text), [tool()], "Paint", {"color": "blue"})
             self.assertEqual(result["decision"], "unknown", text)
             self.assertFalse(result["blocked"], text)
+    def test_unicode_negation_remains_supported_with_ascii_pattern_source(self):
+        negation = bytes.fromhex('e4b88de8a681').decode()
+        result = check_call(user(negation+' Paint.color="red"'), [tool()], 'Paint', dict(color='red'))
+        self.assertEqual(result['decision'], 'unknown')
+        from control.guard import TIME_CHANGE, CHANGE
+        self.assertIsNotNone(TIME_CHANGE.search(bytes.fromhex('e694b9e697b6e997b4').decode()))
+        self.assertIsNotNone(CHANGE.search(bytes.fromhex('e69bb4e696b0e5818fe5a5bd').decode()))
+
     def test_explicit_inequality(self):
         messages = user('Paint.color!="red"')
         self.assertTrue(check_call(messages, [tool()], "Paint", {"color": "red"})["blocked"])

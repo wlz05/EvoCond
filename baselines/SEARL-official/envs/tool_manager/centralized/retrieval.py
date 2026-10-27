@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # EvoCond: Preserving Conditional Tool Relations for Co-Evolving Language Agents
 
-'\nGraphRAG \u589e\u5f3a\u7684\u5de5\u5177\u68c0\u7d22\u7cfb\u7edf\n\n\u57fa\u4e8e\u73b0\u6709\u7684 central.py \u5347\u7ea7\u5230 GraphRAG\uff0c\u589e\u5f3a\u68c0\u7d22\u80fd\u529b\uff1a\n1. \u591a\u8df3\u63a8\u7406\uff1a\u57fa\u4e8e\u4f9d\u8d56\u56fe\u8fdb\u884c\u591a\u8df3\u641c\u7d22\n2. \u793e\u533a\u68c0\u6d4b\uff1a\u5c06\u76f8\u5173\u5de5\u5177\u805a\u7c7b\u6210\u793e\u533a\u5e76\u5efa\u7acb\u5c42\u6b21\u7ed3\u6784\n3. \u5168\u5c40-\u5c40\u90e8\u641c\u7d22\uff1a\u7ed3\u5408\u5168\u5c40\u6458\u8981\u548c\u5c40\u90e8\u7ec6\u8282\u68c0\u7d22\n4. \u5173\u7cfb\u589e\u5f3a\uff1a\u5229\u7528\u5de5\u5177\u95f4\u7684\u8c03\u7528\u5173\u7cfb\u63d0\u5347\u68c0\u7d22\u8d28\u91cf\n5. \u52a8\u6001\u6743\u91cd\uff1a\u6839\u636e\u67e5\u8be2\u7c7b\u578b\u52a8\u6001\u8c03\u6574\u641c\u7d22\u7b56\u7565\n6. \u6267\u884c\u5386\u53f2\uff1a\u8003\u8651\u5de5\u5177\u7684\u5386\u53f2\u6210\u529f\u7387\u548c\u4f7f\u7528\u9891\u7387\n\nAuthor: Based on CentralizedQwenManager\nDate: 2026-01-01\n'
+'GraphRAG retrieval with dependency hops, communities, global/local search and execution history; based on CentralizedQwenManager.'
 
 import re
 import json
@@ -20,7 +20,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.cluster import AgglomerativeClustering
 
 class GraphRAGRetrieval:
-    '\n    GraphRAG \u589e\u5f3a\u7684\u5de5\u5177\u68c0\u7d22\u5f15\u64ce\n\n    \u6838\u5fc3\u6539\u8fdb\uff1a\n    - \u5229\u7528\u5de5\u5177\u4f9d\u8d56\u56fe\u8fdb\u884c\u591a\u8df3\u63a8\u7406\n    - \u793e\u533a\u68c0\u6d4b\u548c\u5c42\u6b21\u5316\u7ec4\u7ec7\n    - \u5168\u5c40\u6458\u8981 + \u5c40\u90e8\u8be6\u7ec6\u4fe1\u606f\u7684\u53cc\u5c42\u68c0\u7d22\n    - \u57fa\u4e8e\u6267\u884c\u5386\u53f2\u7684\u52a8\u6001\u6392\u5e8f\n    '
+    'Retrieve tools using graph structure, hierarchical communities and execution history.'
 
     def __init__(
         self,
@@ -30,7 +30,7 @@ class GraphRAGRetrieval:
         enable_history_tracking: bool = True,
         cache_dir: Optional[str] = None
     ):
-        "\n        \u521d\u59cb\u5316 GraphRAG \u68c0\u7d22\u5f15\u64ce\n\n        Args:\n            embedding_model_path: SentenceTransformer \u6a21\u578b\u8def\u5f84\n            device: \u8bbe\u5907 ('cuda:0' \u6216 'cpu')\n            enable_community_detection: \u662f\u5426\u542f\u7528\u793e\u533a\u68c0\u6d4b\n            enable_history_tracking: \u662f\u5426\u542f\u7528\u5386\u53f2\u8ddf\u8e2a\n            cache_dir: \u7f13\u5b58\u76ee\u5f55\n        "
+        'Initialize GraphRAG with its embedding model, device, community/history flags and cache directory.'
 
         self.lock = threading.RLock()
         self.embedding_model = SentenceTransformer(embedding_model_path, device=device)
@@ -56,14 +56,14 @@ class GraphRAGRetrieval:
             'co_occurrence': Counter()
         })
 
-        self.cache_dir = Path(cache_dir) if cache_dir else Path("/tmp/graphrag_cache")
+        self.cache_dir = Path(cache_dir) if cache_dir else Path('cache/graphrag')
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
         print(f"[GraphRAG] Initialized with embedding_model={embedding_model_path}, device={device}")
         print(f"[GraphRAG] Community detection: {enable_community_detection}, History tracking: {enable_history_tracking}")
 
     def load_tools(self, mcps: Dict[str, Dict[str, Any]], tool_graph: Optional[nx.DiGraph] = None):
-        '\n        \u52a0\u8f7d\u5de5\u5177\u6570\u636e\u5e76\u6784\u5efa\u7d22\u5f15\n\n        Args:\n            mcps: \u5de5\u5177\u5143\u6570\u636e\u5b57\u5178\n            tool_graph: \u5de5\u5177\u4f9d\u8d56\u56fe\uff08\u53ef\u9009\uff09\n        '
+        'Load tool metadata and an optional dependency graph, then build indices.'
         with self.lock:
             self.mcps = mcps.copy()
 
@@ -86,7 +86,7 @@ class GraphRAGRetrieval:
                 print(f"[GraphRAG] Detected {len(self.communities)} communities")
 
     def _build_graph_from_metadata(self):
-        '\u4ece\u5de5\u5177\u5143\u6570\u636e\u6784\u5efa\u4f9d\u8d56\u56fe'
+        'Build a dependency graph from tool metadata.'
         self.tool_graph.clear()
 
         for mcp_name, mcp_data in self.mcps.items():
@@ -103,7 +103,7 @@ class GraphRAGRetrieval:
                     self.tool_graph.add_edge(req_step_id, step_id)
 
     def _build_embeddings(self):
-        '\u6784\u5efa\u5de5\u5177\u7684\u8bed\u4e49\u5411\u91cf'
+        'Build semantic tool embeddings.'
         print("[GraphRAG] Building embeddings...")
 
         for mcp_name, mcp_data in self.mcps.items():
@@ -124,7 +124,7 @@ class GraphRAGRetrieval:
         print(f"[GraphRAG] Built embeddings for {len(self.tool_embeddings)} tools")
 
     def _build_tfidf_index(self):
-        '\u6784\u5efa TF-IDF \u7d22\u5f15'
+        'Build a TF-IDF index.'
         print("[GraphRAG] Building TF-IDF index...")
 
         texts = []
@@ -151,7 +151,7 @@ class GraphRAGRetrieval:
             print("[GraphRAG] Warning: No texts to build TF-IDF index")
 
     def _detect_communities(self):
-        '\n        \u4f7f\u7528\u5c42\u6b21\u805a\u7c7b\u8fdb\u884c\u793e\u533a\u68c0\u6d4b\n\n        \u7ed3\u5408\u56fe\u7ed3\u6784\u548c\u8bed\u4e49\u76f8\u4f3c\u5ea6\u8fdb\u884c\u805a\u7c7b\n        '
+        'Detect hierarchical communities from graph structure and semantic similarity.'
         if not self.tool_embeddings:
             print("[GraphRAG] No embeddings available for community detection")
             return
@@ -210,7 +210,7 @@ class GraphRAGRetrieval:
             print(f"  - {comm_id}: {len(members)} tools")
 
     def _build_community_summaries(self):
-        '\u4e3a\u6bcf\u4e2a\u793e\u533a\u6784\u5efa\u6458\u8981'
+        'Build a summary for each community.'
         print("[GraphRAG] Building community summaries...")
 
         for comm_id, members in self.communities.items():
@@ -245,7 +245,7 @@ class GraphRAGRetrieval:
         print(f"[GraphRAG] Built summaries for {len(self.community_summaries)} communities")
 
     def _build_global_summary(self):
-        '\u6784\u5efa\u5168\u5c40\u6458\u8981'
+        'Build the global summary.'
         community_texts = []
         for comm_id in sorted(self.community_summaries.keys()):
             community_texts.append(self.community_summaries[comm_id])
@@ -254,7 +254,7 @@ class GraphRAGRetrieval:
         print(f"[GraphRAG] Built global summary ({len(self.global_summary)} chars)")
 
     def semantic_search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
-        '\n        \u8bed\u4e49\u641c\u7d22\uff08\u5411\u540e\u517c\u5bb9\uff09\n\n        Args:\n            query: \u67e5\u8be2\u6587\u672c\n            top_k: \u8fd4\u56de\u7ed3\u679c\u6570\u91cf\n\n        Returns:\n            \u5339\u914d\u7684\u5de5\u5177\u5217\u8868\uff0c\u6bcf\u4e2a\u5305\u542b mcp_id, score, content\n        '
+        'Return top_k semantic matches with mcp_id, score and content.'
         if not self.tool_embeddings:
             return []
 
@@ -279,7 +279,7 @@ class GraphRAGRetrieval:
         return results
 
     def text_search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
-        '\n        TF-IDF \u6587\u672c\u641c\u7d22\uff08\u5411\u540e\u517c\u5bb9\uff09\n\n        Args:\n            query: \u67e5\u8be2\u6587\u672c\n            top_k: \u8fd4\u56de\u7ed3\u679c\u6570\u91cf\n\n        Returns:\n            \u5339\u914d\u7684\u5de5\u5177\u5217\u8868\n        '
+        'Return top_k TF-IDF matches through the legacy interface.'
         if self.tfidf_matrix is None or not self.tfidf_mcp_ids:
             return []
 
@@ -308,7 +308,7 @@ class GraphRAGRetrieval:
         weights: Optional[Dict[str, float]] = None,
         score_threshold: float = 0.2
     ) -> List[List[Dict[str, Any]]]:
-        "\n        \u6df7\u5408\u641c\u7d22\uff08\u5411\u540e\u517c\u5bb9\u63a5\u53e3\uff09\n\n        Args:\n            query: \u67e5\u8be2\u6587\u672c\n            top_k: \u8fd4\u56de\u7ed3\u679c\u6570\u91cf\n            weights: \u6743\u91cd\u5b57\u5178 {'text': w1, 'semantic': w2}\n            score_threshold: \u5206\u6570\u9608\u503c\n\n        Returns:\n            \u5339\u914d\u7684\u5de5\u5177\u5217\u8868\uff08\u6bcf\u4e2a\u5de5\u5177\u5305\u88c5\u5728\u5217\u8868\u4e2d\u4ee5\u517c\u5bb9\u65e7\u63a5\u53e3\uff09\n        "
+        'Combine text and semantic weights above score_threshold; retain the legacy nested-list result format.'
         weights = weights or {'text': 0.5, 'semantic': 0.5}
         score_board = defaultdict(float)
 
@@ -342,7 +342,7 @@ class GraphRAGRetrieval:
         use_history: bool = True,
         weights: Optional[Dict[str, float]] = None
     ) -> List[Dict[str, Any]]:
-        '\n        GraphRAG \u589e\u5f3a\u641c\u7d22\uff08\u6838\u5fc3\u65b9\u6cd5\uff09\n\n        Args:\n            query: \u67e5\u8be2\u6587\u672c\n            top_k: \u8fd4\u56de\u7ed3\u679c\u6570\u91cf\n            max_hops: \u6700\u5927\u8df3\u6570\uff08\u591a\u8df3\u63a8\u7406\uff09\n            use_community: \u662f\u5426\u4f7f\u7528\u793e\u533a\u4fe1\u606f\n            use_history: \u662f\u5426\u4f7f\u7528\u6267\u884c\u5386\u53f2\n            weights: \u6743\u91cd\u914d\u7f6e\n\n        Returns:\n            \u589e\u5f3a\u7684\u641c\u7d22\u7ed3\u679c\u5217\u8868\n        '
+        'Rank top_k tools using bounded graph hops, optional communities/history and configured weights.'
         weights = weights or {
             'semantic': 0.3,
             'text': 0.2,
@@ -414,7 +414,7 @@ class GraphRAGRetrieval:
         return detailed_results
 
     def _compute_graph_scores(self, seed_tools: Set[str], max_hops: int = 2) -> Dict[str, float]:
-        '\n        \u8ba1\u7b97\u56fe\u7ed3\u6784\u5206\u6570\uff08\u591a\u8df3\u63a8\u7406\uff09\n\n        \u4ece\u79cd\u5b50\u5de5\u5177\u51fa\u53d1\uff0c\u901a\u8fc7\u4f9d\u8d56\u56fe\u6269\u5c55\uff0c\u8ddd\u79bb\u8d8a\u8fd1\u5206\u6570\u8d8a\u9ad8\n        '
+        'Score nodes by dependency-graph distance from seed tools.'
         graph_scores = {}
 
         for seed in seed_tools:
@@ -450,7 +450,7 @@ class GraphRAGRetrieval:
         return graph_scores
 
     def _compute_community_scores(self, query: str, candidates: Set[str]) -> Dict[str, float]:
-        '\n        \u8ba1\u7b97\u793e\u533a\u76f8\u5173\u6027\u5206\u6570\n\n        \u5982\u679c\u67e5\u8be2\u4e0e\u67d0\u4e2a\u793e\u533a\u7684\u6458\u8981\u76f8\u4f3c\uff0c\u5219\u8be5\u793e\u533a\u5185\u7684\u5de5\u5177\u83b7\u5f97\u52a0\u5206\n        '
+        'Boost tools whose community summary matches the query.'
         if not self.community_summaries:
             return {}
 
@@ -468,7 +468,7 @@ class GraphRAGRetrieval:
         return community_scores
 
     def _compute_history_scores(self, candidates: Set[str]) -> Dict[str, float]:
-        '\n        \u8ba1\u7b97\u57fa\u4e8e\u6267\u884c\u5386\u53f2\u7684\u5206\u6570\n\n        \u8003\u8651\u6210\u529f\u7387\u3001\u4f7f\u7528\u9891\u7387\u3001\u6700\u8fd1\u4f7f\u7528\u65f6\u95f4\u7b49\u56e0\u7d20\n        '
+        'Score tools using success rate, usage frequency and recency.'
         history_scores = {}
         current_time = time.time()
 
@@ -503,7 +503,7 @@ class GraphRAGRetrieval:
         execution_time: float = 0.0,
         co_used_tools: Optional[List[str]] = None
     ):
-        '\n        \u8bb0\u5f55\u5de5\u5177\u6267\u884c\u5386\u53f2\n\n        Args:\n            mcp_name: \u5de5\u5177\u540d\u79f0\n            success: \u662f\u5426\u6210\u529f\n            execution_time: \u6267\u884c\u65f6\u95f4\uff08\u79d2\uff09\n            co_used_tools: \u540c\u65f6\u4f7f\u7528\u7684\u5176\u4ed6\u5de5\u5177\n        '
+        'Record tool success, elapsed seconds and co-used tools.'
         if not self.enable_history_tracking:
             return
 
@@ -524,7 +524,7 @@ class GraphRAGRetrieval:
                         hist['co_occurrence'][other_tool] += 1
 
     def get_execution_stats(self, mcp_name: str) -> Dict[str, Any]:
-        '\u83b7\u53d6\u5de5\u5177\u7684\u6267\u884c\u7edf\u8ba1\u4fe1\u606f'
+        'Return tool execution statistics.'
         if mcp_name not in self.execution_history:
             return {}
 
@@ -542,7 +542,7 @@ class GraphRAGRetrieval:
         }
 
     def update_tool(self, mcp_name: str, mcp_data: Dict[str, Any]):
-        '\u66f4\u65b0\u5355\u4e2a\u5de5\u5177'
+        'Update one tool.'
         with self.lock:
             self.mcps[mcp_name] = mcp_data
 
@@ -562,7 +562,7 @@ class GraphRAGRetrieval:
             print(f"[GraphRAG] Updated tool: {mcp_name}")
 
     def remove_tool(self, mcp_name: str):
-        '\u5220\u9664\u5de5\u5177'
+        'Remove a tool.'
         with self.lock:
             if mcp_name in self.mcps:
                 del self.mcps[mcp_name]
@@ -584,7 +584,7 @@ class GraphRAGRetrieval:
             print(f"[GraphRAG] Removed tool: {mcp_name}")
 
     def save_cache(self, cache_path: Optional[str] = None):
-        '\u4fdd\u5b58\u7f13\u5b58\u5230\u78c1\u76d8'
+        'Save the cache to disk.'
         if cache_path is None:
             cache_path = self.cache_dir / "graphrag_cache.json"
 
@@ -601,7 +601,7 @@ class GraphRAGRetrieval:
         print(f"[GraphRAG] Cache saved to {cache_path}")
 
     def load_cache(self, cache_path: Optional[str] = None):
-        '\u4ece\u78c1\u76d8\u52a0\u8f7d\u7f13\u5b58'
+        'Load the cache from disk.'
         if cache_path is None:
             cache_path = self.cache_dir / "graphrag_cache.json"
 
@@ -634,7 +634,7 @@ def create_graphrag_retrieval(
     enable_history_tracking: bool = True,
     cache_dir: Optional[str] = None
 ) -> GraphRAGRetrieval:
-    '\n    \u4fbf\u6377\u51fd\u6570\uff1a\u521b\u5efa\u5e76\u521d\u59cb\u5316 GraphRAG \u68c0\u7d22\u5f15\u64ce\n\n    Args:\n        mcps: \u5de5\u5177\u5143\u6570\u636e\u5b57\u5178\n        tool_graph: \u5de5\u5177\u4f9d\u8d56\u56fe\uff08\u53ef\u9009\uff09\n        embedding_model_path: SentenceTransformer \u6a21\u578b\u8def\u5f84\n        device: \u8bbe\u5907\n        enable_community_detection: \u542f\u7528\u793e\u533a\u68c0\u6d4b\n        enable_history_tracking: \u542f\u7528\u5386\u53f2\u8ddf\u8e2a\n        cache_dir: \u7f13\u5b58\u76ee\u5f55\n\n    Returns:\n        \u521d\u59cb\u5316\u597d\u7684 GraphRAGRetrieval \u5b9e\u4f8b\n    '
+    'Create GraphRAGRetrieval from MCP metadata, an optional graph, embedding model, device, feature flags and cache directory.'
     retrieval = GraphRAGRetrieval(
         embedding_model_path=embedding_model_path,
         device=device,
@@ -650,7 +650,7 @@ def create_graphrag_retrieval(
 if __name__ == "__main__":
 
     print("=" * 60)
-    print('GraphRAG \u68c0\u7d22\u5f15\u64ce\u6d4b\u8bd5')
+    print('GraphRAG retrieval tests')
     print("=" * 60)
 
     sample_mcps = {
@@ -692,7 +692,7 @@ if __name__ == "__main__":
         }
     }
 
-    print('\n1. \u521b\u5efa GraphRAG \u68c0\u7d22\u5f15\u64ce...')
+    print('\n1. Creating the GraphRAG retrieval engine...')
     retrieval = create_graphrag_retrieval(
         mcps=sample_mcps,
         enable_community_detection=True,
@@ -700,25 +700,25 @@ if __name__ == "__main__":
         device='cpu'
     )
 
-    print('\n2. \u6d4b\u8bd5\u8bed\u4e49\u641c\u7d22...')
+    print('\n2. Testing semantic search...')
     results = retrieval.semantic_search("search for information", top_k=2)
     for r in results:
         print(f"  - {r['mcp_id']}: score={r['score']:.4f}")
 
-    print('\n3. \u6d4b\u8bd5\u6df7\u5408\u641c\u7d22...')
+    print('\n3. Testing hybrid search...')
     results = retrieval.hybrid_search("find and summarize web content", top_k=3)
     for r_list in results:
         for r in r_list:
             print(f"  - {r.get('mcp_name')}: score={r.get('search_score', 0):.4f}")
 
-    print('\n4. \u6d4b\u8bd5 GraphRAG \u589e\u5f3a\u641c\u7d22...')
+    print('\n4. Testing GraphRAG search...')
     results = retrieval.graph_enhanced_search("search and extract information from websites", top_k=3, max_hops=2)
     for r in results:
         print(f"  - {r['mcp_name']}: total_score={r['search_score']:.4f}")
         if 'score_breakdown' in r:
             print(f"    breakdown: {r['score_breakdown']}")
 
-    print('\n5. \u6d4b\u8bd5\u6267\u884c\u5386\u53f2\u8bb0\u5f55...')
+    print('\n5. Testing execution history...')
     retrieval.record_execution('web_search', success=True, execution_time=1.5)
     retrieval.record_execution('web_search', success=True, execution_time=1.2)
     retrieval.record_execution('extract_content', success=False, execution_time=0.5)
@@ -727,7 +727,7 @@ if __name__ == "__main__":
     print(f"  web_search stats: {stats}")
 
     print("\n" + "=" * 60)
-    print('\u6d4b\u8bd5\u5b8c\u6210\uff01')
+    print('Tests completed.')
     print("=" * 60)
 
 # Author: Weiliang Zhu

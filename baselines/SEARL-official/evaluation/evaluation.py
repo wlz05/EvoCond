@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # EvoCond: Preserving Conditional Tool Relations for Co-Evolving Language Agents
 
-'\n\u7edf\u4e00\u7684\u8bc4\u4f30\u811a\u672c\uff1a\n- \u652f\u6301\u901a\u8fc7\u547d\u4ee4\u884c\u6307\u5b9a\u6570\u636e\u96c6\u3001\u6a21\u578b\u7b54\u6848 JSON\u3001\u8f93\u51fa\u76ee\u5f55\n- \u4f9d\u8d56 vLLM \u5224\u5206\uff08\u89c1 gpt_judge.MathLLM\uff09\n'
+'Align prediction JSON with a named dataset and write vLLM judge reports.'
 
 import argparse
 import os
@@ -20,7 +20,7 @@ from datasets import load_dataset
 from evaluation.judge import MathLLM
 
 def _preprocess_latex_basic(s: str) -> str:
-    '\n    \u8f7b\u91cf LaTeX \u5f52\u4e00\uff1a\x0crac, \\sqrt, ^, \\cdot, \times, \\div, \\left, \right, \u82b1\u62ec\u53f7\u7b49\n    '
+    'Normalize common LaTeX operators, delimiters and braces.'
     s = s.strip()
 
     for k in (r"\left", r"\right", r"\,", r"\!"):
@@ -48,7 +48,7 @@ def _in_interval(x: float, lo: float, hi: float, left_closed: bool, right_closed
     return left_ok and right_ok
 
 def _to_float(expr: str) -> float:
-    '\n    \u628a\u8868\u8fbe\u5f0f/LaTeX \u8f6c\u6210 float\u3002\n    \u5c1d\u8bd5\u987a\u5e8f\uff1a\n      1) \u76f4\u63a5 float\n      2) sympy.parse_latex\n      3) \u8f7b\u91cf LaTeX \u9884\u5904\u7406\u540e sympy.sympify\n    '
+    'Convert an expression using float, parse_latex, then normalized sympify.'
     s = str(expr).strip().strip("$")
 
     try:
@@ -80,7 +80,7 @@ def _to_float(expr: str) -> float:
         return float(s2)
 
 def _parse_number_maybe_percent(s: str):
-    '\u5c1d\u8bd5\u89e3\u6790\u7eaf\u6570\u5b57\u6216\u767e\u5206\u6570\uff1b\u6210\u529f\u8fd4\u56de float\uff0c\u5426\u5219\u8fd4\u56de None\u3002'
+    'Parse a number or percentage as float; return None on failure.'
     s1 = s.strip().strip("$")
 
     m = re.fullmatch(r"\s*([-+]?\d+(?:\.\d+)?)\s*(\\?%)\s*", s1)
@@ -93,7 +93,7 @@ def _parse_number_maybe_percent(s: str):
         return None
 
 def _norm_text(s: str) -> str:
-    '\u8f7b\u91cf\u6587\u672c\u5f52\u4e00\uff1astrip/lower/\u538b\u7f29\u7a7a\u767d\u3002'
+    'Normalize text by stripping, lowercasing and collapsing whitespace.'
     s = s or ""
     s = s.strip().lower()
     s = re.sub(r"\s+", " ", s)
@@ -102,7 +102,7 @@ def _norm_text(s: str) -> str:
 def verify_math_answer(answer_float: float,
                        ground_truth_expr: str,
                        rel_tol: float = 1e-4) -> bool:
-    '\n    Verifies if a float answer is mathematically close to a LaTeX expression (or equivalent forms).\n    \u652f\u6301:\n      - \u7eaf\u6570/\u8868\u8fbe\u5f0f/LaTeX(\x0crac, \\sqrt, ^, \\cdot, \times, \\left...\right)\n      - \u767e\u5206\u6570: "12%" -> 0.12\n      - \u533a\u95f4: (a,b), [a,b], (a,b], [a,b]\n      - \u591a\u5019\u9009: {a,b,c}\n      - \\pm: 1 \\pm 2  ->  {1+2, 1-2}\n      - \u4f20\u5165 tuple/list/dict \u65f6\u7684\u9c81\u68d2\u5904\u7406\uff08\u4ece dict \u53d6 value/answer/target\uff1b\u4e8c\u5143\u5bb9\u5668\u89c6\u4e3a\u533a\u95f4\uff0c\u5426\u5219\u89c6\u4e3a\u591a\u5019\u9009\uff09\n    \u8bed\u4e49:\n      - ground truth \u662f\u5355\u503c: \u4e0e answer_float \u505a isclose\n      - ground truth \u662f\u533a\u95f4: \u5224\u65ad answer_float \u662f\u5426\u843d\u5728\u533a\u95f4\uff08\u542b\u5f00\u95ed\u7aef\u70b9\uff09\n      - ground truth \u662f\u591a\u5019\u9009: \u4efb\u4e00\u5019\u9009\u5339\u914d\u5373\u4e3a True\n    '
+    'Compare an answer with numeric, LaTeX, percentage, interval or alternative targets; preserve interval endpoints and container target rules.'
 
     if not isinstance(answer_float, (int, float)) or not math.isfinite(answer_float):
         return False
@@ -806,7 +806,7 @@ def evaluation_metrics_webwalker_level(answers, level, math_llm: MathLLM | None 
     return no_answer, boxed_not_found, correct, false_answer, acc
 
 def _build_dataset_map() -> Dict[str, Dict]:
-    '\u96c6\u4e2d\u5f0f\u6570\u636e\u96c6\u914d\u7f6e\uff0c\u4fbf\u4e8e CLI / \u4ee3\u7801\u8c03\u7528\u3002'
+    'Build the dataset configuration mapping for CLI and code callers.'
     eval_root = os.environ.get("RL_FACTORY_EVAL_DATA_ROOT", "data/eval")
     arpo_root = os.environ.get("RL_FACTORY_ARPO_EVAL_ROOT", "data/arpo/evaluation/data")
     return {
@@ -826,10 +826,10 @@ def _build_dataset_map() -> Dict[str, Dict]:
     }
 
 def prepare_answer_file(dataset_name: str, answer_json_path: str, output_dir: str, dataset_root_override: str | None = None):
-    '\u5c06\u6a21\u578b\u7b54\u6848\u4e0e\u6570\u636e\u96c6\u5bf9\u9f50\uff0c\u751f\u6210\u5e26 ground_truth \u7684\u7b54\u6848 JSON\u3002'
+    'Align model answers with dataset references and write ground_truth fields.'
     dataset_map = _build_dataset_map()
     if dataset_name not in dataset_map:
-        raise ValueError(f"\u4e0d\u652f\u6301\u7684\u6570\u636e\u96c6: {dataset_name}")
+        raise ValueError(f"Unsupported dataset: {dataset_name}")
     cfg = dataset_map[dataset_name]
 
     loader_path = dataset_root_override or cfg["loader"]
@@ -850,10 +850,10 @@ def prepare_answer_file(dataset_name: str, answer_json_path: str, output_dir: st
     return prepare_fn(input_data, answer_json, output_dir) if prepare_fn != main_qa else prepare_fn(input_data, answer_json, output_dir, dataset_name)
 
 def evaluate_dataset(dataset_name: str, prepared_answer_path: str, model_path: str | None, output_dir: str, judge: MathLLM | None = None):
-    '\u5bf9\u9f50\u540e\u7684\u7b54\u6848\u6587\u4ef6\u8fdb\u884c\u8bc4\u4f30\uff0c\u5e76\u8f93\u51fa\u62a5\u544a JSON\u3002\n\n    Args:\n        dataset_name: \u6570\u636e\u96c6\u540d\u79f0\n        prepared_answer_path: \u51c6\u5907\u597d\u7684\u7b54\u6848\u6587\u4ef6\u8def\u5f84\n        model_path: \u6a21\u578b\u8def\u5f84\uff08\u5f53judge\u4e3aNone\u65f6\u4f7f\u7528\uff09\n        output_dir: \u8f93\u51fa\u76ee\u5f55\n        judge: \u590d\u7528\u7684judge\u5b9e\u4f8b\uff0c\u5982\u679c\u4e3aNone\u5219\u521b\u5efa\u65b0\u7684\uff08\u907f\u514d\u91cd\u590d\u52a0\u8f7d\u6a21\u578b\uff09\n    '
+    'Evaluate an aligned answer file; reuse the supplied judge or create one from model_path, then write reports under output_dir.'
     dataset_map = _build_dataset_map()
     if dataset_name not in dataset_map:
-        raise ValueError(f"\u4e0d\u652f\u6301\u7684\u6570\u636e\u96c6: {dataset_name}")
+        raise ValueError(f"Unsupported dataset: {dataset_name}")
 
     with open(prepared_answer_path, "r", encoding="utf-8") as f:
         answers = json.load(f)
@@ -879,16 +879,16 @@ def evaluate_dataset(dataset_name: str, prepared_answer_path: str, model_path: s
     out_path = os.path.join(output_dir, f"evaluation_{dataset_name}.json")
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=4)
-    print(f"[evaluation] \u7ed3\u679c\u5199\u5165 {out_path}")
+    print(f"[evaluation] Results written to {out_path}")
     return out_path
 
 def cli():
-    parser = argparse.ArgumentParser(description='\u8bc4\u4f30\u5de5\u5177\uff1a\u6307\u5b9a\u6570\u636e\u96c6\u3001\u7b54\u6848\u6587\u4ef6\u3001\u8f93\u51fa\u76ee\u5f55\uff0c\u751f\u6210\u62a5\u544a\u3002')
-    parser.add_argument("--dataset", required=True, help='\u6570\u636e\u96c6\u540d\u79f0\uff0c\u4f8b\u5982 HLE/GAIA/WebWalker/XBench/... ')
-    parser.add_argument("--answers", required=True, help='\u6a21\u578b\u751f\u6210\u7684\u7b54\u6848 JSON \u8def\u5f84\uff08\u672a\u5bf9\u9f50 ground_truth\uff09')
-    parser.add_argument("--output-dir", required=True, help='\u8f93\u51fa\u76ee\u5f55\uff0c\u5305\u542b\u5bf9\u9f50\u7b54\u6848\u4e0e\u8bc4\u4f30\u62a5\u544a')
-    parser.add_argument("--model-path", default=None, help='vLLM \u4f7f\u7528\u7684\u5f00\u6e90\u6a21\u578b\u6743\u91cd\uff08HF \u540d\u79f0\u6216\u672c\u5730\u8def\u5f84\uff09')
-    parser.add_argument("--dataset-path", default=None, help='\u53ef\u9009\uff1a\u8986\u76d6\u9ed8\u8ba4\u6570\u636e\u96c6\u52a0\u8f7d\u8def\u5f84')
+    parser = argparse.ArgumentParser(description='Evaluate a dataset and prediction file, then write a report.')
+    parser.add_argument("--dataset", required=True, help='Dataset name, e.g. HLE/GAIA/WebWalker/XBench/... ')
+    parser.add_argument("--answers", required=True, help='Prediction JSON path before reference alignment')
+    parser.add_argument("--output-dir", required=True, help='Output directory for aligned answers and evaluation reports')
+    parser.add_argument("--model-path", default=None, help='vLLM weights: Hugging Face model ID or local path')
+    parser.add_argument("--dataset-path", default=None, help='Optional dataset path override')
     args = parser.parse_args()
 
     prepared = prepare_answer_file(

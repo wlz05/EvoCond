@@ -167,7 +167,7 @@ class MCPBaseEnv(Env):
             f"plans={len(current_plan_list)} loop_cnt={loop_cnt}"
         )
         async def process_all_prompts():
-            '\u5f02\u6b65\u5904\u7406\u6240\u6709 prompt \u751f\u6210'
+            'Generate all prompts asynchronously.'
             tasks = []
 
             for action, tool_result, tool_list, current_plan in zip(cur_actions, tool_results, tool_lists, current_plan_list):
@@ -230,7 +230,7 @@ class MCPBaseEnv(Env):
                 loop.close()
 
     async def _process_single_prompt(self, tool_result, tokenizer, mode, current_plan, done, valid, is_tool, tool_list):
-        '\u5f02\u6b65\u5904\u7406\u5355\u4e2a prompt \u751f\u6210'
+        'Generate one prompt asynchronously.'
         try:
             prompt = await self.tool_manager.get_prompt_async(
                 input_data=tool_result,

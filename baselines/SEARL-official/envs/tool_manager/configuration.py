@@ -12,25 +12,25 @@ from typing import Any, Dict, Optional, List
 from envs.tool_manager.manager import ToolManager
 
 class ConfigParser:
-    '\u914d\u7f6e\u89e3\u6790\u5668\uff0c\u7528\u4e8e\u8bfb\u53d6\u548c\u89e3\u6790\u914d\u7f6e\u6587\u4ef6'
+    'Read and parse tool configuration files.'
 
     @staticmethod
     def load_config(config_path: str) -> Dict[str, Any]:
-        '\u52a0\u8f7d\u914d\u7f6e\u6587\u4ef6\n        \n        Args:\n            config_path: \u914d\u7f6e\u6587\u4ef6\u8def\u5f84\n            \n        Returns:\n            \u914d\u7f6e\u5b57\u5178\n        '
+        'Read a configuration mapping from disk.'
         with open(config_path, 'r', encoding='utf-8') as f:
             return json.load(f)
 
     @staticmethod
     def save_config(config: Dict[str, Any], config_path: str) -> None:
-        '\u4fdd\u5b58\u914d\u7f6e\u5230\u6587\u4ef6\n        \n        Args:\n            config: \u914d\u7f6e\u5b57\u5178\n            config_path: \u914d\u7f6e\u6587\u4ef6\u8def\u5f84\n        '
+        'Write a configuration mapping to disk.'
         with open(config_path, 'w', encoding='utf-8') as f:
             json.dump(config, f, ensure_ascii=False, indent=2)
 
 class ToolParam:
-    '\u5de5\u5177\u53c2\u6570\u7c7b'
+    'Describe a tool parameter.'
 
     def __init__(self, param_config: Dict[str, Any]):
-        '\u521d\u59cb\u5316\u5de5\u5177\u53c2\u6570\n        \n        Args:\n            param_config: \u53c2\u6570\u914d\u7f6e\u5b57\u5178\n        '
+        'Initialize a tool parameter from its configuration.'
         self.id = param_config.get("id", "")
         self.name = param_config.get("name", "")
         self.type = param_config.get("type", "string")
@@ -39,7 +39,7 @@ class ToolParam:
         self.default = param_config.get("default", None)
 
     def convert_value(self, value: Any) -> Any:
-        '\u6839\u636e\u53c2\u6570\u7c7b\u578b\u8f6c\u6362\u503c\n        \n        Args:\n            value: \u8f93\u5165\u503c\n            \n        Returns:\n            \u8f6c\u6362\u540e\u7684\u503c\n        '
+        'Convert an input value to the declared parameter type.'
         try:
             if self.type == "string":
                 return str(value)
@@ -60,14 +60,14 @@ class ToolParam:
             else:
                 return value
         except Exception as e:
-            print(f"\u8f6c\u6362\u53c2\u6570 {self.name} \u5931\u8d25: {e}")
+            print(f"Failed to convert argument {self.name}: {e}")
             return value
 
 class Tool:
-    '\u5de5\u5177\u7c7b\uff0c\u8868\u793a\u5185\u90e8\u5de5\u5177\u6216\u5916\u90e8\u5de5\u5177'
+    'Represent an internal or external tool.'
 
     def __init__(self, tool_config: Dict[str, Any]):
-        '\u521d\u59cb\u5316\u5de5\u5177\n        \n        Args:\n            tool_config: \u5de5\u5177\u914d\u7f6e\u5b57\u5178\n        '
+        'Initialize a tool from its configuration.'
         self.id = tool_config.get("id", "")
         self.name = tool_config.get("name", "")
         self.short_name = tool_config.get("shortName", "")
@@ -90,7 +90,7 @@ class Tool:
             self._compile_function()
 
     def _compile_function(self):
-        '\u7f16\u8bd1Python\u4ee3\u7801\u4e3a\u51fd\u6570'
+        'Compile Python source into a function.'
         try:
 
             module_name = f"tool_{self.id}"
@@ -106,15 +106,15 @@ class Tool:
                     break
 
             if not self._func:
-                raise ValueError(f"\u5de5\u5177 {self.name} \u7684Python\u4ee3\u7801\u4e2d\u6ca1\u6709\u627e\u5230\u51fd\u6570\u5b9a\u4e49")
+                raise ValueError(f"Tool {self.name} has no Python function definition")
 
         except Exception as e:
-            print(f"\u7f16\u8bd1\u5de5\u5177 {self.name} \u5931\u8d25: {e}")
+            print(f"Compiling tool {self.name}: {e}")
 
     def __call__(self, *args, **kwargs):
-        '\u8c03\u7528\u5de5\u5177\u51fd\u6570'
+        'Invoke the tool function.'
         if not self._func:
-            raise ValueError(f"\u5de5\u5177 {self.name} \u6ca1\u6709\u53ef\u8c03\u7528\u7684\u51fd\u6570")
+            raise ValueError(f"Tool {self.name} has no callable function")
 
         processed_kwargs = {}
         if self.type == "external":
@@ -130,7 +130,7 @@ class Tool:
         return self._func(*args, **processed_kwargs)
 
     def get_param(self, name: str) -> Optional[ToolParam]:
-        '\u901a\u8fc7\u540d\u79f0\u83b7\u53d6\u53c2\u6570\n        \n        Args:\n            name: \u53c2\u6570\u540d\u79f0\n            \n        Returns:\n            \u627e\u5230\u7684\u53c2\u6570\uff0c\u5982\u679c\u6ca1\u627e\u5230\u5219\u8fd4\u56deNone\n        '
+        'Find a parameter by name; return None when absent.'
         if self.type != "external":
             return None
 
@@ -138,13 +138,13 @@ class Tool:
 
 class ConfigManager(ToolManager):
     def get_tool(self, name_or_short_name: str):
-        '\u901a\u8fc7\u540d\u79f0\u6216\u7b80\u5199\u83b7\u53d6\u5de5\u5177\n        \n        Args:\n            name_or_short_name: \u5de5\u5177\u540d\u79f0\u6216\u7b80\u5199\n            \n        Returns:\n            \u627e\u5230\u7684\u5de5\u5177\uff0c\u5982\u679c\u6ca1\u627e\u5230\u5219\u8fd4\u56deNone\n        '
+        'Find a tool by name or alias; return None when absent.'
         name_or_short_name = str(name_or_short_name)
         return self.tool_map.get(name_or_short_name, None)
 
     @property
     def all_tools(self):
-        '\u83b7\u53d6\u6240\u6709\u5de5\u5177\n        \n        Returns:\n            \u6240\u6709\u5de5\u5177\u7684\u5217\u8868\n        '
+        'Return all tools.'
         return self.internal_tools + self.external_tools
 
     def _build_tools(self):
@@ -175,9 +175,9 @@ class ConfigManager(ToolManager):
 
             category = param.get("category", "")
 
-            if category == '\u6a21\u677f\u5b57\u6bb5':
+            if category == 'template' or re.fullmatch(r'\u6a21\u677f\u5b57\u6bb5', category):
                 self.template_fields[param_name] = param
-            elif category == '\u73af\u5883\u5b57\u6bb5':
+            elif category == 'environment' or re.fullmatch(r'\u73af\u5883\u5b57\u6bb5', category):
                 self.env_fields[param_name] = param
 
                 param_default = param.get("default")
@@ -197,7 +197,7 @@ class ConfigManager(ToolManager):
                 self.tool_map[tool.short_name] = tool
 
     def _create_tools(self, tool_configs):
-        '\u4ece\u914d\u7f6e\u521b\u5efa\u5de5\u5177\u5217\u8868\n        \n        Args:\n            tool_configs: \u5de5\u5177\u914d\u7f6e\u5217\u8868\n            \n        Returns:\n            \u5de5\u5177\u5bf9\u8c61\u5217\u8868\n        '
+        'Build tool objects from configuration entries.'
         tools = []
         for tool_config in tool_configs:
             tool = Tool(tool_config)
@@ -206,7 +206,7 @@ class ConfigManager(ToolManager):
         return tools
 
     async def execute_all_tools(self, actions, tool_list):
-        '\u5f02\u6b65\u5e76\u884c\u6267\u884c\u6240\u6709\u5de5\u5177\u5217\u8868\n        \n        Args:\n            tool_list: \u5de5\u5177\u5217\u8868\u7684\u5217\u8868\n            \n        Returns:\n            \u6240\u6709\u5de5\u5177\u6267\u884c\u7ed3\u679c\u7684\u5217\u8868\n        '
+        'Execute all tool batches asynchronously and return their results.'
 
         tasks = []
         for temp_action, temp_tool_list in zip(actions, tool_list):
@@ -217,7 +217,7 @@ class ConfigManager(ToolManager):
         return results
 
     async def _execute_tool_batch(self, action, tools):
-        '\u5f02\u6b65\u5e76\u884c\u6267\u884c\u4e00\u6279\u5de5\u5177\n        \n        Args:\n            tools: \u5de5\u5177\u5217\u8868\n            \n        Returns:\n            \u5de5\u5177\u6267\u884c\u7ed3\u679c\u7684\u5217\u8868\n        '
+        'Execute one tool batch asynchronously and return its results.'
         async def execute_single_tool(tool):
             tool_instance = self.tool_manager.get_tool(tool["name"])
             args = tool["args"]
@@ -280,7 +280,7 @@ class ConfigManager(ToolManager):
         return actions, tool_results
 
     def parse_response(self, response_content: str) -> Optional[Dict[str, Any]]:
-        '\u6267\u884c\u52a8\u4f5c\n        \n        Args:\n            response_content: \u54cd\u5e94\u6587\u672c\n            \n        Returns:\n            \u89e3\u6790\u540e\u7684\u52a8\u4f5c\u4fe1\u606f\uff0c\u5305\u542bname\u548cargs\uff08\u5982\u679c\u5b58\u5728\uff09\n            \u5982\u679c\u6ca1\u6709\u52a8\u4f5c\u6807\u7b7e\u6216\u683c\u5f0f\u4e0d\u6b63\u786e\uff0c\u8fd4\u56deNone\n        '
+        'Parse action name and arguments; return None for missing or malformed action tags.'
 
         if_answer, answer = self.parse_end_flag(response_content)
         if if_answer:

@@ -17,7 +17,7 @@ class StorageManager:
                  persist_dir: str = "cache_data",
                  persist_interval: int = 300,
                  sync_interval: int = 600):
-        '\u521d\u59cb\u5316\u5b58\u50a8\u7ba1\u7406\u5668\n        \n        Args:\n            cache_mode: \u7f13\u5b58\u6a21\u5f0f\n            enable_persist: \u662f\u5426\u542f\u7528\u6301\u4e45\u5316\n            eviction_policy: \u7f13\u5b58\u6dd8\u6c70\u7b56\u7565\n            max_cache_size: \u6700\u5927\u7f13\u5b58\u6761\u76ee\u6570\n            persist_dir: \u6301\u4e45\u5316\u5b58\u50a8\u76ee\u5f55\n            persist_interval: \u6301\u4e45\u5316\u95f4\u9694\uff08\u79d2\uff09\n            sync_interval: \u540c\u6b65\u95f4\u9694\uff08\u79d2\uff09\n        '
+        'Initialize caching, persistence, capacity, directories and persistence/synchronization intervals.'
         self.cache_mode = cache_mode
         self.enable_persist = enable_persist
         self.persist_interval = persist_interval
@@ -39,19 +39,19 @@ class StorageManager:
             asyncio.create_task(self._start_sync_task())
 
     async def _start_persist_task(self):
-        '\u542f\u52a8\u5b9a\u65f6\u6301\u4e45\u5316\u4efb\u52a1'
+        'Start periodic persistence.'
         while True:
             await asyncio.sleep(self.persist_interval)
             await self._flush_persist_buffer()
 
     async def _start_sync_task(self):
-        '\u542f\u52a8\u5b9a\u65f6\u540c\u6b65\u4efb\u52a1'
+        'Start periodic cache synchronization.'
         while True:
             await asyncio.sleep(self.sync_interval)
             await self._sync_from_persist()
 
     async def _flush_persist_buffer(self):
-        '\u5c06\u7f13\u51b2\u533a\u6570\u636e\u5199\u5165\u6301\u4e45\u5316\u5b58\u50a8'
+        'Flush buffered data to persistent storage.'
         if not self.persist_buffer:
             return
 
@@ -64,7 +64,7 @@ class StorageManager:
             print(f"Failed to flush persist buffer: {e}")
 
     async def _sync_from_persist(self):
-        '\u4ece\u6301\u4e45\u5316\u5b58\u50a8\u540c\u6b65\u6570\u636e\u5230\u7f13\u5b58'
+        'Synchronize persistent data into the cache.'
         if not self.persist:
             return
 
@@ -80,7 +80,7 @@ class StorageManager:
             print(f"Failed to sync from persist: {e}")
 
     async def get(self, method_name: str, params: dict) -> Optional[Any]:
-        '\u83b7\u53d6\u7f13\u5b58\u6570\u636e\n        \n        Args:\n            method_name: \u65b9\u6cd5\u540d\n            params: \u53c2\u6570\u5b57\u5178\n            \n        Returns:\n            Optional[Any]: \u7f13\u5b58\u6570\u636e\n        '
+        'Read cached data for a method and parameter mapping.'
         cache_key = self.cache._hash_key(method_name, params)
 
         if self.cache.has(cache_key):
@@ -103,7 +103,7 @@ class StorageManager:
         return None
 
     async def set(self, method_name: str, params: dict, value: Any, ttl: Optional[int] = None) -> None:
-        '\u8bbe\u7f6e\u7f13\u5b58\u6570\u636e\n        \n        Args:\n            method_name: \u65b9\u6cd5\u540d\n            params: \u53c2\u6570\u5b57\u5178\n            value: \u8981\u7f13\u5b58\u7684\u503c\n            ttl: \u8fc7\u671f\u65f6\u95f4\uff08\u79d2\uff09\n        '
+        'Cache a method result with its parameters and TTL.'
         cache_key = self.cache._hash_key(method_name, params)
 
         self.cache.set(cache_key, value, ttl)
@@ -119,7 +119,7 @@ class StorageManager:
                 await self._flush_persist_buffer()
 
     def get_stats(self) -> Dict[str, Any]:
-        '\u83b7\u53d6\u5b58\u50a8\u7edf\u8ba1\u4fe1\u606f\n        \n        Returns:\n            Dict[str, Any]: \u7edf\u8ba1\u4fe1\u606f\n        '
+        'Return storage statistics.'
         stats = {
             "cache_mode": self.cache_mode.value,
             "enable_persist": self.enable_persist,
@@ -131,7 +131,7 @@ class StorageManager:
         return stats
 
 def parse_args():
-    '\u89e3\u6790\u547d\u4ee4\u884c\u53c2\u6570'
+    'Parse command-line arguments.'
     parser = argparse.ArgumentParser(description="Storage Manager")
     parser.add_argument("-cache", choices=["single", "multi"], default="single",
                         help="Cache mode: single (default) or multi")
@@ -146,7 +146,7 @@ def parse_args():
     return parser.parse_args()
 
 def create_storage_manager(args) -> StorageManager:
-    '\u521b\u5efa\u5b58\u50a8\u7ba1\u7406\u5668\n    \n    Args:\n        args: \u547d\u4ee4\u884c\u53c2\u6570\n        \n    Returns:\n        StorageManager: \u5b58\u50a8\u7ba1\u7406\u5668\u5b9e\u4f8b\n    '
+    'Build a storage manager from command-line arguments.'
     cache_mode = CacheMode.SINGLE if args.cache == "single" else CacheMode.MULTI
     eviction_policy = EvictionPolicy(args.eviction)
 
@@ -159,7 +159,7 @@ def create_storage_manager(args) -> StorageManager:
     )
 
 def create_config_storage_manager(verl_config) -> StorageManager:
-    '\u521b\u5efa\u5b58\u50a8\u7ba1\u7406\u5668\n\n    Args:\n        verl_config: \u914d\u7f6e\u6587\u4ef6\n\n    Returns:\n        StorageManager: \u5b58\u50a8\u7ba1\u7406\u5668\u5b9e\u4f8b\n    '
+    'Build a storage manager from the verl configuration.'
     cache_mode = CacheMode.SINGLE if verl_config.cache == "single" else CacheMode.MULTI
     eviction_policy = EvictionPolicy(verl_config.eviction)
 

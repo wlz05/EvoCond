@@ -198,7 +198,7 @@ def compute_grpo_outcome_advantage(
     return scores, scores
 
 def summarize_group_size(group_size: list[int]):
-    '\n    \u6253\u5370 step \u7ea7\u5206\u7ec4\u89c4\u6a21\u7684\u7edf\u8ba1\u3002\n    '
+    'Print step-group size statistics.'
     counts = Counter(group_size)
     total = sum(counts.values())
     max_size = max(counts) if counts else 0
@@ -225,7 +225,7 @@ def episode_norm_reward(
     remove_std: bool = True,
     compute_mean_std_cross_all_data: bool = True,
 ):
-    '\n    \u57fa\u4e8e episode \u7684\u5747\u503c/\u65b9\u5dee\u5f52\u4e00\u5316\uff0c\u7528\u4e8e GiGPO\u3002\n    token_level_rewards: (bs, response_length)\n    response_mask:       (bs, response_length)\n    index:               (bs,)\n    traj_index:          (bs,)\n    '
+    'Normalize episode rewards for GiGPO using reward/mask arrays shaped (bs, response_length) and index/traj_index vectors shaped (bs,).'
     response_length = token_level_rewards.shape[-1]
     scores = token_level_rewards.sum(dim=-1)
 
@@ -407,12 +407,12 @@ def step2episode(
     return padded_tensor, final_lengths, unique_uuids
 
 def step2episode_scalar(index: np.ndarray, step_advantages: torch.Tensor, return_inverse: bool = False):
-    '\n    \u5c06 step_advantages \u6309 UUID \u8fdb\u884c mean \u805a\u5408\uff0c\u8fd4\u56de [num_uuid]\u3002\n    '
+    'Average step advantages by UUID and return one scalar per UUID.'
 
     step_advantages = step_advantages.reshape(-1)
     index = np.asarray(index).reshape(-1)
     if index.shape[0] != step_advantages.shape[0]:
-        raise ValueError(f"index \u548c step_advantages \u7684\u957f\u5ea6\u5fc5\u987b\u76f8\u540c\uff0cgot {index.shape[0]} vs {step_advantages.shape[0]}")
+        raise ValueError(f"index and step_advantages must have equal lengths; got {index.shape[0]} vs {step_advantages.shape[0]}")
 
     unique_uuids, inverse_indices = np.unique(index, return_inverse=True)
     n = len(unique_uuids)
@@ -436,7 +436,7 @@ def step_norm_reward(
     remove_std: bool = True,
     traj_index=None,
 ):
-    '\n    \u57fa\u4e8e step \u7684\u5747\u503c/\u65b9\u5dee\u5f52\u4e00\u5316\uff0c\u5e76\u6309 traj_index \u805a\u5408\u3002\n    '
+    'Normalize step rewards and aggregate by traj_index.'
     response_length = response_mask.shape[-1]
 
     scores = torch.as_tensor(step_rewards, device=response_mask.device).clone()
@@ -469,9 +469,9 @@ def step_norm_reward(
 
         total_groups = single_group_count + multi_group_count
         if total_groups > 0:
-            print(f"\n=== step_norm_reward \u5206\u7ec4\u7edf\u8ba1 ===")
-            print(f"\u5355\u6837\u672c\u7ec4: {single_group_count}/{total_groups} ({single_group_count/total_groups*100:.1f}%)")
-            print(f"\u591a\u6837\u672c\u7ec4: {multi_group_count}/{total_groups} ({multi_group_count/total_groups*100:.1f}%)")
+            print(f"\n=== step_norm_reward group statistics ===")
+            print(f"Single-sample groups: {single_group_count}/{total_groups} ({single_group_count/total_groups*100:.1f}%)")
+            print(f"Multi-sample groups: {multi_group_count}/{total_groups} ({multi_group_count/total_groups*100:.1f}%)")
         for i in range(bsz):
             if remove_std:
                 scores[i] = scores[i] - id2mean[index[i]]
@@ -493,7 +493,7 @@ def step_norm_reward(
         else:
             step_advantages = scores.unsqueeze(-1).tile([1, response_length]) * response_mask
 
-        print(f"\u5f52\u4e00\u5316\u540e scores \u7edf\u8ba1: min={scores.min().item():.4f}, max={scores.max().item():.4f}, "
+        print(f"Normalized score statistics: min={scores.min().item():.4f}, max={scores.max().item():.4f}, "
               f"mean={scores.mean().item():.4f}, std={scores.std().item():.4f}")
 
     return step_advantages
@@ -527,7 +527,7 @@ def compute_gigpo_outcome_advantage(
     step_advantage_w: float = 1.0,
     mode: str = "mean_norm",
 ):
-    '\n    GiGPO: \u5c06 episode-level \u4e0e step-level \u4f18\u52bf\u7ed3\u5408\u3002\n    mode:\n        - "mean_norm": \u4ec5\u505a\u5747\u503c\u5f52\u4e00\u5316\n        - "mean_std_norm": \u5747\u503c+\u65b9\u5dee\u5f52\u4e00\u5316\n\n    Returns:\n        scores: \u8ba1\u7b97\u5f97\u5230\u7684\u4f18\u52bf\u5206\u6570\n        scores: \u518d\u6b21\u8fd4\u56de\u5206\u6570\uff08\u5411\u540e\u517c\u5bb9\uff09\n        gigpo_stats: GiGPO \u7edf\u8ba1\u4fe1\u606f\u5b57\u5178\uff08\u7528\u4e8e\u76d1\u63a7\uff09\n    '
+    'Combine GiGPO episode and step advantages using mean_norm or mean_std_norm; return scores twice for compatibility, plus statistics.'
 
     import os
     if os.getenv("DEBUG_SAVE_TENSORS", "0") == "1":
@@ -537,7 +537,7 @@ def compute_gigpo_outcome_advantage(
         torch.save(locals(), debug_file)
         print(f"Debug data saved to {debug_file}")
 
-    print(f"\n=== \u539f\u59cb step_rewards \u7edf\u8ba1 ===")
+    print(f"\n=== Raw step_rewards statistics ===")
 
     if isinstance(step_rewards, torch.Tensor):
         step_rewards_np = step_rewards.cpu().numpy()
@@ -551,7 +551,7 @@ def compute_gigpo_outcome_advantage(
         print(f"max: {np.max(valid_step_rewards):.4f}")
         print(f"mean: {np.mean(valid_step_rewards):.4f}")
         print(f"std: {np.std(valid_step_rewards):.4f}")
-    print(f"NaN\u6bd4\u4f8b: {np.isnan(step_rewards_np).sum() / step_rewards_np.size:.2%}")
+    print(f"NaN ratio: {np.isnan(step_rewards_np).sum() / step_rewards_np.size:.2%}")
 
     step_rewards = compute_step_discounted_returns(step_rewards_np, gamma=0.5)
     if mode == "mean_std_norm":
@@ -568,7 +568,7 @@ def compute_gigpo_outcome_advantage(
 
     gigpo_stats = {}
 
-    print(f"\n=== GiGPO \u8f68\u8ff9\u5206\u7ec4\u9a8c\u8bc1 ===")
+    print(f"\n=== GiGPO trajectory grouping ===")
     print(f"anchor_obs shape: {anchor_obs.shape}")
 
     if isinstance(anchor_obs, np.ndarray):
@@ -584,7 +584,7 @@ def compute_gigpo_outcome_advantage(
         total_elements = len(anchor_obs)
 
     nan_ratio = nan_count / max(1, total_elements)
-    print(f"anchor_obs NaN\u7edf\u8ba1: {nan_count}/{total_elements} ({nan_ratio*100:.1f}%)")
+    print(f"anchor_obs NaN statistics: {nan_count}/{total_elements} ({nan_ratio*100:.1f}%)")
     gigpo_stats["anchor_obs_nan_count"] = int(nan_count)
     gigpo_stats["anchor_obs_total_elements"] = int(total_elements)
     gigpo_stats["anchor_obs_nan_ratio"] = float(nan_ratio)
@@ -593,17 +593,17 @@ def compute_gigpo_outcome_advantage(
     if isinstance(step_group_uids, (list, np.ndarray)):
         group_counts = Counter(step_group_uids)
         num_groups = len(group_counts)
-        print(f"\u603b\u5206\u7ec4\u6570: {num_groups}")
-        print(f"\u5206\u7ec4\u5927\u5c0f\u5206\u5e03: {dict(sorted(group_counts.items())[:10])}")
+        print(f"Total groups: {num_groups}")
+        print(f"Group size distribution: {dict(sorted(group_counts.items())[:10])}")
 
         avg_group_size = sum(group_counts.values()) / len(group_counts)
         max_group_size = max(group_counts.values())
         min_group_size = min(group_counts.values())
-        print(f"\u5e73\u5747\u7ec4\u5927\u5c0f: {avg_group_size:.2f}, \u6700\u5927\u7ec4\u5927\u5c0f: {max_group_size}")
+        print(f"Mean group size: {avg_group_size:.2f}, maximum group size: {max_group_size}")
 
         single_groups = sum(1 for count in group_counts.values() if count == 1)
         single_group_ratio = single_groups / max(1, len(group_counts))
-        print(f"\u5355\u6837\u672c\u7ec4\u6570\u91cf: {single_groups}/{len(group_counts)} ({single_group_ratio*100:.1f}%)")
+        print(f"Single-sample groups: {single_groups}/{len(group_counts)} ({single_group_ratio*100:.1f}%)")
 
         gigpo_stats["num_groups"] = int(num_groups)
         gigpo_stats["avg_group_size"] = float(avg_group_size)
@@ -616,7 +616,7 @@ def compute_gigpo_outcome_advantage(
     print(f"step_advantages: {step_advantages.shape}")
     print(f"episode_advantages: {episode_advantages.shape}")
 
-    print(f"\n=== \u4f18\u52bf\u8ba1\u7b97\u7edf\u8ba1 ===")
+    print(f"\n=== Advantage statistics ===")
     episode_adv_mean = episode_advantages.mean().item()
     episode_adv_std = episode_advantages.std().item()
     step_adv_mean = step_advantages.mean().item()
@@ -659,7 +659,7 @@ def compute_grpo_passk_outcome_advantage(
     config: Optional[AlgoConfig] = None,
     **kwargs,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    '\n    Compute advantage for Pass@k using a GRPO-style outcome reward formulation.\n    Only the best response per group gets a non-zero advantage: r_max - r_second_max.\n\n    Implemented as described in https://arxiv.org/abs/2503.19595.\n\n    Args:\n        token_level_rewards: (bs, response_length)\n        response_mask: (bs, response_length)\n        index: (bs,) \u2192 group ID per sample\n        epsilon: float for numerical stability\n        config: (AlgoConfig) algorithm settings, which contains "norm_adv_by_std_in_grpo"\n\n    Returns:\n        advantages: (bs, response_length)\n        returns: (bs, response_length)\n    '
+    '\n    Compute advantage for Pass@k using a GRPO-style outcome reward formulation.\n    Only the best response per group gets a non-zero advantage: r_max - r_second_max.\n\n    Implemented as described in https://arxiv.org/abs/2503.19595.\n\n    Args:\n        token_level_rewards: (bs, response_length)\n        response_mask: (bs, response_length)\n        index: (bs,) -> group ID per sample\n        epsilon: float for numerical stability\n        config: (AlgoConfig) algorithm settings, which contains "norm_adv_by_std_in_grpo"\n\n    Returns:\n        advantages: (bs, response_length)\n        returns: (bs, response_length)\n    '
     assert config is not None
     # if True, normalize advantage by std within group
     norm_adv_by_std_in_grpo = config.get("norm_adv_by_std_in_grpo", True)
@@ -922,7 +922,7 @@ def compute_policy_loss(
     clip_ratio_c=3.0,
     loss_agg_mode: str = "token-mean",
 ):
-    '\n    Compute the clipped policy objective and related metrics for PPO.\n\n    Adapted from\n    https://github.com/huggingface/trl/blob/main/trl/trainer/ppo_trainer.py#L1122\n\n    Args:\n        old_log_prob (torch.Tensor):\n            Log-probabilities of actions under the old policy, shape (batch_size, response_length).\n        log_prob (torch.Tensor):\n            Log-probabilities of actions under the current policy, shape (batch_size, response_length).\n        advantages (torch.Tensor):\n            Advantage estimates for each action, shape (batch_size, response_length).\n        response_mask (torch.Tensor):\n            Mask indicating which tokens to include in the loss, shape (batch_size, response_length).\n        cliprange (float, optional):\n            Clipping parameter \u03b5 for standard PPO. See https://arxiv.org/abs/1707.06347.\n            Defaults to None (must be provided).\n        cliprange_low (float, optional):\n            Lower clip range for dual-clip PPO. Defaults to same as `cliprange`.\n        cliprange_high (float, optional):\n            Upper clip range for dual-clip PPO. Defaults to same as `cliprange`.\n        clip_ratio_c (float, optional):\n            Lower bound of the ratio for dual-clip PPO. See https://arxiv.org/pdf/1912.09729.\n            Defaults to 3.0.\n        loss_agg_mode (str, optional):\n            Aggregation mode for `agg_loss`. Defaults to "token-mean".\n    '
+    '\n    Compute the clipped policy objective and related metrics for PPO.\n\n    Adapted from\n    https://github.com/huggingface/trl/blob/main/trl/trainer/ppo_trainer.py#L1122\n\n    Args:\n        old_log_prob (torch.Tensor):\n            Log-probabilities of actions under the old policy, shape (batch_size, response_length).\n        log_prob (torch.Tensor):\n            Log-probabilities of actions under the current policy, shape (batch_size, response_length).\n        advantages (torch.Tensor):\n            Advantage estimates for each action, shape (batch_size, response_length).\n        response_mask (torch.Tensor):\n            Mask indicating which tokens to include in the loss, shape (batch_size, response_length).\n        cliprange (float, optional):\n            Clipping parameter epsilon for standard PPO. See https://arxiv.org/abs/1707.06347.\n            Defaults to None (must be provided).\n        cliprange_low (float, optional):\n            Lower clip range for dual-clip PPO. Defaults to same as `cliprange`.\n        cliprange_high (float, optional):\n            Upper clip range for dual-clip PPO. Defaults to same as `cliprange`.\n        clip_ratio_c (float, optional):\n            Lower bound of the ratio for dual-clip PPO. See https://arxiv.org/pdf/1912.09729.\n            Defaults to 3.0.\n        loss_agg_mode (str, optional):\n            Aggregation mode for `agg_loss`. Defaults to "token-mean".\n    '
     assert clip_ratio_c > 1.0, (
         "The lower bound of the clip_ratio_c for dual-clip PPO should be greater than 1.0,"
         + f" but get the value: {clip_ratio_c}."
@@ -975,7 +975,7 @@ def compute_policy_loss_clip_cov(
     loss_agg_mode: str = "token-mean",
     config: Optional[AlgoConfig] = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    '\n    Compute the clipped policy objective and related metrics for Clip-Cov.\n\n    Adapted from\n    https://github.com/PRIME-RL/Entropy-Mechanism-of-RL/blob/main/verl/trainer/ppo/algorithms.py\n\n    Args:\n        old_log_prob (torch.Tensor):\n            Log-probabilities of actions under the old policy, shape (batch_size, response_length).\n        log_prob (torch.Tensor):\n            Log-probabilities of actions under the current policy, shape (batch_size, response_length).\n        advantages (torch.Tensor):\n            Advantage estimates for each action, shape (batch_size, response_length).\n        response_mask (torch.Tensor):\n            Mask indicating which tokens to include in the loss, shape (batch_size, response_length).\n        cliprange (float, optional):\n            Clipping parameter \u03b5 for standard PPO. See https://arxiv.org/abs/1707.06347.\n            Defaults to None (must be provided).\n        cliprange_low (float, optional):\n            Lower clip range for dual-clip PPO. Defaults to same as `cliprange`.\n        cliprange_high (float, optional):\n            Upper clip range for dual-clip PPO. Defaults to same as `cliprange`.\n        loss_agg_mode (str, optional):\n            Aggregation mode for `agg_loss`. Defaults to "token-mean".\n        clip_cvo_ratio (float, optional):\n            Ratio for clipping the covariance. Defaults to 0.0002.\n        clip_cov_lb (float, optional):\n            Lower bound for clipping covariance. Defaults to 1.0.\n        clip_cov_ub (float, optional):\n            Upper bound for clipping covariance. Defaults to 5.0.\n    '
+    '\n    Compute the clipped policy objective and related metrics for Clip-Cov.\n\n    Adapted from\n    https://github.com/PRIME-RL/Entropy-Mechanism-of-RL/blob/main/verl/trainer/ppo/algorithms.py\n\n    Args:\n        old_log_prob (torch.Tensor):\n            Log-probabilities of actions under the old policy, shape (batch_size, response_length).\n        log_prob (torch.Tensor):\n            Log-probabilities of actions under the current policy, shape (batch_size, response_length).\n        advantages (torch.Tensor):\n            Advantage estimates for each action, shape (batch_size, response_length).\n        response_mask (torch.Tensor):\n            Mask indicating which tokens to include in the loss, shape (batch_size, response_length).\n        cliprange (float, optional):\n            Clipping parameter epsilon for standard PPO. See https://arxiv.org/abs/1707.06347.\n            Defaults to None (must be provided).\n        cliprange_low (float, optional):\n            Lower clip range for dual-clip PPO. Defaults to same as `cliprange`.\n        cliprange_high (float, optional):\n            Upper clip range for dual-clip PPO. Defaults to same as `cliprange`.\n        loss_agg_mode (str, optional):\n            Aggregation mode for `agg_loss`. Defaults to "token-mean".\n        clip_cvo_ratio (float, optional):\n            Ratio for clipping the covariance. Defaults to 0.0002.\n        clip_cov_lb (float, optional):\n            Lower bound for clipping covariance. Defaults to 1.0.\n        clip_cov_ub (float, optional):\n            Upper bound for clipping covariance. Defaults to 5.0.\n    '
     clip_cov_ratio = config.policy_loss.clip_cov_ratio if config.policy_loss.clip_cov_ratio is not None else 0.0002
     cliprange = config.clip_ratio
     cliprange_low = config.clip_ratio_low if config.clip_ratio_low is not None else cliprange

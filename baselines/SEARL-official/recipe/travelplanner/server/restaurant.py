@@ -8,7 +8,7 @@ import pandas as pd
 from base import BaseServer
 
 class RestaurantRequest(BaseModel):
-    city: str = Field(..., description='\u57ce\u5e02\u540d\u79f0')
+    city: str = Field(..., description='City name')
 
 class RestaurantResponse(BaseModel):
     name: str
@@ -19,7 +19,7 @@ class RestaurantResponse(BaseModel):
 
 class RestaurantServer(BaseServer):
     def __init__(self):
-        super().__init__('\u9910\u5385', 8003)
+        super().__init__('restaurant', 8003)
         self.load_data()
         self.setup_routes()
 

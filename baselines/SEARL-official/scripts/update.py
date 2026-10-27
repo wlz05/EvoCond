@@ -50,7 +50,7 @@ def test_update_mcp_box(project_name: str, mcps: dict, similarity_threshold: flo
         )
 
         def build_tool_block(name: str, description: str, arguments: str, returns: str, code: str) -> str:
-            '\u53c2\u8003 creation.py \u7684\u843d\u76d8\u683c\u5f0f\uff0c\u751f\u6210\u5e26 @mcp.tool \u7684\u51fd\u6570\u5757\u3002'
+            "Generate an @mcp.tool function block using the creation tool's disk format."
             def doc_lines(base_indent: str = "    "):
                 return "\n".join(
                     [

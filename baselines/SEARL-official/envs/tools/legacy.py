@@ -14,13 +14,13 @@ mcp = FastMCP("LocalServer")
 set_endpoint(f"http://{SANDBOX_HOST}:8080")
 
 def _get_project_name() -> str:
-    '\u73af\u5883\u53d8\u91cf\u4f18\u5148\u83b7\u53d6\u9879\u76ee\u540d\uff0c\u9ed8\u8ba4 fallback \u5230 default_project\u3002'
+    'Resolve the project from environment or default_project.'
     return os.environ.get("PROJECT_NAME") or "grpo_baseline_4gpu_reasoning_mcp"
 
 BASE_DIR = Path(__file__).parent
 
 def _get_invented_paths():
-    '\u6bcf\u6b21\u8c03\u7528\u65f6\u52a8\u6001\u8ba1\u7b97\u76ee\u5f55/\u6587\u4ef6\uff0c\u907f\u514d\u5bfc\u5165\u65f6\u9501\u6b7b default_project\u3002'
+    'Resolve invented-tool paths on each call to honor the current project.'
     project_name = _get_project_name()
     invented_dir = BASE_DIR / "invented_tools" / project_name
     invented_file = invented_dir / "temp_tool_list.py"
@@ -28,7 +28,7 @@ def _get_invented_paths():
     return invented_dir, invented_file, official_file
 
 def run_code_sync(code: str, language: str = "python", timeout: float = 15.0) -> Tuple[str, str, bool]:
-    '\n    \u540c\u6b65\u6267\u884c\u4ee3\u7801\uff0c\u901a\u8fc7\u8c03\u7528 sandbox_fusion \u5e93\u800c\u4e0d\u662f\u672c\u5730\u73af\u5883\n\n    Args:\n        code: \u8981\u6267\u884c\u7684\u4ee3\u7801\n        language: \u7f16\u7a0b\u8bed\u8a00\uff08\u76ee\u524d\u53ea\u652f\u6301python\uff09\n        timeout: \u8d85\u65f6\u65f6\u95f4\uff08\u79d2\uff09\n\n    Returns:\n        Tuple[str, str, bool]: (stdout, stderr, final_answer)\n    '
+    'Execute Python through sandbox_fusion with a timeout in seconds; return stdout, stderr and the final-answer flag.'
     try:
         if language != "python":
             return "", f"Unsupported language: {language}", False
@@ -81,7 +81,7 @@ def create_and_execute_mcp(
 
         inputs_json = json.dumps(inputs)
 
-        execution_script = f"""\nimport json\nimport sys\nimport traceback\nimport math\nfrom math import *  \nimport sympy\nimport scipy as sp\nimport cmath\nfrom fractions import Fraction\nimport numpy as np\nimport re\nfrom itertools import *\nimport os\nimport json \nimport datetime\nimport re\nfrom collections import Counter, defaultdict, deque\n# Imports\n{import_block}\n\n# User Defined Function\n{code}\n\nif __name__ == "__main__":\n    try:\n        # Load inputs\n        inputs = json.loads({repr(inputs_json)})\n        \n        # Verify function exists\n        if '{name}' not in globals():\n            raise NameError(f"Function '{name}' not found in code definition.")\n        \n        target_func = globals()['{name}']\n        \n        # Execute function\n        # \u5047\u8bbe inputs \u662f\u5b57\u5178\uff0c\u5bf9\u5e94\u5173\u952e\u5b57\u53c2\u6570\n        if isinstance(inputs, dict):\n            result = target_func(**inputs)\n        else:\n            # \u5047\u5982 inputs \u4e0d\u662f\u5b57\u5178\uff0c\u5c1d\u8bd5\u4f5c\u4e3a\u5355\u4e2a\u53c2\u6570\u4f20\u9012 (\u867d\u7136\u7c7b\u578b\u63d0\u793a\u662fDict)\n            result = target_func(inputs)\n            \n        # Print result in a marked format for extraction\n        print(f"__MCP_RESULT_START__{{json.dumps(result)}}__MCP_RESULT_END__")\n        print("__MCP_CREATION_SUCCESS__")\n        \n    except Exception as e:\n        traceback.print_exc()\n        print(f"__MCP_EXECUTION_ERROR__{{str(e)}}")\n"""
+        execution_script = f"""\nimport json\nimport sys\nimport traceback\nimport math\nfrom math import *  \nimport sympy\nimport scipy as sp\nimport cmath\nfrom fractions import Fraction\nimport numpy as np\nimport re\nfrom itertools import *\nimport os\nimport json \nimport datetime\nimport re\nfrom collections import Counter, defaultdict, deque\n# Imports\n{import_block}\n\n# User Defined Function\n{code}\n\nif __name__ == "__main__":\n    try:\n        # Load inputs\n        inputs = json.loads({repr(inputs_json)})\n        \n        # Verify function exists\n        if '{name}' not in globals():\n            raise NameError(f"Function '{name}' not found in code definition.")\n        \n        target_func = globals()['{name}\']\n        \n        # Execute the function with keyword arguments when available.\n        if isinstance(inputs, dict):\n            result = target_func(**inputs)\n        else:\n            # Pass a non-dictionary input as one argument.\n            result = target_func(inputs)\n            \n        # Mark the result for extraction.\n        print(f\"__MCP_RESULT_START__{{json.dumps(result)}}__MCP_RESULT_END__\")\n        print(\"__MCP_CREATION_SUCCESS__\")\n        \n    except Exception as e:\n        traceback.print_exc()\n        print(f\"__MCP_EXECUTION_ERROR__{{str(e)}}\")\n"""
 
         stdout, stderr, _ = run_code_sync(execution_script, "python", timeout)
 
@@ -270,7 +270,7 @@ def create_and_execute_mcp(
         }, ensure_ascii=False)
 
 def test_mcp_creation():
-    '\u6d4b\u8bd5 MCP \u521b\u5efa\u4e0e\u5931\u8d25\u56de\u6eda\uff0c\u4e0d\u6c61\u67d3 temp_tool_list.py'
+    'Test MCP creation and failure rollback while preserving the temporary tool list.'
     import json
     import uuid
     from pathlib import Path
@@ -300,7 +300,7 @@ def test_mcp_creation():
         assert resp_ok["execution_result"] == 3, resp_ok
 
         content = INVENTED_FILE.read_text(encoding="utf-8")
-        assert ok_name in content, '\u6210\u529f\u521b\u5efa\u7684\u5de5\u5177\u672a\u5199\u5165\u6587\u4ef6'
+        assert ok_name in content, 'Created tool was not written to disk'
 
         bad_code = "def broken(x):\n    raise RuntimeError('boom')\n"
         resp_bad = json.loads(
@@ -314,11 +314,11 @@ def test_mcp_creation():
                 timeout=5.0,
             )
         )
-        assert resp_bad["creation_success"] is False, '\u5931\u8d25\u7528\u4f8b\u4e0d\u5e94\u6210\u529f'
+        assert resp_bad["creation_success"] is False, 'The failure case must not succeed'
         content_after = INVENTED_FILE.read_text(encoding="utf-8")
-        assert bad_name not in content_after, '\u5931\u8d25\u5de5\u5177\u4e0d\u5e94\u5199\u5165\u6587\u4ef6'
+        assert bad_name not in content_after, 'A failed tool must not be written to disk'
 
-        print('\u2705 test_mcp_creation passed')
+        print('PASS test_mcp_creation passed')
         return True
     finally:
 

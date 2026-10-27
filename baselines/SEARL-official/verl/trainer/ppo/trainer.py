@@ -866,7 +866,7 @@ class RayPPOTrainer:
         return metric_dict
 
     def _save_validation_samples(self, validation_samples):
-        '\u4fdd\u5b58\u9a8c\u8bc1\u6837\u672c\u6570\u636e\u5230\u6587\u4ef6'
+        'Write validation samples to disk.'
         import json
         import os
         from datetime import datetime
@@ -1221,7 +1221,7 @@ class RayPPOTrainer:
                 self.rm_wg.stop_profile()
 
     def _collect_reward_extra_metrics(self, reward_extra_infos_dict: dict[str, list]) -> dict[str, float]:
-        '\u5c06 reward_extra_info \u805a\u5408\u6210\u4fbf\u4e8e\u4e0a\u62a5\u5230 wandb \u7684\u6807\u91cf\u3002'
+        'Aggregate reward_extra_info into scalar monitoring metrics.'
         agg_metrics: dict[str, float] = {}
         for key, values in reward_extra_infos_dict.items():
             if len(values) == 0:
@@ -1239,7 +1239,7 @@ class RayPPOTrainer:
         return agg_metrics
 
     def _collect_mcp_metrics(self, batch: DataProto, reward_extra_infos_dict: dict[str, list]) -> dict[str, float]:
-        '\u7edf\u8ba1\u4e0e MCP \u76f8\u5173\u7684\u6307\u6807\uff0c\u5982\u5de5\u5177\u8c03\u7528/\u521b\u5efa\u6b21\u6570\u3002'
+        'Count MCP tool invocations and creations.'
         metrics: dict[str, float] = {}
 
         mcp_name = batch.non_tensor_batch.get("mcp_name")
@@ -1264,7 +1264,7 @@ class RayPPOTrainer:
         return metrics
 
     def _collect_gigpo_metrics(self, batch: DataProto) -> dict[str, float]:
-        '\u8bb0\u5f55 GiGPO \u8ba1\u7b97\u4e2d\u7684\u5173\u952e\u7edf\u8ba1\u91cf\uff0c\u4fbf\u4e8e wandb \u89c2\u5bdf\u3002'
+        'Record GiGPO monitoring statistics.'
         metrics: dict[str, float] = {}
 
         step_rewards = batch.batch.get("step_rewards")
@@ -1518,7 +1518,7 @@ class RayPPOTrainer:
                             end_time = time.time()
                             print(f"Update MCP box time: {end_time - start_time} seconds")
                         except Exception as e:
-                            print(f"\u26a0\ufe0f Warning: Actor 'centralized_tool_actor' not found. Skipping update. {e}")
+                            print(f"WARNING Warning: Actor \'centralized_tool_actor\' not found. Skipping update. {e}")
                     if "response_mask" not in batch.batch.keys():
                         batch.batch["response_mask"] = compute_response_mask(batch)
                     # Balance the number of valid tokens across DP ranks.

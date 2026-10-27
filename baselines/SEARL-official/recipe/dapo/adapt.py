@@ -105,9 +105,9 @@ class TaskRunner:
 
             try:
                 centralized_tool_actor = ray.get_actor("centralized_tool_actor")
-                print('- main dapo: \u53d1\u73b0\u5df2\u5b58\u5728\u7684\u96c6\u4e2d\u5f0f\u5de5\u5177Actor')
+                print('- main dapo: found the centralized tool actor')
             except ValueError:
-                print('- main dapo: \u5728trainer\u4e2d\u521b\u5efa\u96c6\u4e2d\u5f0f\u5de5\u5177Actor')
+                print('- main dapo: creating the centralized tool actor in the trainer')
                 centralized_tool_actor = CentralizedToolActor.options(
                     name="centralized_tool_actor",
                     max_concurrency=config.actor_rollout_ref.env.get("max_concurrency", 10),

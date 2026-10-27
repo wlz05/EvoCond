@@ -225,7 +225,7 @@ class AsyncRewardManager:
             return reward_tensor
 
     def _adjust_step_mask_to_scores(self, step_mask, scores, data: DataProto, tool_end_positions):
-        '\n        \u667a\u80fd\u8c03\u6574 step_mask \u4ee5\u5339\u914d scores\uff0c\u786e\u4fdd reward \u5bf9\u9f50\u7684\u6b63\u786e\u6027\u3002\n\n        \u6838\u5fc3\u6539\u8fdb\uff1a\n        1. \u79fb\u9664\u4f4d\u7f6e\u65f6\uff1a\u4f18\u5148\u4fdd\u7559\u524d\u9762\u91cd\u8981\u7684\u6b65\u9aa4\u4f4d\u7f6e\n        2. \u6dfb\u52a0\u4f4d\u7f6e\u65f6\uff1a\u667a\u80fd\u9009\u62e9\u771f\u5b9e\u7684 im_end \u4f4d\u7f6e\uff0c\u4fdd\u6301\u987a\u5e8f\n        3. \u8bb0\u5f55\u5bf9\u9f50\u8d28\u91cf\uff0c\u8b66\u544a\u53ef\u80fd\u7684 reward \u5931\u8c03\n\n        Args:\n            step_mask: \u539f\u59cb\u7684 step_mask\n            scores: \u8ba1\u7b97\u5f97\u5230\u7684\u5206\u6570\u5217\u8868\uff08\u6bcf\u4e2a\u6837\u672c\u4e00\u4e2a\u5217\u8868\uff09\n            data: DataProto \u5bf9\u8c61\n            tool_end_positions: \u5df2\u8ba1\u7b97\u7684 tool_end_positions \u5217\u8868\n\n        Returns:\n            \u8c03\u6574\u540e\u7684 step_mask\n        '
+        'Align step_mask to scores using tool_end_positions and observed im_end positions; preserve earlier steps when removing entries and report alignment quality.'
         adjusted_mask = step_mask.clone()
         adjustment_made = False
         alignment_quality = {'perfect': 0, 'good_remove': 0, 'good_add': 0, 'poor_add': 0}
@@ -243,10 +243,10 @@ class AsyncRewardManager:
 
             adjustment_made = True
             print(f"\n{'='*80}")
-            print(f"[\u667a\u80fd\u8c03\u6574] \u6837\u672c {i}")
-            print(f"  \u539f\u59cb step_mask \u4f4d\u7f6e\u6570: {mask_count}")
-            print(f"  scores \u6570\u91cf: {scores_count}")
-            print(f"  \u5dee\u5f02: {scores_count - mask_count}")
+            print(f"[Alignment] Sample {i}")
+            print(f"  Original step_mask positions: {mask_count}")
+            print(f"  Score count: {scores_count}")
+            print(f"  Difference: {scores_count - mask_count}")
 
             if mask_count < scores_count:
 
@@ -257,8 +257,8 @@ class AsyncRewardManager:
                 valid_positions = torch.where(response_attention_mask == 1)[0]
 
                 needed = scores_count - mask_count
-                print(f"  \u9700\u8981\u6dfb\u52a0 {needed} \u4e2a\u4f4d\u7f6e")
-                print(f"  \u5f53\u524d\u6807\u8bb0\u7684\u4f4d\u7f6e: {mask_indices.tolist()}")
+                print(f"  Add {needed} positions")
+                print(f"  Current positions: {mask_indices.tolist()}")
 
                 tool_end_info = tool_end_positions[i]
                 all_im_end_positions = sorted(tool_end_info['im_end_positions'])
@@ -274,17 +274,17 @@ class AsyncRewardManager:
                     for pos in unused_im_end[:needed]:
                         adjusted_mask[i, pos] = 1
                         added_positions.append(pos)
-                        print(f"  \u2713 \u6dfb\u52a0 im_end \u4f4d\u7f6e: {pos}")
+                        print(f"  Added im_end position: {pos}")
 
                     alignment_quality['good_add'] += 1
-                    print(f"  \u2713 \u5bf9\u9f50\u8d28\u91cf: GOOD\uff08\u4f7f\u7528\u771f\u5b9e im_end \u4f4d\u7f6e\uff09")
+                    print(f"  Alignment: GOOD (observed im_end positions)")
 
                 else:
 
                     for pos in unused_im_end:
                         adjusted_mask[i, pos] = 1
                         added_positions.append(pos)
-                        print(f"  \u2713 \u6dfb\u52a0 im_end \u4f4d\u7f6e: {pos}")
+                        print(f"  Added im_end position: {pos}")
                         needed -= 1
 
                     if needed > 0:
@@ -293,7 +293,7 @@ class AsyncRewardManager:
                             adjusted_mask[i, last_idx] = 1
                             added_positions.append(last_idx)
                             needed -= 1
-                            print(f"  \u25b3 \u6dfb\u52a0\u6700\u540e\u4f4d\u7f6e: {last_idx}")
+                            print(f"  Added final position: {last_idx}")
 
                     if needed > 0:
                         for pos in reversed(valid_positions.tolist()):
@@ -301,26 +301,25 @@ class AsyncRewardManager:
                                 adjusted_mask[i, pos] = 1
                                 added_positions.append(pos)
                                 needed -= 1
-                                print(f"  \u2717 [\u964d\u7ea7] \u6dfb\u52a0\u666e\u901a\u4f4d\u7f6e: {pos}")
+                                print(f"  Fallback: added unverified position: {pos}")
                                 if needed == 0:
                                     break
 
                     alignment_quality['poor_add'] += 1
-                    print(f"  \u26a0\ufe0f \u5bf9\u9f50\u8d28\u91cf: POOR\uff08\u7f3a\u5c11 im_end \u4f4d\u7f6e\uff0creward \u53ef\u80fd\u5931\u8c03\uff09")
+                    print(f"  Alignment: POOR (missing im_end positions; rewards may be misaligned)")
                     import warnings
                     warnings.warn(
-                        f"\u6837\u672c {i}: \u65e0\u6cd5\u627e\u5230\u8db3\u591f\u7684 im_end \u4f4d\u7f6e\u6765\u5bf9\u9f50 {scores_count} \u4e2a\u5206\u6570\u3002"
-                        f"\u8fd9\u4f1a\u5bfc\u81f4\u90e8\u5206 step reward \u5bf9\u9f50\u4e0d\u51c6\u786e\uff01"
+                        f"Sample {i}: cannot find enough im_end positions for {scores_count} scores; some step rewards may be misaligned."
                     )
 
-                print(f"  \u6dfb\u52a0\u7684\u4f4d\u7f6e: {sorted(added_positions)}")
-                print(f"  \u8c03\u6574\u540e\u4f4d\u7f6e: {torch.where(adjusted_mask[i] == 1)[0].tolist()}")
+                print(f"  Added positions: {sorted(added_positions)}")
+                print(f"  Adjusted positions: {torch.where(adjusted_mask[i] == 1)[0].tolist()}")
 
             else:
 
                 excess = mask_count - scores_count
-                print(f"  \u9700\u8981\u79fb\u9664 {excess} \u4e2a\u4f4d\u7f6e")
-                print(f"  \u5f53\u524d\u6807\u8bb0\u7684\u4f4d\u7f6e: {mask_indices.tolist()}")
+                print(f"  Remove {excess} positions")
+                print(f"  Current positions: {mask_indices.tolist()}")
 
                 kept_indices = mask_indices[:scores_count]
                 removed_indices = mask_indices[scores_count:]
@@ -330,9 +329,9 @@ class AsyncRewardManager:
                     adjusted_mask[i, idx] = 1
 
                 alignment_quality['good_remove'] += 1
-                print(f"  \u2713 \u4fdd\u7559\u524d {scores_count} \u4e2a\u4f4d\u7f6e: {kept_indices.tolist()}")
-                print(f"  \u2713 \u79fb\u9664\u540e {excess} \u4e2a\u4f4d\u7f6e: {removed_indices.tolist()}")
-                print(f"  \u2713 \u5bf9\u9f50\u8d28\u91cf: GOOD\uff08\u4fdd\u7559\u91cd\u8981\u6b65\u9aa4\uff09")
+                print(f"  Keeping the first {scores_count} positions: {kept_indices.tolist()}")
+                print(f"  Removing the last {excess} positions: {removed_indices.tolist()}")
+                print(f"  Alignment: GOOD (important steps retained)")
 
             print(f"{'='*80}\n")
 
@@ -341,21 +340,21 @@ class AsyncRewardManager:
             poor_rate = alignment_quality['poor_add'] / total if total > 0 else 0
 
             print(f"\n{'='*80}")
-            print(f"[\u5bf9\u9f50\u8d28\u91cf\u7edf\u8ba1]")
-            print(f"  \u5b8c\u7f8e\u5339\u914d: {alignment_quality['perfect']}/{total} ({alignment_quality['perfect']/total*100:.1f}%)")
-            print(f"  \u826f\u597d\u6dfb\u52a0: {alignment_quality['good_add']}/{total}")
-            print(f"  \u826f\u597d\u79fb\u9664: {alignment_quality['good_remove']}/{total}")
-            print(f"  \u5dee\u52b2\u6dfb\u52a0: {alignment_quality['poor_add']}/{total}")
+            print(f"[Alignment statistics]")
+            print(f"  Exact matches: {alignment_quality['perfect']}/{total} ({alignment_quality['perfect']/total*100:.1f}%)")
+            print(f"  Valid additions: {alignment_quality['good_add']}/{total}")
+            print(f"  Valid removals: {alignment_quality['good_remove']}/{total}")
+            print(f"  Unverified additions: {alignment_quality['poor_add']}/{total}")
 
             if poor_rate > 0.05:  # 5%
-                print(f"\n\u26a0\ufe0f\u26a0\ufe0f\u26a0\ufe0f \u4e25\u91cd\u8b66\u544a\uff1a{poor_rate*100:.1f}% \u7684\u6837\u672c\u5bf9\u9f50\u8d28\u91cf\u5dee\uff01")
-                print(f"\u8fd9\u4f1a\u5bfc\u81f4 Process Reward \u5931\u8c03\uff0c\u5f71\u54cd\u8bad\u7ec3\u6548\u679c\uff01")
-                print(f"\u5efa\u8bae\uff1a")
-                print(f"  1. \u68c0\u67e5 tool_use \u548c response \u751f\u6210\u662f\u5426\u540c\u6b65")
-                print(f"  2. \u51cf\u5c11 rollback \u89e6\u53d1\u9891\u7387\uff08\u5e94\u7528\u914d\u7f6e\u4f18\u5316\uff09")
-                print(f"  3. \u8003\u8651\u7981\u7528\u8fc7\u7a0b\u5956\u52b1\uff0c\u53ea\u7528\u6700\u7ec8\u5956\u52b1")
+                print(f"\nWARNING: {poor_rate*100:.1f}% of samples have poor alignment.")
+                print(f"Process rewards may be misaligned and affect training.")
+                print(f"Suggested checks:")
+                print(f"  1. Check tool_use and response synchronization")
+                print(f"  2. Reduce rollback frequency through configuration")
+                print(f"  3. Consider final rewards without process rewards")
             elif poor_rate > 0:
-                print(f"\n\u26a0\ufe0f \u8b66\u544a\uff1a{poor_rate*100:.1f}% \u7684\u6837\u672c\u5bf9\u9f50\u8d28\u91cf\u5dee\uff0c\u8bf7\u5173\u6ce8")
+                print(f"\nWARNING: {poor_rate*100:.1f}% of samples have poor alignment; inspect the records.")
 
             print(f"{'='*80}\n")
 

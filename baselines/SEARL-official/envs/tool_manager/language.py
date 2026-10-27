@@ -24,7 +24,7 @@ def parse_mcp_tools_config(file_path):
         data = literal_eval(content)
         return data
     except Exception as e:
-        print(f"\u89e3\u6790\u9519\u8bef: {e}")
+        print(f"Parse error: {e}")
         return None
 
 class Llama3Manager(ToolManager):
@@ -41,13 +41,13 @@ class Llama3Manager(ToolManager):
         }
 
     def get_tool(self, name_or_short_name: str):
-        '\u901a\u8fc7\u540d\u79f0\u6216\u7b80\u5199\u83b7\u53d6\u5de5\u5177\n        \n        Args:\n            name_or_short_name: \u5de5\u5177\u540d\u79f0\u6216\u7b80\u5199\n            \n        Returns:\n            \u627e\u5230\u7684\u5de5\u5177\uff0c\u5982\u679c\u6ca1\u627e\u5230\u5219\u8fd4\u56deNone\n        '
+        'Find a tool by name or alias; return None when absent.'
         name_or_short_name = str(name_or_short_name)
         return self.tool_map.get(name_or_short_name, None)
 
     @property
     def all_tools(self):
-        '\u83b7\u53d6\u6240\u6709\u5de5\u5177\n        \n        Returns:\n            \u6240\u6709\u5de5\u5177\u7684\u5217\u8868\n        '
+        'Return all tools.'
         return self.tool_map
 
     def _build_tools(self):
@@ -65,7 +65,7 @@ class Llama3Manager(ToolManager):
             self.functions = []
 
     async def execute_all_tools(self, actions, tool_list):
-        '\u5f02\u6b65\u5e76\u884c\u6267\u884c\u6240\u6709\u5de5\u5177\u5217\u8868\n        \n        Args:\n            tool_list: \u5de5\u5177\u5217\u8868\u7684\u5217\u8868\n            \n        Returns:\n            \u6240\u6709\u5de5\u5177\u6267\u884c\u7ed3\u679c\u7684\u5217\u8868\n        '
+        'Execute all tool batches asynchronously and return their results.'
 
         tasks = []
         for temp_action, temp_tool_list in zip(actions, tool_list):
@@ -76,7 +76,7 @@ class Llama3Manager(ToolManager):
         return results
 
     async def _execute_tool_batch(self, action, tools):
-        '\u5f02\u6b65\u5e76\u884c\u6267\u884c\u4e00\u6279\u5de5\u5177\n        \n        Args:\n            tools: \u5de5\u5177\u5217\u8868\n            \n        Returns:\n            \u5de5\u5177\u6267\u884c\u7ed3\u679c\u7684\u5217\u8868\n        '
+        'Execute one tool batch asynchronously and return its results.'
         async def execute_single_tool(tool):
             tool_instance = self.get_tool(tool["name"])
             args = tool["args"]
@@ -167,7 +167,7 @@ class Llama3Manager(ToolManager):
         return actions, tool_results
 
     def parse_response(self, response_content: str) -> Optional[Dict[str, Any]]:
-        '\u6267\u884c\u52a8\u4f5c\n        \n        Args:\n            response_content: \u54cd\u5e94\u6587\u672c\n            \n        Returns:\n            \u89e3\u6790\u540e\u7684\u52a8\u4f5c\u4fe1\u606f\uff0c\u5305\u542bname\u548cargs\uff08\u5982\u679c\u5b58\u5728\uff09\n            \u5982\u679c\u6ca1\u6709\u52a8\u4f5c\u6807\u7b7e\u6216\u683c\u5f0f\u4e0d\u6b63\u786e\uff0c\u8fd4\u56deNone\n        '
+        'Parse action name and arguments; return None for missing or malformed action tags.'
 
         if_answer, answer = self.parse_end_flag(response_content)
         if if_answer:

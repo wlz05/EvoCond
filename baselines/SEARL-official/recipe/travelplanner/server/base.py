@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 
 class BaseServer(ABC):
     def __init__(self, name: str, port: int):
-        self.app = FastAPI(title=f"{name}\u67e5\u8be2\u670d\u52a1")
+        self.app = FastAPI(title=f"{name} query service")
         self.port = port
         self.data = None
 
@@ -18,7 +18,7 @@ class BaseServer(ABC):
         pass
 
     def run(self):
-        print(f'\u542f\u52a8{self.app.title}... \u76d1\u542c\u5730\u5740: 127.0.0.1:{self.port}')
+        print(f'Starting {self.app.title}... listening at 127.0.0.1:{self.port}')
         uvicorn.run(self.app, host="127.0.0.1", port=self.port)
 
 # Author: Weiliang Zhu

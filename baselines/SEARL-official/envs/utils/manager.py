@@ -280,7 +280,7 @@ class MCPManager:
         return ToolClass()
 
     async def _init_client_with_retry(self, client, server_name, server, max_retries=10):
-        '\u521d\u59cb\u5316\u5ba2\u6237\u7aef\u8fde\u63a5\uff0c\u5e26\u91cd\u8bd5\u673a\u5236'
+        'Initialize the client connection with retries.'
         last_exception = None
 
         for attempt in range(max_retries):
@@ -304,7 +304,7 @@ class MCPManager:
         raise last_exception
 
     async def _handle_init_retry(self, attempt, server_name):
-        '\u5904\u7406\u521d\u59cb\u5316\u91cd\u8bd5\u903b\u8f91'
+        'Handle an initialization retry.'
         # Wait before retry with exponential backoff
         wait_time = min(2 ** attempt, 10)  # Cap at 10 seconds
         logger.info(f'Retrying connection to MCP server {server_name} in {wait_time} seconds...')
@@ -492,7 +492,7 @@ class MCPClient:
         raise last_exception
 
     async def _retry_with_reconnect(self, operation_name, operation_func, max_retries=10):
-        '\u901a\u7528\u7684\u91cd\u8bd5\u548c\u91cd\u8fde\u673a\u5236'
+        'Retry an operation and reconnect when required.'
         last_exception = None
         for attempt in range(max_retries):
             try:
@@ -513,7 +513,7 @@ class MCPClient:
         return error_msg
 
     async def _handle_retry_and_reconnect(self, attempt, operation_name):
-        '\u5904\u7406\u91cd\u8bd5\u548c\u91cd\u8fde\u903b\u8f91'
+        'Handle retry and reconnection decisions.'
         # Wait before retry with exponential backoff
         wait_time = min(2 ** attempt, 10)  # Cap at 10 seconds
         logger.info(f'Retrying {operation_name} in {wait_time} seconds...')

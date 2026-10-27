@@ -7,7 +7,7 @@ from typing import Dict
 from contextlib import asynccontextmanager
 
 class ConcurrencyLimiter:
-    '\u7b80\u5355\u7684\u5e76\u53d1\u9650\u5236\u5668\uff0c\u4fee\u590d\u4e8b\u4ef6\u5faa\u73af\u5207\u6362\u5bfc\u81f4\u7684\u6b7b\u9501\u95ee\u9898'
+    'Limit concurrency while handling event-loop changes safely.'
 
     def __init__(self, global_limit: int = 100):
         self._loop = None
@@ -19,7 +19,7 @@ class ConcurrencyLimiter:
         self._semaphore_waiters = 0
 
     def _ensure_loop(self):
-        '\n        \u786e\u4fdd\u4fe1\u53f7\u91cf\u7ed1\u5b9a\u5f53\u524d\u4e8b\u4ef6\u5faa\u73af\u3002\n        \u5982\u679c\u5207\u6362\u5230\u65b0\u7684\u4e8b\u4ef6\u5faa\u73af\uff08\u4f8b\u5982\u591a\u6b21 asyncio.run\uff09\uff0c\u9700\u8981\u91cd\u5efa\u4fe1\u53f7\u91cf\u3002\n        '
+        'Recreate the semaphore when the active event loop changes.'
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -49,7 +49,7 @@ class ConcurrencyLimiter:
             self._semaphore_waiters = 0
 
     def get_tool_semaphore(self, tool_name: str, limit: int = 10) -> asyncio.Semaphore:
-        '\u83b7\u53d6\u6216\u521b\u5efa\u5de5\u5177\u7684\u4fe1\u53f7\u91cf'
+        'Get or create the tool semaphore.'
         self._ensure_loop()
         if tool_name not in self._tool_semaphores:
             self._tool_semaphores[tool_name] = asyncio.Semaphore(limit)
@@ -57,7 +57,7 @@ class ConcurrencyLimiter:
 
     @asynccontextmanager
     async def limit(self, tool_name: str):
-        '\u4f7f\u7528\u4e0a\u4e0b\u6587\u7ba1\u7406\u5668\u63a7\u5236\u5e76\u53d1'
+        'Limit concurrency within a context manager.'
         self._ensure_loop()
         sem = self.get_tool_semaphore(tool_name)
 

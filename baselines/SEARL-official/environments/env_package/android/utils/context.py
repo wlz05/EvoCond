@@ -44,13 +44,13 @@ def parse_llm_raw_response(response: str,
             else:
                 raise ValueError("Parsed object is not a valid action dict")
         except Exception as e:
-            logging.warning('[parse_llm_raw_response] JSON \u89e3\u6790\u5931\u8d25: %s\n\u539f\u59cb action_content: %s', e, action_content)
+            logging.warning('[parse_llm_raw_response] JSON parsing failed: %s\nRaw action_content: %s', e, action_content)
             raw_actions = [a.strip() for a in action_content.split(action_sep) if a.strip()]
             actions = raw_actions[:max_actions]
             action_content = (" " + action_sep + " ").join(actions)
 
     else:
-        logging.warning('[parse_llm_raw_response] \u6ca1\u6709\u5339\u914d\u5230 <think>...<answer>...> \u683c\u5f0f\uff1a%s', response.strip()[:200])
+        logging.warning('[parse_llm_raw_response] Expected <think>...<answer>...> format: %s', response.strip()[:200])
 
     llm_response = f"<think>{think_content}</think><answer>{action_content}</answer>"
 

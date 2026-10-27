@@ -42,7 +42,7 @@ def rotate(degree: int, img_base64: str) -> str: # Rotate tool for MM tool use d
         return f"Image rotation failed: {str(e)}"
 
 if __name__ == "__main__":
-    print('\n\u542f\u52a8 MCP \u56fe\u50cf\u65cb\u8f6c\u670d\u52a1...')
+    print('\nStarting the MCP image-rotation service...')
     mcp.run(transport='stdio')
 
 # Author: Weiliang Zhu

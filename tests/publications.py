@@ -27,7 +27,7 @@ from tests import stages as stage_fixtures, studies as study_fixtures, windows a
 from tests.windows import batch, concatenate, tensor
 from namespace import Initializers, install
 from run import SEEDS, recipes
-from source import materialize, resources, reviewed
+from source import RECEIPT, materialize, resources, reviewed
 from experiment import directory_digest
 
 class PublicationTests(unittest.TestCase):
@@ -53,6 +53,86 @@ class PublicationTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     materialize(root, run=True)
             self.assertEqual(list(root.iterdir()), [])
+
+    def receipt(self, root, *, newline=b'\n'):
+        baseline = root/Path(RECEIPT).parent
+        baseline.mkdir(parents=True)
+        (baseline/'value.py').write_bytes(b'number = 8\r\n')
+        before = json.dumps(dict(format='evocond_vendored_source_v1', upstream_commit='pin',
+            files={'value.py': sha256(b'number = 7\n').hexdigest()})).encode()+newline
+        after = json.dumps(dict(format='evocond_vendored_source_v1', upstream_commit='pin',
+            files={'value.py': sha256(b'number = 8\n').hexdigest(),
+                'settings.yaml': sha256(b'number: 8\n').hexdigest()})).encode()+b'\n'
+        (root/RECEIPT).write_bytes(before)
+        values = {RECEIPT: after, (Path(RECEIPT).parent/'settings.yaml').as_posix(): b'number: 8\n'}
+        return baseline, before, after, values
+
+    def test_known_receipt_upgrade_checks_source_and_preserves_user_settings(self):
+        for newline in (b'\n', b'\r\n'):
+            with self.subTest(newline=newline), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                baseline, before, after, values = self.receipt(root, newline=newline)
+                (root/'settings.json').write_bytes(b'custom settings\n')
+                accepted = {sha256(before.replace(b'\r\n', b'\n')).hexdigest()}
+                with patch('source.resources', return_value=values), patch('source.PREVIOUS', accepted):
+                    plan = materialize(root)
+                    self.assertEqual(plan['refresh'], [RECEIPT])
+                    self.assertEqual(plan['updated'], 0)
+                    self.assertEqual((root/RECEIPT).read_bytes(), before)
+                    self.assertFalse((baseline/'settings.yaml').exists())
+                    result = materialize(root, run=True)
+                    self.assertEqual(result['updated'], 1)
+                    self.assertEqual(result['created'], 1)
+                    self.assertEqual((root/RECEIPT).read_bytes(), after)
+                    self.assertEqual(reviewed(baseline, 'pin'), 'pin')
+                    self.assertEqual(materialize(root, run=True)['updated'], 0)
+                self.assertEqual((root/'settings.json').read_bytes(), b'custom settings\n')
+
+    def test_receipt_upgrade_rejects_changed_source_before_any_publication(self):
+        for existing in (True, False):
+            with self.subTest(existing=existing), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                baseline, before, _, values = self.receipt(root)
+                if existing:
+                    (baseline/'value.py').write_bytes(b'number = 9\n')
+                else:
+                    values[(Path(RECEIPT).parent/'settings.yaml').as_posix()] = b'number: 9\n'
+                with patch('source.resources', return_value=values), patch('source.PREVIOUS', {sha256(before).hexdigest()}):
+                    with self.assertRaisesRegex(ValueError, 'Vendored source changed'):
+                        materialize(root, run=True)
+                self.assertEqual((root/RECEIPT).read_bytes(), before)
+                self.assertFalse((baseline/'settings.yaml').exists())
+
+    def test_unknown_receipts_are_preserved(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            _, before, _, values = self.receipt(root)
+            with patch('source.resources', return_value=values), patch('source.PREVIOUS', frozenset()):
+                self.assertEqual(materialize(root, run=True)['updated'], 0)
+            self.assertEqual((root/RECEIPT).read_bytes(), before)
+
+    def test_receipt_replacement_failure_preserves_original_and_cleans_temporary(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            baseline, before, _, values = self.receipt(root)
+            with patch('source.resources', return_value=values), patch('source.PREVIOUS', {sha256(before).hexdigest()}), \
+                    patch('source.os.replace', side_effect=OSError('disk failure')):
+                with self.assertRaises(OSError):
+                    materialize(root, run=True)
+            self.assertEqual((root/RECEIPT).read_bytes(), before)
+            self.assertEqual(list(baseline.glob('.evocond-*.tmp')), [])
+            with patch('source.resources', return_value=values), patch('source.PREVIOUS', {sha256(before).hexdigest()}):
+                self.assertEqual(materialize(root, run=True)['updated'], 1)
+
+    def test_receipt_changed_during_publication_is_not_overwritten(self):
+        from source import replace
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder)/'source.json'
+            target.write_bytes(b'changed')
+            with self.assertRaisesRegex(ValueError, 'changed during'):
+                replace(target, b'original', b'updated')
+            self.assertEqual(target.read_bytes(), b'changed')
+            self.assertEqual(list(target.parent.glob('.evocond-*.tmp')), [])
 
     def test_source_receipt_accepts_only_exact_or_crlf_equivalent_bytes(self):
         with tempfile.TemporaryDirectory() as folder:

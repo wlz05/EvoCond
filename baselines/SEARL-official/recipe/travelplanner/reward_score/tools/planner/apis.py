@@ -30,7 +30,7 @@ OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', 'sk-xxx')
 GOOGLE_API_KEY = os.environ['GOOGLE_API_KEY']
 
 def call_model(model_name, content, stop=None, max_tokens=4096, temperature=0):
-    '\n    \u901a\u7528\u7684\u6a21\u578b\u8c03\u7528\u51fd\u6570\uff0c\u6240\u6709\u6a21\u578b\u90fd\u4f7f\u7528\u7edf\u4e00\u7684API\u63a5\u53e3\u8c03\u7528\n    \n    Args:\n        model_name: \u6a21\u578b\u540d\u79f0\n        content: \u8981\u53d1\u9001\u7ed9\u6a21\u578b\u7684\u5185\u5bb9\n        stop: \u505c\u6b62\u6807\u8bb0\n        max_tokens: \u6700\u5927token\u6570\n        temperature: \u6e29\u5ea6\u53c2\u6570\n        \n    Returns:\n        \u6a21\u578b\u7684\u56de\u590d\u5185\u5bb9\n    '
+    'Call the shared model API with model_name, content, stop, max_tokens and temperature; return response content.'
 
     url = "https://xiaoai.plus/v1/chat/completions"
 
@@ -73,21 +73,21 @@ def call_model(model_name, content, stop=None, max_tokens=4096, temperature=0):
         raise e
 
 def catch_api_error():
-    '\n    \u6355\u83b7API\u8c03\u7528\u4e2d\u7684\u9519\u8bef\uff0c\u5e76\u6839\u636e\u9519\u8bef\u7c7b\u578b\u6267\u884c\u76f8\u5e94\u64cd\u4f5c\n    '
+    'Handle API errors according to their type.'
     error = sys.exc_info()[0]
     error_msg = str(sys.exc_info()[1])
 
     if "Connection" in error_msg:
-        print('API\u8fde\u63a5\u9519\u8bef')
+        print('API connection error')
     elif "Rate limit" in error_msg or "429" in error_msg:
-        print('API\u8bf7\u6c42\u9891\u7387\u9650\u5236')
+        print('API rate limit')
         time.sleep(60)
     elif "Server error" in error_msg or "5" in error_msg:
-        print('API\u670d\u52a1\u5668\u9519\u8bef')
+        print('API server error')
     elif "Authentication" in error_msg or "401" in error_msg:
-        print('API\u8ba4\u8bc1\u9519\u8bef')
+        print('API authentication error')
     else:
-        print(f"API\u9519\u8bef: {error_msg}")
+        print(f"API error: {error_msg}")
 
 class ReflexionStrategy(Enum):
     '\n    REFLEXION: Apply reflexion to the next reasoning trace \n    '

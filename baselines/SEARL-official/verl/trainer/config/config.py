@@ -90,7 +90,7 @@ class FSDPCriticConfig(CriticConfig):
 class BaseModelConfig(BaseConfig):
     "Base configuration for a model.\n    Contains core settings for loading and initializing a pretrained model checkpoint.\n\n    Args:\n        path (str): Path to pretrained model weights.\n        tokenizer_path (Optional[str]): Tokenizer path (defaults to actor's model path if not set).\n        override_config (dict): Hugging Face config override.\n        external_lib (Optional[str]): External model implementation (optional).\n        trust_remote_code (bool): Whether to trust remote code from Hugging Face models.\n    "
 
-    path: str = "~/models/deepseek-llm-7b-chat"
+    path: str = "models/deepseek-llm-7b-chat"
     tokenizer_path: Optional[str] = None
     override_config: dict[str, Any] = field(default_factory=dict)
     external_lib: Optional[str] = None

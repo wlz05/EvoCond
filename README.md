@@ -82,7 +82,7 @@ python install.py --profile native --requirements assets/deployment/requirements
 python -B test.py
 ```
 
-Run [source.py](source.py) with `--run` once after cloning to restore the pinned configurations, prompts, package map, and native launch scripts. Existing local settings are preserved. The command downloads no models or datasets.
+Run [source.py](source.py) with `--run` after cloning or pulling source updates to restore the pinned configurations, prompts, package map, and native launch scripts. Existing local settings are preserved. A recognized older source receipt is refreshed after the bundled source passes verification. The command downloads no models or datasets.
 
 Place the exact dependency lock for the selected CUDA environment at `assets/deployment/requirements.txt`. The first installation command checks dependency provenance; the second installs that lock. Keep the repository root on `PYTHONPATH` when invoking the bundled baseline directly. The experiment launcher sets this automatically for its workers.
 
@@ -155,7 +155,7 @@ For a JSONL source with `question` and `answer` fields, an entry in `assets/depl
 
 Replace the source identity and pointers with inspected values, then add the validation and test entries. Paths use forward slashes relative to the manifest directory. The preparation command records the actual converted row counts; the experiment configuration names all three prepared roles.
 
-The native Parquet loader uses the [SEARL/verl dataset path](baselines/SEARL-official/verl/utils/dataset/reinforcement.py): local files are read directly, remote files use the loader's local cache, and prompts are tokenized with the actor tokenizer. Training trajectories are generated online with the current actor and tool inventory. Reusing prepared input files does not reuse an earlier actor's rollouts. A paired checkpoint restores the data iterator along with the actor and memory state.
+The native Parquet loader uses the [SEARL/verl dataset path](baselines/SEARL-official/verl/utils/dataset/reinforcement.py): local files are read directly, remote files use the loader's local cache, and prompts are tokenized with the actor tokenizer. The loader cache defaults to `cache/verl/rlhf`; each experiment keeps its GraphRAG cache under its runtime directory. Training trajectories are generated online with the current actor and tool inventory. Reusing prepared input files does not reuse an earlier actor's rollouts. A paired checkpoint restores the data iterator along with the actor and memory state.
 
 Arrange local artifacts as follows:
 

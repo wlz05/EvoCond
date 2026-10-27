@@ -220,7 +220,7 @@ def parse_grounding_worldmodeling(response: str, special_token_list=None, action
         "format_correct": format_correct
     }
 
-'\n\u5728\u591a\u79cd\u73af\u5883\u6216\u7b56\u7565\u4e0b\uff0cLLM Agent \u7684\u8f93\u51fa\u683c\u5f0f\u4e0d\u540c\uff0c\u6bd4\u5982\uff1a\n\u201cfree_think\u201d\uff1a\u81ea\u7531\u601d\u8003\uff0c\u53ef\u80fd\u5305\u542b <think>...</think><ans>...</ans>\n\u201cgrounding\u201d\uff1a\u5f3a\u8c03\u201c\u611f\u77e5\u5230\u7684\u73af\u5883\u201d\u4fe1\u606f\n\u201csymbolic\u201d\uff1a\u4f7f\u7528\u7b26\u53f7\u903b\u8f91\u7ed3\u6784\n\u201cstructured\u201d\uff1a\u7ed3\u6784\u5316\u63d0\u793a\n'
+'Response modes: free_think uses <think>...</think><ans>...</ans>; grounding describes observed state; symbolic uses logical structure; structured follows a fixed schema.'
 PARSE_FUNC_MAP = {
     "free_think": parse_freethink,
     "no_think": parse_no_think,

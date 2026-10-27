@@ -229,19 +229,19 @@ def bar_inside_vec(s):
         s=s2
     return s
 def vec_lower_idx(input_str):
-    '\n    in the annoying latex2sympy, error may occur when\\ vec{a_{b}},we need\\vec{a_b}\n    Args\uff1a\n        input_str (str): Original string\n    \n    Return\uff1a\n        str(str): Converted\n    '
+    'Normalize vector subscripts for latex2sympy.'
     pattern = r'\\vec\{([^{}]+)_{([^{}]+)}\}'
     replacement = r'\\vec{\1}_{\2}'
     return re.sub(pattern, replacement, input_str)
 def convert_vec_syntax(text):
     '\n    Converts LaTeX vector syntax to a standardized form.\n\n    This function processes a given text string and ensures that LaTeX vector \n    notations are consistently formatted. Specifically, it transforms instances \n    of `\x0bec xxx` into `\x0bec{xxx}`. The function handles cases where the vector \n    notation is applied to single characters, Greek letters, or LaTeX commands.\n\n    Args:\n        text (str): The input string containing LaTeX code to be processed.\n\n    Returns:\n        str: The processed string with standardized vector syntax.\n\n    Examples:\n        >>> convert_vec_syntax(r"\x0bec x + \x0bec\x07lpha + \x0bec\\Gamma")\n        \'\\vec{x} + \\vec{\\alpha} + \\vec{\\Gamma}\'\n    '
 
-    pattern = '\\\\vec(\\s*)(\\\\?[a-zA-Z\u03b1-\u03c9\u0391-\u03a9]+)'
+    pattern = '\\\\vec(\\s*)(\\\\?[a-zA-Z\\u03b1-\\u03c9\\u0391-\\u03a9]+)'
     replacement = r'\\vec{\2}'
     return re.sub(pattern, replacement, text)
 
 def remove_outer_braces(tex_str):
-    '\n    convert {base}_{subscript} to base_{subscript}\n    Example\uff1a\n    {a}_{xyz} \u2192 a_{xyz}\n    {\theta}_{0} \u2192 \theta_{0}\n    '
+    'Rewrite {base}_{subscript} as base_{subscript}.'
     pattern = r'\{(\\(?:[a-zA-Z]+|.)|[^{}])+\}_\{([^}]+)\}'
     return re.sub(pattern, r'\1_{\2}', tex_str)
 

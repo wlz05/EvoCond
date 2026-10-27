@@ -364,7 +364,7 @@ def _load_hf_model(config, model_config, is_value_model, local_cache_path):
 
     return architectures, model, state_dict, is_value_model
 
-def get_hf_model_path(config, local_cache_path="~/.cache/verl/rlhf"):
+def get_hf_model_path(config, local_cache_path="cache/verl/rlhf"):
     local_cache_path = os.path.expanduser(local_cache_path)
     if config.model.path.startswith("hdfs:"):
         from verl.utils.fs import copy_to_local
@@ -377,7 +377,7 @@ def get_hf_model_path(config, local_cache_path="~/.cache/verl/rlhf"):
     return local_model_path
 
 def load_megatron_model_weights(
-    config, model_config, parallel_model, params_dtype, is_value_model=False, local_cache_path="~/.cache/verl/rlhf"
+    config, model_config, parallel_model, params_dtype, is_value_model=False, local_cache_path="cache/verl/rlhf"
 ):
     """Load weights for verl customized model."""
     architectures, model, state_dict, is_value_model = _load_hf_model(
@@ -401,7 +401,7 @@ def load_megatron_model_weights(
     return model.config
 
 def load_megatron_gptmodel_weights(
-    config, model_config, parallel_model, params_dtype, is_value_model=False, local_cache_path="~/.cache/verl/rlhf"
+    config, model_config, parallel_model, params_dtype, is_value_model=False, local_cache_path="cache/verl/rlhf"
 ):
     """Load weights for mcore GPT model."""
     _, model, state_dict, is_value_model = _load_hf_model(config, model_config, is_value_model, local_cache_path)

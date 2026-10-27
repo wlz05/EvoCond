@@ -169,10 +169,10 @@ if __name__ == "__main__":
     observations, infos = env_manager.reset()
 
     action_sequences = [
-        [make_action(177, 404, '\u70b9\u51fb\u9876\u90e8\u7684\u641c\u7d22\u6309\u94ae'), make_action(405, 2274, '\u70b9\u51fb Shorts'),
-         make_action(675, 2274, '\u70b9\u51fb Subscriptions')],
-        [make_action(135, 2274, '\u70b9\u51fb Home'), make_action(405, 2274, '\u70b9\u51fb Shorts'),
-         make_action(945, 2274, '\u70b9\u51fb Library')],
+        [make_action(177, 404, 'Click the search button at the top'), make_action(405, 2274, 'Click Shorts'),
+         make_action(675, 2274, 'Click Subscriptions')],
+        [make_action(135, 2274, 'Click Home'), make_action(405, 2274, 'Click Shorts'),
+         make_action(945, 2274, 'Click Library')],
     ]
 
     for step_idx in range(3):
@@ -192,7 +192,7 @@ if __name__ == "__main__":
             import traceback
 
             traceback.print_exc()
-            print(f"[ERROR] Step {step_idx + 1} \u6267\u884c\u5931\u8d25: {e}")
+            print(f"[ERROR] Step {step_idx + 1} execution failed: {e}")
 
     env_manager.close()
 

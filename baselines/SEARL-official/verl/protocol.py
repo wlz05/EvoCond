@@ -833,7 +833,7 @@ def broadcast_data_proto(data: DataProto, process_group, group_src: int):
     data.meta_info = meta_info_list[0]
 
 def _deep_copy_value(val):
-    '\u6df1\u62f7\u8d1d\u5404\u79cd\u7c7b\u578b\u7684\u503c\uff0c\u7279\u522b\u5904\u7406PIL.Image\u7b49\u7279\u6b8a\u5bf9\u8c61'
+    'Deep-copy values, including PIL images.'
     try:
 
         if hasattr(val, 'copy') and hasattr(val, 'mode'):
@@ -883,7 +883,7 @@ def _repeat_interleave(value: Union[torch.Tensor, np.ndarray], repeats: int) -> 
         return repeated_list
 
 def _repeat_tile(value: Union[torch.Tensor, np.ndarray], repeats: int) -> Union[torch.Tensor, list[Any]]:
-    '\u975e\u4ea4\u9519\u91cd\u590d\uff0c\u5f62\u5f0f: [A,B] -> [A,B,A,B]'
+    'Repeat without interleaving: [A, B] becomes [A, B, A, B].'
     if isinstance(value, torch.Tensor):
 
         return torch.cat([value.clone()] * repeats, dim=0)

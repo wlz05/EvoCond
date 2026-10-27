@@ -66,7 +66,7 @@ def paper_term_mapping(commonsense_constraint_record, hard_constraint_record):
     return remap_commonsense_constraint_record, remap_hard_constraint_record
 
 def eval_score(set_type: str, file_path: str, single_eval: bool = False, eval_index: int = 0):
-    "\n    \u8bc4\u4f30\u51fd\u6570\n    Args:\n        set_type: \u6570\u636e\u96c6\u7c7b\u578b ('train', 'validation', 'test')\n        file_path: \u8bc4\u4f30\u6587\u4ef6\u8def\u5f84\n        single_eval: \u662f\u5426\u53ea\u8bc4\u4f30\u5355\u6761\u6570\u636e\n        eval_index: \u8981\u8bc4\u4f30\u7684\u6570\u636e\u7d22\u5f15\n    "
+    'Evaluate a train, validation or test file, optionally restricted to eval_index.'
     if set_type == 'train':
         query_data_list = load_dataset('osunlp/TravelPlanner','train')['train']
     elif set_type == 'validation':
@@ -77,7 +77,7 @@ def eval_score(set_type: str, file_path: str, single_eval: bool = False, eval_in
 
     if single_eval:
         if eval_index >= len(query_data_list):
-            raise ValueError(f"eval_index {eval_index} \u8d85\u51fa\u6570\u636e\u8303\u56f4 [0, {len(query_data_list)-1}]")
+            raise ValueError(f"eval_index {eval_index} exceeds the data range [0, {len(query_data_list)-1}]")
         query_data_list = [query_data_list[eval_index]]
         tested_plans = [tested_plans[eval_index]]
 
@@ -262,10 +262,10 @@ def eval_score(set_type: str, file_path: str, single_eval: bool = False, eval_in
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--set_type', type=str, required=True, help='\u6570\u636e\u96c6\u7c7b\u578b\uff1atrain, validation, test')
-    parser.add_argument('--evaluation_file_path', type=str, required=True, help='\u8bc4\u4f30\u6587\u4ef6\u8def\u5f84')
-    parser.add_argument('--single_eval', action='store_true', help='\u662f\u5426\u53ea\u8bc4\u4f30\u5355\u6761\u6570\u636e')
-    parser.add_argument('--eval_index', type=int, default=0, help='\u8981\u8bc4\u4f30\u7684\u6570\u636e\u7d22\u5f15')
+    parser.add_argument('--set_type', type=str, required=True, help='Dataset split: train, validation, test')
+    parser.add_argument('--evaluation_file_path', type=str, required=True, help='Evaluation file path')
+    parser.add_argument('--single_eval', action='store_true', help='Evaluate one record only')
+    parser.add_argument('--eval_index', type=int, default=0, help='Record index to evaluate')
     args = parser.parse_args()
 
     result = eval_score(args.set_type, args.evaluation_file_path, args.single_eval, args.eval_index)

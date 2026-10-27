@@ -40,7 +40,7 @@ class RayDAPOTrainer(RayPPOTrainer):
     '\n    Note that this trainer runs on the driver process on a single CPU/GPU node.\n    '
 
     def fit(self):
-        '\n        \u8d1f\u8d23\u8c03\u5ea6 rollout \u2192 reward \u2192 advantage \u2192 update\u3002\n        \u4f7f\u7528 PPO \u7b97\u6cd5\u8fdb\u884c\u8bad\u7ec3\u3002\n        \u662f\u5f3a\u5316\u5b66\u4e60\u8bad\u7ec3\u7684\u4e3b\u5faa\u73af\uff08loop\n        '
+        'Run PPO rollout, reward, advantage and update stages.'
         from omegaconf import OmegaConf
 
         from verl.utils.tracking import Tracking

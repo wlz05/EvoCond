@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Union
 
 import pickle
 import socket
+import tempfile
 import threading
 from contextlib import contextmanager
 from copy import deepcopy
@@ -432,10 +433,11 @@ class vLLMAsyncRollout:
         socket_type = "ipc" if tensor_parallel_size <= local_world_size else "tcp"
 
         # File lock to prevent multiple workers listen to same port
-        with FileLock("/tmp/verl_vllm_zmq.lock"):
+        with FileLock(os.path.join(tempfile.gettempdir(), 'verl_vllm_zmq.lock')):
             if socket_type == "ipc":
                 pid = os.getpid()
-                address = f"ipc:///tmp/verl_vllm_zmq_{pid}.ipc"
+                endpoint = os.path.join(tempfile.gettempdir(), f'verl_vllm_zmq_{pid}.ipc')
+                address = f'ipc://{endpoint}'
             else:
                 ip, port = self._get_free_port()
                 address = f"tcp://{ip}:{port}"

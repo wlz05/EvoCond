@@ -8,7 +8,7 @@ import pandas as pd
 from base import BaseServer
 
 class AttractionRequest(BaseModel):
-    city: str = Field(..., description='\u57ce\u5e02\u540d\u79f0')
+    city: str = Field(..., description='City name')
 
 class AttractionResponse(BaseModel):
     name: str
@@ -21,7 +21,7 @@ class AttractionResponse(BaseModel):
 
 class AttractionServer(BaseServer):
     def __init__(self):
-        super().__init__('\u666f\u70b9', 8004)
+        super().__init__('attraction', 8004)
         self.load_data()
         self.setup_routes()
 

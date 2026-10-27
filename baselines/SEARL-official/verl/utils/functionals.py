@@ -52,7 +52,7 @@ def gather_from_labels(data, label):
     return output
 
 def logprobs_from_logits(logits, labels, inplace_backward=True):
-    '\n    Compute per-token log-probabilities for the given labels.\n\n    Uses a Flash-Attention\u2013based cross-entropy (if available) for efficient backward,\n    otherwise falls back to a standard log-softmax+gather approach.\n\n    See: https://github.com/pytorch/pytorch/issues/563#issuecomment-330103591\n\n    Args:\n        logits (Tensor): Model outputs of shape (..., vocab_size).\n        labels (LongTensor): True class indices of shape matching logits[..., :-1].\n        inplace_backward (bool): If True and Flash-Attn is available, perform backward in-place.\n\n    Returns:\n        Tensor: Log-probabilities of the target labels, shape logits.shape[:-1].\n    '
+    '\n    Compute per-token log-probabilities for the given labels.\n\n    Uses a Flash-Attention-based cross-entropy (if available) for efficient backward,\n    otherwise falls back to a standard log-softmax+gather approach.\n\n    See: https://github.com/pytorch/pytorch/issues/563#issuecomment-330103591\n\n    Args:\n        logits (Tensor): Model outputs of shape (..., vocab_size).\n        labels (LongTensor): True class indices of shape matching logits[..., :-1].\n        inplace_backward (bool): If True and Flash-Attn is available, perform backward in-place.\n\n    Returns:\n        Tensor: Log-probabilities of the target labels, shape logits.shape[:-1].\n    '
     if FLAH_ATTN_CROSS_ENTROPY_LOSS_AVAILABLE:
         batch_dim = logits.shape[:-1]
         last_dim = logits.shape[-1]

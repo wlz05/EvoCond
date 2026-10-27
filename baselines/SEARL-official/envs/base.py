@@ -25,7 +25,7 @@ class Env(ABC):
 
         if tool_manager_name.startswith('centralized_'):
             if centralized_actor is None:
-                raise ValueError(f"\u4f7f\u7528\u96c6\u4e2d\u5f0f\u5de5\u5177\u7ba1\u7406\u5668 '{tool_manager_name}' \u9700\u8981\u63d0\u4f9b centralized_actor \u53c2\u6570")
+                raise ValueError(f"Centralized tool manager \'{tool_manager_name}\' requires centralized_actor")
             self.tool_manager = TOOL_MANAGER_REGISTRY[tool_manager_name](
                 verl_config=config,
                 centralized_actor_handle=centralized_actor
@@ -42,7 +42,7 @@ class Env(ABC):
                     tool_manager_name = 'llama3'
                 else:
                     tool_manager_name = model_type
-                    raise ValueError(f"'{tool_manager_name}' \u9700\u8981\u8fdb\u884c\u9002\u914d\uff0c\u8bf7\u6dfb\u52a0\u4e00\u4e2a\u5bf9\u5e94\u7684tool_manager")
+                    raise ValueError(f"'{tool_manager_name}\' requires a matching tool_manager adapter")
 
             self.tool_manager = TOOL_MANAGER_REGISTRY[tool_manager_name](verl_config=config)
 

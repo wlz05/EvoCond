@@ -109,7 +109,7 @@ def _remove_fncall_messages(messages: List[Message], lang: Literal['en', 'zh']) 
                     tool_name = msg.function_call.name
                     tool_args = msg.function_call.arguments
                     if lang == 'zh':
-                        tool_text = f'\n\n\u5de5\u5177"{tool_name}"\u88ab\u8c03\u7528\u65f6\u4f7f\u7528\u4e86\u4ee5\u4e0b\u53c2\u6570\uff1a\n{tool_args}'
+                        tool_text = f'\n\nTool \"{tool_name}\" was called with these arguments:\n{tool_args}'
                     else:
                         tool_text = f'\n\nThe tool "{tool_name}" was called with these arguments:\n{tool_args}'
                 else:
@@ -122,7 +122,7 @@ def _remove_fncall_messages(messages: List[Message], lang: Literal['en', 'zh']) 
                     else:
                         tool_result = 'No result.'
                     if lang == 'zh':
-                        tool_text = f'\n\n\u8be5\u5de5\u5177\u8fd4\u56de\u4e86\u4ee5\u4e0b\u7ed3\u679c\uff1a\n{tool_result}'
+                        tool_text = f'\n\nThe tool returned:\n{tool_result}'
                     else:
                         tool_text = f'\n\nThe tool has returned the following result:\n{tool_result}'
                 new_messages[-1].content.append(ContentItem(text=tool_text))

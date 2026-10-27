@@ -200,7 +200,7 @@ def _bindings(frame: dict) -> list[dict]:
         scope = "explicit_tool" if name else "unique_current_schema_field"
         context_start = max(text.rfind(mark, 0, match.start()) for mark in ("\n", ";", '\u3002', '\uff1b', "!", "?")) + 1
         prefix = text[context_start:match.start()]
-        if (re.search("\\b(?:not|never|avoid|don't|example|hypothetical|previously|formerly|was|if|used\\s+to)\\b|\u4e0d\u8981|\u4e0d\u60f3|\u4e0d\u662f|\u4f8b\u5982|\u4ee5\u524d|\u4e4b\u524d|\u5047\u8bbe", prefix, re.I)
+        if (re.search("\\b(?:not|never|avoid|don't|example|hypothetical|previously|formerly|was|if|used\\s+to)\\b|\\u4e0d\\u8981|\\u4e0d\\u60f3|\\u4e0d\\u662f|\\u4f8b\\u5982|\\u4ee5\\u524d|\\u4e4b\\u524d|\\u5047\\u8bbe", prefix, re.I)
                 or any(prefix.count(mark) % 2 for mark in ('"', '`'))):
             scope = "unsupported_context"
         if name is None and len(candidates) == 1:
@@ -240,7 +240,7 @@ def _alias_bindings(frame: dict, trusted_alias_tools: tuple[str, ...]) -> tuple[
                     clause = text[left:right]
                     if scope and not re.search(r"(?<!\w)" + re.escape(scope) + r"(?!\w)", clause, re.I):
                         continue
-                    negation = re.search("\\b(?:not|no|never|without|avoid|except|don't|isn't|was|previously|formerly|if|unless|maybe|example|hypothetical|used\\s+to)\\b|\u4e0d\u8981|\u4e0d\u60f3|\u4e0d\u662f|\u6392\u9664|\u4ee5\u524d|\u4e4b\u524d|\u5047\u8bbe|\u4f8b\u5982|\u4e5f\u8bb8", clause, re.I)
+                    negation = re.search("\\b(?:not|no|never|without|avoid|except|don't|isn't|was|previously|formerly|if|unless|maybe|example|hypothetical|used\\s+to)\\b|\\u4e0d\\u8981|\\u4e0d\\u60f3|\\u4e0d\\u662f|\\u6392\\u9664|\\u4ee5\\u524d|\\u4e4b\\u524d|\\u5047\\u8bbe|\\u4f8b\\u5982|\\u4e5f\\u8bb8", clause, re.I)
                     quoted = any(clause[:start-left].count(mark) % 2 for mark in ('"', '`'))
                     if negation or quoted:
                         abstentions.append({"reason": "negated_historical_or_quoted_alias", "start": start})

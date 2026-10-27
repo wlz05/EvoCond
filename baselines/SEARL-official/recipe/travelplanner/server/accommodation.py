@@ -8,7 +8,7 @@ from base import BaseServer
 import pandas as pd
 
 class AccommodationRequest(BaseModel):
-    city: str = Field(..., description='\u57ce\u5e02\u540d\u79f0')
+    city: str = Field(..., description='City name')
 
 class AccommodationResponse(BaseModel):
     name: str
@@ -22,7 +22,7 @@ class AccommodationResponse(BaseModel):
 
 class AccommodationServer(BaseServer):
     def __init__(self):
-        super().__init__('\u4f4f\u5bbf', 8009)
+        super().__init__('accommodation', 8009)
         self.load_data()
         self.setup_routes()
 

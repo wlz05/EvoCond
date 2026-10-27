@@ -17,7 +17,7 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "INFO"))
 import zlib
 
 def pad_matrix_to_shape(data, target_shape, pad_value=np.nan):
-    '\n    \u5c06\u4e0d\u89c4\u5219\u7684\u5d4c\u5957\u5217\u8868pad\u4e3a\u6307\u5b9a\u5f62\u72b6\u7684\u4e09\u7ef4\u77e9\u9635\n\n    Args:\n        data: \u5d4c\u5957\u5217\u8868\u6570\u636e\n        target_shape: \u76ee\u6807\u5f62\u72b6 (n, m, k)\n        pad_value: \u7528\u4e8e\u586b\u5145\u7684\u503c\uff0c\u9ed8\u8ba4\u4e3anp.nan\n\n    Returns:\n        \u586b\u5145\u540e\u7684numpy\u6570\u7ec4\n    '
+    'Pad ragged nested lists to (n, m, k); return a NumPy array using pad_value, default NaN.'
     n, m, k = target_shape
 
     padded = np.full((n, m, k), pad_value, dtype=object)
@@ -33,7 +33,7 @@ def pad_matrix_to_shape(data, target_shape, pad_value=np.nan):
     return padded
 
 def auto_pad_matrix(data, pad_value=np.nan):
-    '\n    \u81ea\u52a8\u5206\u6790\u6570\u636e\u7ef4\u5ea6\u5e76pad\u4e3a\u89c4\u5219\u5f62\u72b6\n    '
+    'Infer dimensions and pad nested lists to a rectangular array.'
     if not data:
         return np.array([])
 
@@ -108,10 +108,10 @@ class ToolUtilsGraph:
 
         is_validation = self.is_validate if hasattr(self, 'is_validate') else is_validation
 
-        print(f"[TOOL_UTILS_GRAPH] postprocess_output \u5f00\u59cb\u5904\u7406 step {step}, loop_cnt {self.loop_cnt}, is_validation={is_validation}")
-        print(f"[TOOL_UTILS_GRAPH] \u8f93\u5165\u6570\u636e\u5927\u5c0f: batch_size={output.batch.batch_size[0] if hasattr(output.batch, 'batch_size') else 'unknown'}")
-        print(f"[TOOL_UTILS_GRAPH] \u5f00\u59cb\u65f6\u95f4\u6233: {start_time}")
-        print(f"[TOOL_UTILS_GRAPH] \u5185\u5b58\u4f7f\u7528\u60c5\u51b5: {torch.cuda.memory_allocated()/1024**3:.2f}GB" if torch.cuda.is_available() else '[TOOL_UTILS_GRAPH] CPU\u6a21\u5f0f')
+        print(f"[TOOL_UTILS_GRAPH] postprocess_output started for step {step}, loop_cnt {self.loop_cnt}, is_validation={is_validation}")
+        print(f"[TOOL_UTILS_GRAPH] Input size: batch_size={output.batch.batch_size[0] if hasattr(output.batch, 'batch_size') else 'unknown'}")
+        print(f"[TOOL_UTILS_GRAPH] Start timestamp: {start_time}")
+        print(f"[TOOL_UTILS_GRAPH] Memory usage: {torch.cuda.memory_allocated()/1024**3:.2f}GB" if torch.cuda.is_available() else '[TOOL_UTILS_GRAPH] CPU mode')
 
         # init loop responses token
         if self.loop_cnt == 0:
@@ -157,7 +157,7 @@ class ToolUtilsGraph:
             skip_special_tokens=False,
         )
         decode_end = time.time()
-        print(f"[TOOL_UTILS_GRAPH] Token decode \u8017\u65f6: {decode_end - decode_start:.3f}\u79d2")
+        print(f"[TOOL_UTILS_GRAPH] Token decoding time: {decode_end - decode_start:.3f} seconds")
 
         step_start_time = time.time()
         capturing = getattr(self, 'capture_turn', None) == step
@@ -201,7 +201,7 @@ class ToolUtilsGraph:
                 output_tokens = int((responses[local] != self.pad_token_id).sum().item())
                 ray.get(self.env_object.tool_manager.centralized_actor_handle.runtime_charge.remote(
                     identity, 'actor', {'input_tokens': input_tokens, 'output_tokens': output_tokens}))
-        print(f"[TOOL_UTILS_GRAPH] Env step \u8017\u65f6: {step_end_time - step_start_time:.3f}\u79d2")
+        print(f"[TOOL_UTILS_GRAPH] Environment step time: {step_end_time - step_start_time:.3f} seconds")
         #if not use_process_reward will be 0
         if self.env_object.use_process_reward:
             step_scores = self.env_object.get_step_reward(responses=responses_str, mcp_worthiness=mcp_worthiness)
@@ -216,7 +216,7 @@ class ToolUtilsGraph:
         return append_observations(self, infos_str, dones, tool_names, step_scores, batch_idxs)
 
     def find_step_id_by_mcp_name(self, mcp_name_list, mcp_dict=None):
-        '\n        \u5c06\u5de5\u5177\u540d\u79f0\u5217\u8868\u8f6c\u6362\u4e3aID\u5217\u8868\n        \u4fee\u590d\u7248\uff1a\u6b63\u786e\u5904\u7406\u5404\u79cd\u7c7b\u578b\u7684\u5de5\u5177\u540d\u79f0\uff0c\u4f7f\u7528\u54c8\u5e0c\u4fdd\u8bc1\u76f8\u540c\u540d\u79f0\u6709\u76f8\u540cID\n\n        Args:\n            mcp_name_list: List[str] - \u5de5\u5177\u540d\u79f0\u5217\u8868\uff0c\u4f8b\u5982 ["search_tool", "calculator"]\n            mcp_dict: dict - \u5df2\u6ce8\u518c\u7684MCP\u5de5\u5177\u5b57\u5178\uff08\u53ef\u9009\uff0c\u7528\u4e8e\u8b66\u544a\uff09\n\n        Returns:\n            List[int] - \u5de5\u5177ID\u5217\u8868\uff08\u4f7f\u7528CRC32\u54c8\u5e0c\uff09\n        '
+        'Map tool names to stable CRC32 integer IDs; an optional MCP mapping supports registration warnings.'
         if mcp_dict is None:
             mcp_dict = {}
 
@@ -247,7 +247,7 @@ class ToolUtilsGraph:
         return tool_id_list
 
     async def _process_single_response_async(self, idx, responses, optimal_idx, mcp_box):
-        '\n        \u5f02\u6b65\u5904\u7406\u5355\u4e2a\u8f68\u8ff9\uff08responses\uff09\uff0c\u4e0e mcp_box actor \u8fdb\u884c\u4ea4\u4e92\u3002\n        \u4fee\u590d\u7248\uff1a\u4ec5\u6536\u96c6\u89c4\u5212\u4fe1\u606f\uff0cMCP\u6ce8\u518c\u5c06\u5728\u6279\u91cf\u5904\u7406\u9636\u6bb5\u5b8c\u6210\u3002\n        '
+        'Process one trajectory through mcp_box; collect plans for later batch registration.'
         temp_dict = {}
         temp_prompts_list = []
         loss_mask = []
@@ -302,8 +302,8 @@ class ToolUtilsGraph:
         if mcp_box is None and getattr(self.env_object, "tool_manager", None) is not None:
             mcp_box = getattr(self.env_object.tool_manager, "centralized_actor_handle", None)
         if mcp_box is None:
-            raise AttributeError('centralized_actor_handle \u672a\u521d\u59cb\u5316\uff0c\u8bf7\u786e\u4fdd env_object/tool_manager \u6b63\u786e\u6ce8\u5165 Ray actor \u53e5\u67c4\u3002')
-        print(f"\u83b7\u53d6 mcp_box \u8017\u65f6: {time() - mcp_box_start:.4f}s")
+            raise AttributeError('centralized_actor_handle is not initialized; inject the Ray actor into env_object/tool_manager.')
+        print(f"mcp_box lookup time: {time() - mcp_box_start:.4f}s")
 
         reward_calc_start = time()
         total_rewards = []
@@ -321,7 +321,7 @@ class ToolUtilsGraph:
             local_best = int(np.argmax(group_rewards))
             for i in range(len(group_rewards)):
                 optimal_indices[start + i] = start + local_best
-        print(f"\u8ba1\u7b97\u5956\u52b1\u548c\u6700\u4f18\u7d22\u5f15\u8017\u65f6: {time() - reward_calc_start:.4f}s")
+        print(f"Reward and best-index computation time: {time() - reward_calc_start:.4f}s")
 
         tasks = [
             self._process_single_response_async(idx, responses[1:], optimal_indices.get(idx), mcp_box)
@@ -340,7 +340,7 @@ class ToolUtilsGraph:
                 gathered_results = loop.run_until_complete(_run_tasks(tasks))
             finally:
                 loop.close()
-        print(f"\u5f02\u6b65\u4efb\u52a1\u6267\u884c\u8017\u65f6: {time() - async_exec_start:.4f}s")
+        print(f"Asynchronous execution time: {time() - async_exec_start:.4f}s")
 
         async def _batch_process_async():
             from collections import defaultdict
@@ -354,7 +354,7 @@ class ToolUtilsGraph:
             trajectory_results = {}
 
             optimal_trajectory_set = set(optimal_indices.values())
-            print(f"\u6700\u4f18\u8f68\u8ff9\u96c6\u5408: {optimal_trajectory_set}")
+            print(f"Best trajectories: {optimal_trajectory_set}")
 
             for result in gathered_results:
                 if result:
@@ -366,7 +366,7 @@ class ToolUtilsGraph:
 
             planning_results = {}
             if all_planning_tasks:
-                print(f"\u5f00\u59cb\u6279\u91cf\u5904\u7406 {len(all_planning_tasks)} \u4e2a\u89c4\u5212\u4efb\u52a1...")
+                print(f"Processing {len(all_planning_tasks)} plans...")
                 planning_batch_start = time()
 
                 try:
@@ -383,7 +383,7 @@ class ToolUtilsGraph:
                             planning_results[traj_idx] = result
 
                         planning_batch_duration = time() - planning_batch_start
-                        print(f"\u6279\u91cf\u89c4\u5212\u5904\u7406\u8017\u65f6: {planning_batch_duration:.3f}s (\u5e73\u5747 {planning_batch_duration/len(all_planning_tasks):.3f}s/\u4e2a)")
+                        print(f"Batch planning time: {planning_batch_duration:.3f}s (mean {planning_batch_duration/len(all_planning_tasks):.3f}s/item)")
                     except asyncio.TimeoutError:
                         print(f"Warning: batch_extract_dag_and_parallel timeout after 90s, falling back to sequential planning")
 
@@ -426,12 +426,12 @@ class ToolUtilsGraph:
                         else:
                             planning_results[traj_idx] = result
                 except Exception as e:
-                    logger.error(f"\u6279\u91cf\u89c4\u5212\u5904\u7406\u5931\u8d25: {e}")
+                    logger.error(f"Batch planning failed: {e}")
 
                     for planning_info in all_planning_tasks:
                         planning_results[planning_info['trajectory_idx']] = (None, None, None)
 
-            print(f"\n=== \u9636\u6bb52: \u6839\u636e\u89c4\u5212\u7ed3\u679c\u6536\u96c6MCP\u6ce8\u518c\u4efb\u52a1 ===")
+            print(f"\n=== Stage 2: collect MCP registrations from plans ===")
             registration_by_trajectory = defaultdict(list)
 
             for traj_idx, result in trajectory_results.items():
@@ -440,13 +440,13 @@ class ToolUtilsGraph:
                     continue
 
                 if traj_idx not in planning_results:
-                    print(f"Warning: Trajectory {traj_idx} \u6ca1\u6709\u89c4\u5212\u7ed3\u679c\uff0c\u8df3\u8fc7MCP\u6ce8\u518c")
+                    print(f"Warning: Trajectory {traj_idx} has no plan; skipping MCP registration")
                     continue
 
                 dag_list, task_id, subtask_dict = planning_results[traj_idx]
 
                 if task_id is None:
-                    print(f"Warning: Trajectory {traj_idx} \u89c4\u5212\u5931\u8d25 (task_id=None)\uff0c\u8df3\u8fc7MCP\u6ce8\u518c")
+                    print(f"Warning: Trajectory {traj_idx} planning failed (task_id=None); skipping MCP registration")
                     continue
 
                 print(f"Processing trajectory {traj_idx}: task_id={task_id}")
@@ -466,10 +466,10 @@ class ToolUtilsGraph:
                         'turn_idx': turn_idx
                     })
 
-                print(f"Trajectory {traj_idx}: \u6536\u96c6\u4e86 {len(registration_by_trajectory[traj_idx])} \u4e2a\u5de5\u5177\u8c03\u7528")
+                print(f"Trajectory {traj_idx}: collected {len(registration_by_trajectory[traj_idx])} tool calls")
 
             if registration_by_trajectory:
-                print(f"\n\u5f00\u59cb\u6279\u91cf\u5904\u7406 {sum(len(v) for v in registration_by_trajectory.values())} \u4e2aMCP\u6ce8\u518c\u4efb\u52a1...")
+                print(f"\nProcessing {sum(len(v) for v in registration_by_trajectory.values())} MCP registrations...")
                 registration_batch_start = time()
 
                 try:
@@ -484,10 +484,10 @@ class ToolUtilsGraph:
 
                             future = mcp_box.batch_register_mcps.remote(tool_call_strs, task_id, subtask_dict)
                             registration_futures.append((traj_idx, len(tasks), future))
-                            print(f"\u63d0\u4ea4\u6279\u91cf\u6ce8\u518c\u4efb\u52a1: trajectory {traj_idx}, {len(tasks)} \u4e2a\u5de5\u5177")
+                            print(f"Submitting registration batch for trajectory {traj_idx}, {len(tasks)} tools")
                         except AttributeError:
 
-                            print(f"Warning: batch_register_mcps \u4e0d\u53ef\u7528\uff0c\u56de\u9000\u5230\u9010\u4e2a\u6ce8\u518c")
+                            print(f"WARNING: batch_register_mcps unavailable; registering tools individually.")
                             for task in tasks:
                                 future = mcp_box.register_mcp.remote(
                                     task['tool_call_str'], task['task_id'], task['subtask_dict']
@@ -512,13 +512,12 @@ class ToolUtilsGraph:
 
                         registration_batch_duration = time() - registration_batch_start
                         avg_time = registration_batch_duration / max(1, success_count + error_count)
-                        print(f"MCP\u6279\u91cf\u6ce8\u518c\u8017\u65f6: {registration_batch_duration:.3f}s | "
-                              f"\u6210\u529f: {success_count}, \u5931\u8d25: {error_count} | \u5e73\u5747: {avg_time:.3f}s/\u4e2a")
+                        print(f"Batch MCP registration time: {registration_batch_duration:.3f}s | passed: {success_count}, failed: {error_count} | mean: {avg_time:.3f}s/item")
 
                 except Exception as e:
-                    logger.error(f"\u6279\u91cfMCP\u6ce8\u518c\u5904\u7406\u5931\u8d25: {e}")
+                    logger.error(f"Batch MCP registration failed: {e}")
             else:
-                print(f"Warning: \u6ca1\u6709\u6536\u96c6\u5230\u4efb\u4f55MCP\u6ce8\u518c\u4efb\u52a1")
+                print(f"WARNING: No MCP registrations were collected.")
 
             return trajectory_results, planning_results
 
@@ -542,7 +541,7 @@ class ToolUtilsGraph:
             length_list.append(result['total_length'])
 
         result_process_duration = time() - result_process_start
-        print(f"\u7ed3\u679c\u6574\u7406\u8017\u65f6: {result_process_duration:.3f}s")
+        print(f"Result assembly time: {result_process_duration:.3f}s")
         print("End to compose final output")
         # max_len = max(max(length_list), self.config_response_length)
         reduce_start = time()
@@ -551,7 +550,7 @@ class ToolUtilsGraph:
         # so we exec all_reduce in specified group(dp group)
         torch.distributed.all_reduce(max_response_length, op=torch.distributed.ReduceOp.MAX, group=group)
         max_len = int(max_response_length)
-        print(f"\u8ba1\u7b97\u6700\u5927\u54cd\u5e94\u957f\u5ea6\u548call_reduce\u8017\u65f6: {time() - reduce_start:.4f}s")
+        print(f"Response-length computation and all_reduce time: {time() - reduce_start:.4f}s")
         print("End to reduce max_response_length")
         # right pad
         padding_start = time()
@@ -562,13 +561,13 @@ class ToolUtilsGraph:
             loss_mask = loss_mask_list[idx] + [0] * (max_len - len(loss_mask_list[idx]))
             input_ids_list[idx] = input_ids
             loss_mask_list[idx] = loss_mask[0:max_len]
-        print(f"\u586b\u5145input_ids\u548closs_mask\u8017\u65f6: {time() - padding_start:.4f}s")
+        print(f"input_ids and loss_mask padding time: {time() - padding_start:.4f}s")
 
         tensor_creation_start = time()
         response_token = torch.tensor(input_ids_list, dtype=torch.int64)[:,:max_len]
         response_loss_mask = torch.tensor(loss_mask_list, dtype=torch.float32)
         response_attention_mask = (response_token != self.pad_token_id).long()
-        print(f"\u521b\u5efa\u54cd\u5e94\u5f20\u91cf\u8017\u65f6: {time() - tensor_creation_start:.4f}s")
+        print(f"Response tensor creation time: {time() - tensor_creation_start:.4f}s")
 
         # get the max length of the process rewards
         tool_process_start = time()
@@ -580,10 +579,10 @@ class ToolUtilsGraph:
         mcp_id_tensor = []
         candidate_mcp_dict = ray.get(mcp_box.get_mcps.remote())
 
-        print(f"\n=== \u5de5\u5177ID\u6536\u96c6\u8c03\u8bd5\u4fe1\u606f ===")
-        print(f"\u5df2\u6ce8\u518c\u7684MCP\u5de5\u5177\u6570\u91cf: {len(candidate_mcp_dict)}")
+        print(f"\n=== Tool ID diagnostics ===")
+        print(f"Registered MCP tools: {len(candidate_mcp_dict)}")
         if candidate_mcp_dict:
-            print(f"\u5df2\u6ce8\u518c\u7684MCP\u5de5\u5177\u793a\u4f8b (\u524d5\u4e2a): {list(candidate_mcp_dict.keys())[:5]}")
+            print(f"Registered MCP examples (first 5): {list(candidate_mcp_dict.keys())[:5]}")
 
         # Pad tool_use to have consistent dimensions
         for idx in range(len(self.tool_use)):
@@ -624,8 +623,8 @@ class ToolUtilsGraph:
             sum(1 for tool_id_list in traj for tool_id in tool_id_list if isinstance(tool_id, float) and np.isnan(tool_id))
             for traj in mcp_id_tensor
         )
-        print(f"\u5de5\u5177ID\u7edf\u8ba1: \u603b\u6570={total_tool_ids}, NaN\u6570\u91cf={nan_count}, NaN\u6bd4\u4f8b={nan_count/max(1, total_tool_ids)*100:.1f}%")
-        print(f"\u5904\u7406tool_use\u548cmcp_ids\u8017\u65f6: {time() - tool_process_start:.4f}s")
+        print(f"Tool ID statistics: total={total_tool_ids}, NaN count={nan_count}, NaN ratio={nan_count/max(1, total_tool_ids)*100:.1f}%")
+        print(f"tool_use and mcp_ids processing time: {time() - tool_process_start:.4f}s")
 
         final_batch_creation_start = time()
         tool_use_score = torch.tensor(tool_use_tensor)
@@ -668,12 +667,12 @@ class ToolUtilsGraph:
                 raise ValueError('Runtime episode identities do not align with generated tensor rows')
             final_output.non_tensor_batch['runtime_episode_id'] = np.array(
                 [row['_runtime_context'] for row in self.env_object.plan_list], dtype=object)
-        print(f"\u521b\u5efa\u6700\u7ec8batch\u548coutput\u8017\u65f6: {time() - final_batch_creation_start:.4f}s")
-        print(f"compose_final_output \u603b\u8017\u65f6: {time() - start_time:.4f}s")
+        print(f"Final batch/output construction time: {time() - final_batch_creation_start:.4f}s")
+        print(f"compose_final_output total time: {time() - start_time:.4f}s")
         return final_output
 
 if __name__ == "__main__":
-    '\n    \u8f7b\u91cf\u672c\u5730\u6d4b\u8bd5\uff1a\u4e3a ToolUtilsGraph \u6784\u9020\u6700\u5c0f\u4f9d\u8d56\uff0c\u9a8c\u8bc1\n    - postprocess_output\n    - compose_final_output\n    - find_step_id_by_mcp_name\n    '
+    'Test ToolUtilsGraph output processing and MCP step lookup with minimal local dependencies.'
     import types
     from types import SimpleNamespace
 

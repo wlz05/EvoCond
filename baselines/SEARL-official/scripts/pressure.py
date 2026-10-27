@@ -46,7 +46,7 @@ class MockConfig:
         return getattr(self, key, default)
 
 async def run_batch(manager, tool_name, payload, concurrency):
-    print(f"\n>>> \u5f00\u59cb\u6d4b\u8bd5\u5de5\u5177 [{tool_name}] \u5e76\u53d1\u6570: {concurrency}")
+    print(f"\n>>> Testing tool [{tool_name}] concurrency: {concurrency}")
 
     start_time = time.time()
 
@@ -69,7 +69,7 @@ async def run_batch(manager, tool_name, payload, concurrency):
             duration = time.time() - req_start
 
             success = True
-            if '# \u5de5\u5177\u8c03\u7528\u5931\u8d25' in str(result) or "# Execute the tool" in str(result) and "failed" in str(result):
+            if '# Tool call failed' in str(result) or "# Execute the tool" in str(result) and "failed" in str(result):
                 success = False
             if "timeout" in str(result).lower():
                 success = False
@@ -88,18 +88,18 @@ async def run_batch(manager, tool_name, payload, concurrency):
     durations = [r['duration'] for r in results]
     errors = [r['error'] for r in results if not r['success']]
 
-    print(f"--- \u7ed3\u679c\u7edf\u8ba1 (\u5e76\u53d1 {concurrency}) ---")
-    print(f"\u603b\u8017\u65f6: {total_time:.2f}s")
+    print(f"--- Statistics (concurrency {concurrency}) ---")
+    print(f"Total duration: {total_time:.2f}s")
     print(f"QPS: {concurrency / total_time:.2f}")
-    print(f"\u6210\u529f\u7387: {success_count}/{concurrency} ({success_count/concurrency*100:.1f}%)")
+    print(f"Success rate: {success_count}/{concurrency} ({success_count/concurrency*100:.1f}%)")
     if durations:
-        print(f"\u5e73\u5747\u8017\u65f6: {np.mean(durations):.4f}s")
-        print(f"P50 \u8017\u65f6: {np.percentile(durations, 50):.4f}s")
-        print(f"P95 \u8017\u65f6: {np.percentile(durations, 95):.4f}s")
-        print(f"P99 \u8017\u65f6: {np.percentile(durations, 99):.4f}s")
+        print(f"Mean duration: {np.mean(durations):.4f}s")
+        print(f"P50 duration: {np.percentile(durations, 50):.4f}s")
+        print(f"P95 duration: {np.percentile(durations, 95):.4f}s")
+        print(f"P99 duration: {np.percentile(durations, 99):.4f}s")
 
     if errors:
-        print('\u5e38\u89c1\u9519\u8bef (Top 3):')
+        print('Most frequent errors (top 3):')
         from collections import Counter
         for err, count in Counter(errors).most_common(3):
             print(f"  - {count}x: {err}")
@@ -107,13 +107,13 @@ async def run_batch(manager, tool_name, payload, concurrency):
     return success_count == concurrency
 
 async def main():
-    print('\u521d\u59cb\u5316 Tool Manager...')
+    print('Initializing the tool manager...')
     config = MockConfig()
     manager = QwenManagerBaseline(config)
 
     for tool_key, payload in TOOLS_TO_TEST.items():
         print(f"\n{'='*40}")
-        print(f"\u6d4b\u8bd5\u76ee\u6807: {tool_key}")
+        print(f"Test target: {tool_key}")
         print(f"{'='*40}")
 
         for concurrency in TEST_ROUNDS:

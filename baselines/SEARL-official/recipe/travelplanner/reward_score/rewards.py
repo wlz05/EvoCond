@@ -228,17 +228,17 @@ def boolean_evaluation(query_data, tested_data):
     return True
 
 def compute_hard_constraint(final_answer: dict) -> float:
-    "\n    \u6839\u636e final_answer \u8ba1\u7b97\u786c\u7ea6\u675f\u5956\u52b1\n    \n    \u53c2\u6570:\n    - final_answer: \u5305\u542b\u65c5\u884c\u8ba1\u5212\u7684\u5b57\u5178\uff0c\u5fc5\u987b\u5305\u542b'tested_data'\u5b57\u6bb5\uff0c\u53ef\u80fd\u5305\u542b'hard_constraint_data'\u5b57\u6bb5\n    \n    \u8fd4\u56de:\n    - float: \u786c\u7ea6\u675f\u5956\u52b1\u5206\u6570\n      - \u5982\u679c\u6240\u6709\u7ea6\u675f\u90fd\u6ee1\u8db3\uff0c\u8fd4\u56de1.0\n      - \u5982\u679c\u81f3\u5c11\u6ee1\u8db3\u4e00\u4e2a\u7ea6\u675f\uff0c\u8fd4\u56de0.1\n      - \u5982\u679c\u4e00\u4e2a\u7ea6\u675f\u90fd\u4e0d\u6ee1\u8db3\uff0c\u8fd4\u56de0.0\n    "
+    'Score hard travel constraints from tested_data and optional hard_constraint_data: 1.0 for all, 0.1 for some and 0.0 for none.'
     try:
 
         if 'tested_data' not in final_answer:
-            print('DEBUG: final_answer\u7f3a\u5c11tested_data\u5b57\u6bb5')
+            print('DEBUG: final_answer has no tested_data field')
             return 0.0
 
         tested_data = final_answer['tested_data']
 
         if 'hard_constraint_data' not in final_answer:
-            print('DEBUG: final_answer\u7f3a\u5c11hard_constraint_data\u5b57\u6bb5')
+            print('DEBUG: final_answer has no hard_constraint_data field')
             return 0.0
 
         hard_constraint_data = final_answer['hard_constraint_data']
@@ -265,7 +265,7 @@ def compute_hard_constraint(final_answer: dict) -> float:
             return 0.1
 
     except Exception as e:
-        print(f"DEBUG: \u8ba1\u7b97\u786c\u7ea6\u675f\u5956\u52b1\u65f6\u51fa\u9519: {e}")
+        print(f"DEBUG: Hard-constraint reward failed: {e}")
         return 0.0
 
 basic_test_data = [
@@ -279,9 +279,9 @@ basic_test_data = [
     }
 ]
 
-print('\u5f00\u59cb\u6d4b\u8bd5...\n')
+print('Starting tests...\n')
 
-print('\u6d4b\u8bd51\uff1a\u6ca1\u6709\u7ea6\u675f\u6761\u4ef6')
+print('Test 1: no constraints')
 final_answer = {
     "tested_data": basic_test_data,
     "hard_constraint_data": {
@@ -291,9 +291,9 @@ final_answer = {
         "room type": None
     }
 }
-print('\u7ed3\u679c:', compute_hard_constraint(final_answer))
+print('Result:', compute_hard_constraint(final_answer))
 
-print('\n\u6d4b\u8bd52\uff1a\u6240\u6709\u7ea6\u675f\u6ee1\u8db3')
+print('\nTest 2: all constraints satisfied')
 final_answer = {
     "tested_data": basic_test_data,
     "hard_constraint_data": {
@@ -303,9 +303,9 @@ final_answer = {
         "room type": "private room"
     }
 }
-print('\u7ed3\u679c:', compute_hard_constraint(final_answer))
+print('Result:', compute_hard_constraint(final_answer))
 
-print('\n\u6d4b\u8bd53\uff1a\u90e8\u5206\u7ea6\u675f\u6ee1\u8db3')
+print('\nTest 3: some constraints satisfied')
 final_answer = {
     "tested_data": basic_test_data,
     "hard_constraint_data": {
@@ -315,9 +315,9 @@ final_answer = {
         "room type": None
     }
 }
-print('\u7ed3\u679c:', compute_hard_constraint(final_answer))
+print('Result:', compute_hard_constraint(final_answer))
 
-print('\n\u6d4b\u8bd54\uff1a\u6ca1\u6709\u7ea6\u675f\u6ee1\u8db3')
+print('\nTest 4: no constraints satisfied')
 final_answer = {
     "tested_data": basic_test_data,
     "hard_constraint_data": {
@@ -327,9 +327,9 @@ final_answer = {
         "room type": "shared room"
     }
 }
-print('\u7ed3\u679c:', compute_hard_constraint(final_answer))
+print('Result:', compute_hard_constraint(final_answer))
 
-print('\n\u6d4b\u8bd5\u5b8c\u6210!')
+print('\nTests completed.')
 
 # Author: Weiliang Zhu
 # Email: wlzchina05@gmail.com

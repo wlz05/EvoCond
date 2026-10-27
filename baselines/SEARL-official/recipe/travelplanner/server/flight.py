@@ -9,9 +9,9 @@ import pandas as pd
 from base import BaseServer
 
 class FlightRequest(BaseModel):
-    origin: str = Field(..., description='\u51fa\u53d1\u57ce\u5e02')
-    destination: str = Field(..., description='\u76ee\u7684\u57ce\u5e02')
-    date: str = Field(..., description='\u51fa\u53d1\u65e5\u671f')
+    origin: str = Field(..., description='Departure city')
+    destination: str = Field(..., description='Destination city')
+    date: str = Field(..., description='Departure date')
 
 class FlightResponse(BaseModel):
     flight_number: str
@@ -26,7 +26,7 @@ class FlightResponse(BaseModel):
 
 class FlightServer(BaseServer):
     def __init__(self):
-        super().__init__('\u822a\u73ed', 8007)
+        super().__init__('flight', 8007)
         self.load_data()
         self.setup_routes()
 

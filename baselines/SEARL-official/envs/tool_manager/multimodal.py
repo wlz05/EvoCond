@@ -27,7 +27,7 @@ class ToolManager(ABC):
         self.storage_manager = None
 
     def get_tool(self, name_or_short_name: str):
-        '\u901a\u8fc7\u540d\u79f0\u6216\u7b80\u5199\u83b7\u53d6\u5de5\u5177\n        \n        Args:\n            name_or_short_name: \u5de5\u5177\u540d\u79f0\u6216\u7b80\u5199\n            \n        Returns:\n            \u627e\u5230\u7684\u5de5\u5177\uff0c\u5982\u679c\u6ca1\u627e\u5230\u5219\u8fd4\u56deNone\n        '
+        'Find a tool by name or alias; return None when absent.'
         name_or_short_name = str(name_or_short_name)
         return self.tool_map.get(name_or_short_name, None)
 

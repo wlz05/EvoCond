@@ -13,7 +13,7 @@ import math
 def verify_math_answer(answer_float: float,
                        ground_truth_expr: str,
                        rel_tol: float = 1e-4) -> bool:
-    '\n    Verifies if a float answer is mathematically close to a LaTeX expression (or equivalent forms).\n    \u652f\u6301:\n      - \u7eaf\u6570/\u8868\u8fbe\u5f0f/LaTeX(\x0crac, \\sqrt, ^, \\cdot, \times, \\left...\right)\n      - \u767e\u5206\u6570: "12%" -> 0.12\n      - \u533a\u95f4: (a,b), [a,b], (a,b], [a,b]\n      - \u591a\u5019\u9009: {a,b,c}\n      - \\pm: 1 \\pm 2  ->  {1+2, 1-2}\n      - \u4f20\u5165 tuple/list/dict \u65f6\u7684\u9c81\u68d2\u5904\u7406\uff08\u4ece dict \u53d6 value/answer/target\uff1b\u4e8c\u5143\u5bb9\u5668\u89c6\u4e3a\u533a\u95f4\uff0c\u5426\u5219\u89c6\u4e3a\u591a\u5019\u9009\uff09\n    \u8bed\u4e49:\n      - ground truth \u662f\u5355\u503c: \u4e0e answer_float \u505a isclose\n      - ground truth \u662f\u533a\u95f4: \u5224\u65ad answer_float \u662f\u5426\u843d\u5728\u533a\u95f4\uff08\u542b\u5f00\u95ed\u7aef\u70b9\uff09\n      - ground truth \u662f\u591a\u5019\u9009: \u4efb\u4e00\u5019\u9009\u5339\u914d\u5373\u4e3a True\n    '
+    'Compare an answer with numeric, LaTeX, percentage, interval or alternative targets; preserve interval endpoints and container target rules.'
 
     if not isinstance(answer_float, (int, float)) or not math.isfinite(answer_float):
         return False
@@ -84,7 +84,7 @@ def verify_math_answer(answer_float: float,
         return False
 
 def _parse_number_maybe_percent(s: str):
-    '\u5c1d\u8bd5\u89e3\u6790\u7eaf\u6570\u5b57\u6216\u767e\u5206\u6570\uff1b\u6210\u529f\u8fd4\u56de float\uff0c\u5426\u5219\u8fd4\u56de None\u3002'
+    'Parse a number or percentage as float; return None on failure.'
     s1 = s.strip().strip("$")
 
     m = re.fullmatch(r"\s*([-+]?\d+(?:\.\d+)?)\s*(\\?%)\s*", s1)
@@ -105,7 +105,7 @@ def _in_interval(x: float, lo: float, hi: float, left_closed: bool, right_closed
     return left_ok and right_ok
 
 def _to_float(expr: str) -> float:
-    '\n    \u628a\u8868\u8fbe\u5f0f/LaTeX \u8f6c\u6210 float\u3002\n    \u5c1d\u8bd5\u987a\u5e8f\uff1a\n      1) \u76f4\u63a5 float\n      2) sympy.parse_latex\n      3) \u8f7b\u91cf LaTeX \u9884\u5904\u7406\u540e sympy.sympify\n    '
+    'Convert an expression using float, parse_latex, then normalized sympify.'
     s = str(expr).strip().strip("$")
 
     try:
@@ -137,7 +137,7 @@ def _to_float(expr: str) -> float:
         return float(s2)
 
 def _preprocess_latex_basic(s: str) -> str:
-    '\n    \u8f7b\u91cf LaTeX \u5f52\u4e00\uff1a\x0crac, \\sqrt, ^, \\cdot, \times, \\div, \\left, \right, \u82b1\u62ec\u53f7\u7b49\n    '
+    'Normalize common LaTeX operators, delimiters and braces.'
     s = s.strip()
 
     for k in (r"\left", r"\right", r"\,", r"\!"):

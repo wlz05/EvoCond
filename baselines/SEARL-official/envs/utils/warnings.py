@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 # EvoCond: Preserving Conditional Tool Relations for Co-Evolving Language Agents
 
-'\nMCP \u8b66\u544a\u5c4f\u853d\u5de5\u5177\n\n\u8fd9\u4e2a\u6a21\u5757\u901a\u8fc7\u7334\u5b50\u8865\u4e01\u7684\u65b9\u5f0f\u6765\u5c4f\u853d MCP \u670d\u52a1\u5668\u4ea7\u751f\u7684\u9a8c\u8bc1\u8b66\u544a\u3002\n\u5728\u5bfc\u5165 MCP \u76f8\u5173\u6a21\u5757\u4e4b\u524d\u5148\u5bfc\u5165\u8fd9\u4e2a\u6a21\u5757\u3002\n'
+'Suppress MCP validation warnings through patches installed before MCP imports.'
 
 import logging
 import warnings
 from typing import Any
 
 def suppress_mcp_warnings():
-    '\u5c4f\u853d MCP \u76f8\u5173\u7684\u8b66\u544a\u4fe1\u606f'
+    'Suppress MCP warnings.'
 
     warnings.filterwarnings("ignore")
 
@@ -106,10 +106,10 @@ def suppress_mcp_warnings():
     except ImportError:
         pass
 
-    print('\u2705 MCP \u8b66\u544a\u5c4f\u853d\u5df2\u542f\u7528')
+    print('MCP warning suppression enabled.')
 
 def patch_ray_worker_logging():
-    '\u5728Ray worker\u4e2d\u4e5f\u5e94\u7528\u65e5\u5fd7\u5c4f\u853d'
+    'Apply logging suppression inside Ray workers.'
     import os
     os.environ['PYTHONWARNINGS'] = 'ignore'
     suppress_mcp_warnings()

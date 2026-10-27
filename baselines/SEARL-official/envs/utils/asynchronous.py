@@ -11,7 +11,7 @@ import time
 logger = logging.getLogger(__name__)
 
 class LoadBalancedTool(BaseTool):
-    '\u8d1f\u8f7d\u5747\u8861\u7684\u5de5\u5177\u5305\u88c5\u7c7b'
+    'Wrap a tool with load balancing.'
     def __init__(self, register_name: str, register_client_id: str, tool_name: str, tool_desc: str, tool_parameters: dict, config: dict, manager_classes: list):
         self.name = register_name
         self.description = tool_desc
@@ -45,7 +45,7 @@ class LoadBalancedTool(BaseTool):
             raise RuntimeError("Failed to create any working instances")
 
     def call(self, params: Union[str, dict], **kwargs) -> str:
-        '\u8d1f\u8f7d\u5747\u8861\u7684\u5de5\u5177\u8c03\u7528'
+        'Invoke a load-balanced tool.'
         if not self.instances:
             raise RuntimeError("No available instances")
 
@@ -95,12 +95,12 @@ class AsyncMCPManager(SSEMCPManager):
             ]
 
     def initConfig(self, config: dict):
-        '\u91cd\u5199initConfig\u65b9\u6cd5\uff0c\u4fdd\u5b58\u914d\u7f6e'
+        'Store the configuration during initialization.'
         self._config = config
         return super().initConfig(config)
 
     def create_tool_class(self, register_name: str, register_client_id: str, tool_name: str, tool_desc: str, tool_parameters: dict):
-        '\u521b\u5efa\u8d1f\u8f7d\u5747\u8861\u7684\u5de5\u5177\u7c7b'
+        'Create a load-balanced tool class.'
         if not self._config:
             raise ValueError("Configuration not initialized. Please call initConfig first.")
 
@@ -115,7 +115,7 @@ class AsyncMCPManager(SSEMCPManager):
         )
 
     async def _init_client_with_retry(self, client, server_name, server, max_retries=10):
-        '\u91cd\u5199_init_client_with_retry\u65b9\u6cd5\uff0c\u8c03\u7528\u7236\u7c7b\u7684\u65b9\u6cd5'
+        'Initialize with retries through the parent implementation.'
         return await super()._init_client_with_retry(client, server_name, server, max_retries)
 
 # Author: Weiliang Zhu

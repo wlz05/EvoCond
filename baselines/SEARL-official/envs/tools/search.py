@@ -17,7 +17,7 @@ RESULT_TIMEOUT = 180
 _redis_pool = None
 
 def get_redis_client():
-    '\u83b7\u53d6Redis\u5ba2\u6237\u7aef\uff0c\u4f7f\u7528\u8fde\u63a5\u6c60\u590d\u7528\u8fde\u63a5'
+    'Get the Redis client through the shared connection pool.'
     global _redis_pool
     if _redis_pool is None:
         _redis_pool = redis.ConnectionPool(
@@ -56,18 +56,18 @@ def search(query: str, topk: int = 10):
         }
 
         redis_client.lpush(REQUEST_QUEUE_NAME, json.dumps(task_payload))
-        print(f"\u4efb\u52a1 {task_id} \u5df2\u53d1\u9001: \u67e5\u8be2 '{query}'")
+        print(f"Task {task_id} submitted: query \'{query}'")
 
         result_data = redis_client.brpop(response_queue, timeout=RESULT_TIMEOUT)
 
         if result_data is None:
-            return f"\u7b49\u5f85\u641c\u7d22\u7ed3\u679c\u8d85\u65f6\uff08\u8d85\u8fc7 {RESULT_TIMEOUT} \u79d2\uff09"
+            return f"Search timed out after {RESULT_TIMEOUT} seconds)"
 
         response_payload = json.loads(result_data[1])
-        print(f"\u6210\u529f\u5904\u7406\u4e86\u4efb\u52a1 {response_queue}")
+        print(f"Completed task {response_queue}")
 
         flag = response_payload.get('flag', 'error')
-        content = response_payload.get('content', '\u65e0\u6548\u7684\u54cd\u5e94\u683c\u5f0f')
+        content = response_payload.get('content', 'Invalid response format')
 
         if flag == 'error':
             return f"Search failed: {content}"

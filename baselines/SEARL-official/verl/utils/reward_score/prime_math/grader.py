@@ -142,9 +142,9 @@ def handle_base(x) -> str:
     return x
 
 def handle_pi(string, pi):
-    if isinstance(string, str) and "\pi" in string:
+    if isinstance(string, str) and '\\pi' in string:
         # Find the first occurrence of "\pi"
-        idx = string.find("\pi")
+        idx = string.find('\\pi')
 
         # Iterate over the string and find all occurrences of "\pi" with a valid previous character
         while idx != -1:
@@ -156,7 +156,7 @@ def handle_pi(string, pi):
                 string = string[:idx] + f"1*{pi}" + string[idx + 3 :]
 
             # Find the next occurrence of "\pi"
-            idx = string.find("\pi", idx + 1)
+            idx = string.find('\\pi', idx + 1)
 
         # Evaluate the expression using eval() function
         with contextlib.suppress(Exception):
@@ -293,7 +293,7 @@ def math_equal(
                     reference.lstrip("\\begin{pmatrix}")  # noqa: B005
                     .lstrip("\begin{pmatrix}")
                     .rstrip("\\end{pmatrix}")
-                    .rstrip("\end{pmatrix}")
+                    .rstrip('\\end{pmatrix}')
                 )  # noqa: B005
                 ref_matrix_items = ref_matrix_items.split("\\")
                 ref_matrix_items = [row.split("&") if "&" in row else row for row in ref_matrix_items]

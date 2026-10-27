@@ -32,7 +32,7 @@ import torch
 import torch.distributed as dist
 
 def print_rank_0(message):
-    '\n    \u5982\u679c rank \u4e3a 0\uff0c\u5219\u6253\u5370\u6d88\u606f\u3002\n    '
+    'Print the message on rank zero.'
 
     if dist.is_available() and dist.is_initialized() and dist.get_rank() == 0:
         print(message, file=sys.stderr, flush=True)
@@ -47,13 +47,13 @@ def parse_mcp_tools_config(file_path):
         data = literal_eval(content)
         return data
     except Exception as e:
-        print(f"\u89e3\u6790\u9519\u8bef: {e}",file=sys.stderr, flush=True)
+        print(f"Parse error: {e}",file=sys.stderr, flush=True)
         return None
 
 class Qwen25VLManager(ToolManager):
-    'Qwen2.5-VL\u5de5\u5177\u7ba1\u7406\u5668\n    \u4f7f\u7528 asyncio \u5b9e\u73b0\u5de5\u5177\u7684\u5e76\u53d1\u6267\u884c\uff0c\u63d0\u9ad8\u6548\u7387\n    \u5185\u7f6e\u56fe\u50cf\u7f16\u89e3\u7801\u529f\u80fd\u652f\u6301\u89c6\u89c9\u4efb\u52a1\n    \u652f\u6301\u591a\u79cd\u54cd\u5e94\u683c\u5f0f\u89e3\u6790\uff0c\u5305\u62ec\u5de5\u5177\u8c03\u7528\u548c\u76f4\u63a5\u56de\u7b54\n    \u5b8c\u5584\u7684\u5f02\u5e38\u6355\u83b7\u548c\u9519\u8bef\u4fe1\u606f\u8fd4\u56de\u673a\u5236\n    \u652f\u6301\u591a\u79cd\u5de5\u5177\u6ce8\u518c\u65b9\u5f0f\u548c\u914d\u7f6e\u52a0\u8f7d\n    \n    '
+    'Manage Qwen2.5-VL tools with asynchronous execution, image conversion, response parsing and configuration-based registration.'
     def __init__(self, verl_config):
-        'Qwen2.5-VL\u5de5\u5177\u7ba1\u7406\u5668\n        \n        Args:\n            verl_config: \u914d\u7f6e\u6587\u4ef6\n        '
+        'Initialize the Qwen2.5-VL tool manager from verl_config.'
 
         if isinstance(verl_config, dict):
             verl_config = OmegaConf.to_container(verl_config)
@@ -72,12 +72,12 @@ class Qwen25VLManager(ToolManager):
         self.processor = None
 
     def modify(self, name):
-        '\u622a\u53d6\u5b57\u7b26\u4e32\u7684\u524d\u4e00\u534a\uff0c\u7528\u4e8e\u751f\u6210\u51fd\u6570\u540d\u79f0\n        \n        Args:\n            name: \u51fd\u6570\u540d\u79f0\n            \n        Returns:\n            \u622a\u53d6\u540e\u7684\u5b57\u7b26\u4e32\n        '
+        'Take the first half of a name for function-name generation.'
         length = len(name)//2
         return name[0:length]
 
     def _load_custom_chat_template(self, tokenizer):
-        '\u52a0\u8f7d\u81ea\u5b9a\u4e49\u7684\u804a\u5929\u6a21\u677f\n        \n        Args:\n            tokenizer: \u6a21\u578b\u5206\u8bcd\u5668\n            \n        Returns:\n            \u52a0\u8f7d\u540e\u7684\u5206\u8bcd\u5668\n        '
+        'Load the custom chat template into the tokenizer.'
         self.chat_template_path = self.verl_config.get('load_custom_chat_template', None)
         if self.chat_template_path:
             print_rank_0(f"load chat template from {self.chat_template_path}")
@@ -87,17 +87,17 @@ class Qwen25VLManager(ToolManager):
         return tokenizer
 
     def get_tool(self, name_or_short_name: str):
-        '\u901a\u8fc7\u540d\u79f0\u6216\u7b80\u5199\u83b7\u53d6\u5de5\u5177\n        \n        Args:\n            name_or_short_name: \u5de5\u5177\u540d\u79f0\u6216\u7b80\u5199\n            \n        Returns:\n            \u627e\u5230\u7684\u5de5\u5177\uff0c\u5982\u679c\u6ca1\u627e\u5230\u5219\u8fd4\u56deNone\n        '
+        'Find a tool by name or alias; return None when absent.'
         name_or_short_name = str(name_or_short_name)
         return self.tool_map.get(name_or_short_name, None)
 
     @property
     def all_tools(self):
-        '\u83b7\u53d6\u6240\u6709\u5de5\u5177\n        \n        Returns:\n            \u6240\u6709\u5de5\u5177\u7684\u5217\u8868\n        '
+        'Return all tools.'
         return self.tool_map
 
     def _build_tools(self):
-        '\n        \u6784\u5efa\u5de5\u5177\u5217\u8868\n        \u8bfb\u53d6\u914d\u7f6e\u6587\u4ef6\uff0c\u521d\u59cb\u5316\u5de5\u5177\uff0c\u5e76\u5c06\u5176\u6dfb\u52a0\u5230\u5de5\u5177\u6620\u5c04\u4e2d\n        \u751f\u6210\u5de5\u5177\u51fd\u6570\u5217\u8868\u4f9b\u6a21\u578b\u8c03\u7528\n        '
+        'Build tools and function schemas from configuration entries.'
         config_path = self.verl_config.config_path
         if config_path is not None:
             function_list = parse_mcp_tools_config(config_path)
@@ -112,7 +112,7 @@ class Qwen25VLManager(ToolManager):
             self.functions = []
 
     async def execute_all_tools(self, actions, tool_list, image_data: List[List[Image.Image]]):
-        '\u5f02\u6b65\u5e76\u884c\u6267\u884c\u6240\u6709\u5de5\u5177\u5217\u8868\n        \n        Args:\n            tool_list: \u5de5\u5177\u5217\u8868\u7684\u5217\u8868\n            \n        Returns:\n            \u6240\u6709\u5de5\u5177\u6267\u884c\u7ed3\u679c\u7684\u5217\u8868\n        '
+        'Execute all tool batches asynchronously and return their results.'
 
         tasks = []
         for temp_action, temp_tool_list, temp_image_data in zip(actions, tool_list, image_data):
@@ -123,7 +123,7 @@ class Qwen25VLManager(ToolManager):
         return results
 
     async def _execute_tool_batch(self, action, tools, image_data: List[Image.Image]):
-        '\u5f02\u6b65\u5e76\u884c\u6267\u884c\u4e00\u6279\u5de5\u5177\n        \n        Args:\n            tools: \u5de5\u5177\u5217\u8868\n            \n        Returns:\n            \u5de5\u5177\u6267\u884c\u7ed3\u679c\u7684\u5217\u8868\n        '
+        'Execute one tool batch asynchronously and return its results.'
         async def execute_single_tool(tool, image_data:Image.Image):
             tool_instance = self.get_tool(tool["name"])
             args = tool["args"]
@@ -218,7 +218,7 @@ class Qwen25VLManager(ToolManager):
         return actions, tool_results
 
     def parse_response(self, response_content: str) -> Optional[Dict[str, Any]]:
-        '\u6267\u884c\u52a8\u4f5c\n        \n        Args:\n            response_content: \u54cd\u5e94\u6587\u672c\n            \n        Returns:\n            \u89e3\u6790\u540e\u7684\u52a8\u4f5c\u4fe1\u606f\uff0c\u5305\u542bname\u548cargs\uff08\u5982\u679c\u5b58\u5728\uff09\n            \u5982\u679c\u6ca1\u6709\u52a8\u4f5c\u6807\u7b7e\u6216\u683c\u5f0f\u4e0d\u6b63\u786e\uff0c\u8fd4\u56deNone\n        '
+        'Parse action name and arguments; return None for missing or malformed action tags.'
 
         if_answer, answer = self.parse_end_flag(response_content)
         if if_answer:
@@ -354,7 +354,7 @@ class Qwen25VLManager(ToolManager):
         return head.startswith((b'\xff\xd8\xff', b'\x89PNG\r\n\x1a\n', b'GIF87a', b'GIF89a', b'BM'))
 
     def _extract_image_data(self, data):
-            '\n            \u4ece\u6570\u636e\u4e2d\u63d0\u53d6\u7b2c\u4e00\u4e2a\u56fe\u50cf\u6570\u636e\n            \n            Args:\n                data: \u5305\u542b\u56fe\u50cf\u7684\u6570\u636e\u7ed3\u6784\n                \n            Returns:\n                PIL.Image: \u63d0\u53d6\u51fa\u7684\u7b2c\u4e00\u4e2a\u56fe\u50cf\uff0c\u5982\u679c\u6ca1\u6709\u627e\u5230\u5219\u8fd4\u56deNone\n            '
+            'Extract the first image as a PIL image; return None when absent.'
             if isinstance(data, Image.Image):
                 return data
             elif isinstance(data, list):

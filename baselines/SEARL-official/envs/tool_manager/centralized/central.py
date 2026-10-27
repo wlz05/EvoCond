@@ -37,7 +37,7 @@ def _default_embedding_model() -> str:
     return os.environ.get("RL_FACTORY_EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 
 def _resolve_project_name(cfg=None) -> str:
-    '\u7edf\u4e00\u83b7\u53d6\u9879\u76ee\u540d\uff1a\u73af\u5883\u53d8\u91cf\u4f18\u5148\uff0c\u5176\u6b21\u914d\u7f6e\u5b57\u6bb5\uff0c\u6700\u540e\u56de\u9000\u9ed8\u8ba4\u3002'
+    'Resolve the project name from environment, configuration, then the default.'
     env_name = os.getenv("RL_FACTORY_PROJECT_NAME") or os.getenv("PROJECT_NAME")
     if env_name:
         return env_name
@@ -58,7 +58,7 @@ def parse_mcp_tools_config(file_path, project_name=None):
         data = literal_eval(content)
         return data
     except Exception as e:
-        print(f"\u89e3\u6790\u9519\u8bef: {e}")
+        print(f"Parse error: {e}")
         return []
 
 def remove_middle_tokens(s):
@@ -86,7 +86,7 @@ def populate_template(template: str, variables: Dict[str, Any]) -> str:
         raise Exception(f"Error during jinja template rendering: {type(e).__name__}: {e}")
 
 def extract_tool_names(text: str):
-    '\n    \u4ec5\u5728 <tool_call>...</tool_call> \u5185\u63d0\u53d6 name \u5b57\u6bb5\uff0c\u5305\u62ec\u9876\u5c42name\u548carguments\u4e2d\u7684name\uff0c\u8fd4\u56de\u53bb\u91cd\u4e14\u4fdd\u5e8f\u5217\u8868\u3002\n    '
+    'Extract unique tool names from <tool_call> blocks in encounter order, including names inside arguments.'
     names = []
     seen = set()
 
@@ -151,7 +151,7 @@ def _parse_plan(raw_plan: str):
     return subtask_dict
 
 def _parse_dag_list(text: str, max_turns: Optional[int] = None) -> Tuple[Optional[List], str]:
-    '\n    \u89e3\u6790 ##DAG_LIST \u6bb5\uff0c\u8fd4\u56de (dag_list, status)\n    status in {"ok", "missing", "empty", "invalid"}\n    '
+    'Parse ##DAG_LIST and return (dag_list, status), where status is ok, missing, empty or invalid.'
     text = text.replace('\r\n', '\n').replace('\r', '\n')
     m = re.search(r'##DAG_LIST[^\n]*\n([\s\S]*?)(?=\n##|\Z)', text)
     if not m:
@@ -197,11 +197,11 @@ def _parse_dag_list(text: str, max_turns: Optional[int] = None) -> Tuple[Optiona
     return parsed, "ok"
 
 class CentralizedQwenManager(QwenManager):
-    '\u96c6\u4e2d\u5f0fQwenManager - \u5de5\u5177\u8c03\u7528\u8f6c\u53d1\u5230Ray Actor'
+    'Forward QwenManager tool calls to the Ray actor.'
 
     def __init__(self, verl_config, centralized_actor_handle=None, mock=False):
         if not mock and centralized_actor_handle is None:
-            raise ValueError('\u96c6\u4e2d\u5f0fQwenManager\u9700\u8981centralized_actor_handle\u53c2\u6570')
+            raise ValueError('CentralizedQwenManager requires centralized_actor_handle')
 
         super().__init__(verl_config)
 
@@ -227,7 +227,7 @@ class CentralizedQwenManager(QwenManager):
         self._cached_functions_mcps = []
 
         self._build_temp_mcp_tools(init_project=False)
-        print('\u96c6\u4e2d\u5f0fQwenManager\u521d\u59cb\u5316\u5b8c\u6210\uff0c\u5de5\u5177\u8c03\u7528\u5c06\u8f6c\u53d1\u5230\u96c6\u4e2d\u5f0fActor')
+        print('CentralizedQwenManager initialized; tool calls use the centralized actor.')
 
     def _build_temp_mcp_tools(self, init_project=False):
         if getattr(self.verl_config, 'runtime_config_path', None):
@@ -277,7 +277,7 @@ class CentralizedQwenManager(QwenManager):
         #     raise RuntimeError(f"Failed to build MCP tools: {e}") from e
 
     def _ensure_mcp_tool_files(self, init_project=False):
-        '\u786e\u4fdd temp/official MCP \u5165\u53e3\u6587\u4ef6\u5b58\u5728\uff0c\u5e76\u5199\u5165\u57fa\u7840\u5bfc\u5165\u548c __main__ \u542f\u52a8\u5757'
+        'Create temporary and official MCP entry files with imports and startup blocks.'
         base_dir = Path(__file__).resolve().parents[2] / "tools"
         invented_dir = base_dir / "invented_tools" / (self.project_name or "default_project")
         invented_dir.mkdir(parents=True, exist_ok=True)
@@ -325,7 +325,7 @@ class CentralizedQwenManager(QwenManager):
         ensure_file(official_file, "Official_Server")
 
     def reload_official_tools(self):
-        '\u91cd\u65b0\u52a0\u8f7d official_tool_list.py \u4e2d\u7684\u5de5\u5177\n\n        \u5728\u6bcf\u4e2a\u8bad\u7ec3step\u540e\u8c03\u7528\uff0c\u786e\u4fdd\u65b0\u521b\u5efa\u7684\u5de5\u5177\u88ab\u52a0\u8f7d\u5230\u5185\u5b58\u4e2d\n        '
+        'Reload official tools after each training step.'
         if getattr(self.verl_config, 'runtime_config_path', None):
             return
         official_config_path = self.verl_config.official_config_path
@@ -406,8 +406,8 @@ class CentralizedQwenManager(QwenManager):
             return item
 
     def execute_actions(self, responses: List[str], runtime_contexts=None):
-        assert self.centralized_actor_handle is not None, '\u96c6\u4e2d\u5f0fQwenManager\u9700\u8981centralized_actor_handle\u53c2\u6570'
-        '\u6267\u884c\u52a8\u4f5c - \u8f6c\u53d1\u5230\u96c6\u4e2d\u5f0fActor'
+        assert self.centralized_actor_handle is not None, 'CentralizedQwenManager requires centralized_actor_handle'
+        'Forward execution to the centralized actor.'
         actions, tools, tool_names = [], [], []
         for response in responses:
             temp_action, temp_tool_list = self.parse_response(response_content=response)
@@ -479,7 +479,7 @@ class CentralizedQwenManager(QwenManager):
                 import multiprocessing
 
                 def run_in_process(actions, tools, temp_dict, centralized_actor_handle):
-                    '\u5728\u72ec\u7acb\u8fdb\u7a0b\u4e2d\u8fd0\u884c\uff0c\u907f\u514d\u4e8b\u4ef6\u5faa\u73af\u51b2\u7a81'
+                    'Run in a separate process to avoid event-loop conflicts.'
                     try:
 
                         new_loop = asyncio.new_event_loop()
@@ -518,12 +518,12 @@ class CentralizedQwenManager(QwenManager):
         return actions, tool_results, tool_names
 
     def parse_subtask_plan(self, text: str) -> bool:
-        '\n        \u89e3\u6790 ##DAG_LIST \u5757\uff0c\u9a8c\u8bc1\u5176\u683c\u5f0f\uff0c\u5e76\u68c0\u67e5\u6700\u5927\u5b50\u4efb\u52a1ID\u662f\u5426\u8d85\u8fc7 max_turns\u3002\n\n        Args:\n            text: \u5305\u542b DAG \u5217\u8868\u7684\u8f93\u5165\u5b57\u7b26\u4e32\u3002\n            max_turns: \u5141\u8bb8\u7684\u6700\u5927\u5b50\u4efb\u52a1ID\u3002\n\n        Returns:\n            \u5982\u679c\u683c\u5f0f\u6709\u6548\u4e14\u6700\u5927ID\u672a\u8d85\u8fc7 max_turns\uff0c\u5219\u4e3a True\uff0c\u5426\u5219\u4e3a False\u3002\n        '
+        'Validate ##DAG_LIST syntax and require every subtask ID to fit max_turns.'
         _, status = _parse_dag_list(text, max_turns=self.max_turns)
         return status == "ok"
 
     def parse_plan_response(self, response_content: str, overall_task=None, mcp_worthiness=None, is_validation: bool=False):
-        '\n        \u89e3\u6790\u8ba1\u5212\u54cd\u5e94\n\n        Args:\n            response_content: \u54cd\u5e94\u5185\u5bb9\n            overall_task: \u603b\u4f53\u4efb\u52a1\n            mcp_worthiness: MCP \u4ef7\u503c\n            is_validation: \u662f\u5426\u4e3a validation \u9636\u6bb5\n        '
+        'Parse a plan response with the overall task, MCP value and validation mode.'
         plan_success = self.parse_subtask_plan(response_content)
         if plan_success:
             system_prompt = self.initialize_system_prompt(
@@ -543,7 +543,7 @@ class CentralizedQwenManager(QwenManager):
             return 'plan_failed', system_prompt
 
     def initialize_system_prompt(self, subtask_plan=None, overall_task=None, mcp_worthiness=None, is_validation=False) -> str:
-        '\n        \u521d\u59cb\u5316 system prompt\n\n        Args:\n            subtask_plan: \u5b50\u4efb\u52a1\u8ba1\u5212\n            overall_task: \u603b\u4f53\u4efb\u52a1\n            mcp_worthiness: MCP \u4ef7\u503c\uff080 \u6216 1\uff09\n            is_validation: \u662f\u5426\u4e3a validation \u9636\u6bb5\uff08\u9ed8\u8ba4 False\uff09\n                          \u5f53 is_validation=True \u65f6\uff0c\u5f3a\u5236\u4f7f\u7528 dynamic_prompt=True \u7684\u884c\u4e3a\n\n        Returns:\n            system_prompt: \u751f\u6210\u7684\u7cfb\u7edf\u63d0\u793a\u8bcd\n        '
+        'Build the system prompt from the subtask plan and task; validation forces dynamic-prompt behavior.'
 
         use_dynamic_prompt = self.dynamic_prompt or is_validation
 
@@ -610,8 +610,8 @@ class CentralizedQwenManager(QwenManager):
         return system_prompt
 
     def execute_plans(self, responses: List[str], overall_tasks: List[str]=None, mcp_worthiness: List[int]=None, is_validation: bool=False):
-        assert self.centralized_actor_handle is not None, '\u96c6\u4e2d\u5f0fQwenMCPGraphManager\u9700\u8981centralized_actor_handle\u53c2\u6570'
-        '\n        \u6267\u884c\u8ba1\u5212\u52a8\u4f5c - \u8f6c\u53d1\u5230\u96c6\u4e2d\u5f0fActor\n\n        Args:\n            responses: \u6a21\u578b\u54cd\u5e94\u5217\u8868\n            overall_tasks: \u603b\u4f53\u4efb\u52a1\u5217\u8868\n            mcp_worthiness: MCP \u4ef7\u503c\u5217\u8868\n            is_validation: \u662f\u5426\u4e3a validation \u9636\u6bb5\uff08\u9ed8\u8ba4 False\uff09\n        '
+        assert self.centralized_actor_handle is not None, 'CentralizedQwenMCPGraphManager requires centralized_actor_handle'
+        'Forward plan execution to the centralized actor.\nArgs: responses are model responses; overall_tasks are tasks; mcp_worthiness holds MCP values; is_validation selects validation mode (default False).'
         actions, plans, raw_plans = [], [], []
         for response, overall_task, mcp_worth in zip(responses, overall_tasks, mcp_worthiness):
             temp_action, temp_plan = self.parse_plan_response(
@@ -630,7 +630,7 @@ class CentralizedQwenManager(QwenManager):
         return actions, plans, raw_plans, names
 
     async def _select_tools_async(self, query: str, top_k: int = 2):
-        '\n        \u5f02\u6b65\u7248\u672c\uff1a\u901a\u8fc7 hybrid search \u9009\u51fa\u6700\u76f8\u5173\u7684 top_k MCP \u5de5\u5177\u3002\n        \u6dfb\u52a0\u964d\u7ea7\u673a\u5236\uff1a\u641c\u7d22\u5931\u8d25\u65f6\u8fd4\u56de\u7a7a\u5217\u8868\n        \u4f7f\u7528\u7f13\u5b58\u907f\u514d\u9891\u7e41\u8c03\u7528 hybrid_search\n\n        \u6ce8\u610f\uff1a\u6b64\u51fd\u6570\u53ea\u8fd4\u56de\u9009\u4e2d\u7684 MCP \u5de5\u5177\uff0c\u4e0d\u5305\u542b\u57fa\u7840\u5de5\u5177\n        \u8fd4\u56de\uff1aList[Tuple[dict, float]] - \u5de5\u5177\u548c\u5bf9\u5e94\u7684\u641c\u7d22\u5206\u6570\n        '
+        'Select top_k MCPs asynchronously with hybrid-search caching; return no tools on failure and exclude built-ins.'
         import hashlib
         import time
 
@@ -870,7 +870,7 @@ class CentralizedQwenManager(QwenManager):
         return prompt_with_chat_template
 
     async def get_prompt_async(self, input_data, tokenizer, mode='initial', add_generation_prompt=True, current_plan=None):
-        '\n        \u5f02\u6b65\u7248\u672c\u7684 get_prompt\uff0c\u7528\u4e8e\u5e76\u53d1\u5904\u7406\u591a\u4e2a prompt \u751f\u6210\n        '
+        'Build prompts asynchronously for concurrent requests.'
         if isinstance(current_plan, dict) and '_runtime_context' in current_plan:
             return await asyncio.to_thread(self._runtime_prompt, input_data, tokenizer, mode,
                                            add_generation_prompt, current_plan['_runtime_context'])
@@ -1070,7 +1070,7 @@ class CentralizedQwenManager(QwenManager):
         return dag_list, task_id, subtask_dict
 
     async def execute_all_tools(self, actions, tool_list, temp_dict=None):
-        '\u5f02\u6b65\u5e76\u884c\u6267\u884c\u6240\u6709\u5de5\u5177\u5217\u8868\n        \n        Args:\n            tool_list: \u5de5\u5177\u5217\u8868\u7684\u5217\u8868\n            temp_dict: \u7528\u4e8e\u5b58\u50a8\u52a8\u6001\u521b\u5efa\u7684MCP\u5de5\u5177\u7684\u5b57\u5178\n            \n        Returns:\n            \u6240\u6709\u5de5\u5177\u6267\u884c\u7ed3\u679c\u7684\u5217\u8868\n        '
+        'Execute tool batches asynchronously, sharing the temporary MCP mapping.'
 
         tasks = []
         for temp_action, temp_tool_list in zip(actions, tool_list):
@@ -1101,7 +1101,7 @@ class CentralizedQwenManager(QwenManager):
 
 @ray.remote(max_concurrency=200, num_gpus=0.05)
 class CentralizedToolActor:
-    '\u96c6\u4e2d\u5f0f\u5de5\u5177\u7ba1\u7406\u5668Actor - \u96c6\u4e2d\u7ba1\u7406\u6240\u6709\u5de5\u5177\u8c03\u7528\u7684\u5e76\u53d1\uff0c\u96c6\u6210MCP\u529f\u80fd'
+    'Coordinate concurrent MCP tool calls in one Ray actor.'
 
     def __init__(self, verl_config):
         self.verl_config = verl_config
@@ -1150,7 +1150,7 @@ class CentralizedToolActor:
             if config['arm'] in ('searl', 'evocond') and (not self.use_graphrag or self.graphrag_engine is None):
                 raise ValueError("SEARL/EvoCond runtime requires the declared official GraphRAG; no silent fallback")
             self._runtime_sync_graph()
-        print(f"\u96c6\u4e2d\u5f0f\u5de5\u5177Actor\u521d\u59cb\u5316\u5b8c\u6210\uff0c\u5de5\u5177\u6267\u884c\u8d85\u65f6\u65f6\u95f4\uff1a{self.timeout}\u79d2\uff0cMCP\u7248\u672c\u53f7\uff1a{self.mcp_version}")
+        print(f"Centralized tool actor initialized; tool timeout: {self.timeout} seconds, MCP version: {self.mcp_version}")
 
     def _runtime_sync_graph(self):
         if self.method_runtime is None:
@@ -1325,7 +1325,7 @@ class CentralizedToolActor:
             self._lock_loop = loop
 
     def _load_search_cache(self) -> None:
-        '\u52a0\u8f7d\u641c\u7d22\u7f13\u5b58'
+        'Load the search cache.'
         if not self._search_cache_file.exists():
             return
 
@@ -1351,7 +1351,7 @@ class CentralizedToolActor:
             self._search_cache = {}
 
     def _init_mcp_functionality(self):
-        '\u521d\u59cb\u5316 MCP \u76f8\u5173\u529f\u80fd\uff08\u590d\u5236 MCPBoxActor \u7684\u6838\u5fc3\u903b\u8f91\uff09'
+        'Initialize MCP handling from the MCPBoxActor implementation.'
         import threading
         from sentence_transformers import SentenceTransformer
         import networkx as nx
@@ -1392,7 +1392,7 @@ class CentralizedToolActor:
                 graphrag_config = {
                     'enable_community_detection': getattr(self.verl_config, 'graphrag_community_detection', True),
                     'enable_history_tracking': getattr(self.verl_config, 'graphrag_history_tracking', True),
-                    'cache_dir': getattr(self.verl_config, 'graphrag_cache_dir', '/tmp/graphrag_cache')
+                    'cache_dir': getattr(self.verl_config, 'graphrag_cache_dir', 'cache/graphrag')
                 }
                 if runtime_config:
                     graphrag_config['cache_dir'] = str(Path(runtime_config['root'])/'graphrag_cache')
@@ -1478,7 +1478,7 @@ class CentralizedToolActor:
                 print(f"[GraphRAG] Warning: Failed to sync tools to GraphRAG: {e}")
 
     def parse_subtask_plan(self, text: str) -> bool:
-        '\n        \u89e3\u6790 ##DAG_LIST \u5757\uff0c\u9a8c\u8bc1\u5176\u683c\u5f0f\uff0c\u5e76\u68c0\u67e5\u6700\u5927\u5b50\u4efb\u52a1ID\u662f\u5426\u8d85\u8fc7 max_turns\u3002\n\n        Args:\n            text: \u5305\u542b DAG \u5217\u8868\u7684\u8f93\u5165\u5b57\u7b26\u4e32\u3002\n            max_turns: \u5141\u8bb8\u7684\u6700\u5927\u5b50\u4efb\u52a1ID\u3002\n\n        Returns:\n            \u5982\u679c\u683c\u5f0f\u6709\u6548\u4e14\u6700\u5927ID\u672a\u8d85\u8fc7 max_turns\uff0c\u5219\u4e3a True\uff0c\u5426\u5219\u4e3a False\u3002\n        '
+        'Validate ##DAG_LIST syntax and require every subtask ID to fit max_turns.'
         _, status = _parse_dag_list(text, max_turns=self.max_turns)
         return status == "ok"
 
@@ -1493,7 +1493,7 @@ class CentralizedToolActor:
         return None, task_id, {}
 
     def update_self_mcp(self):
-        '\u83b7\u53d6\u6307\u5b9a\u540d\u79f0\u7684 MCP'
+        'Get the named MCP.'
         self.mcps.update(self.temp_mapping)
 
     def _register_mcp_sync(self, code: str, task_id: int = None, subtask_dict=None):
@@ -1799,7 +1799,7 @@ class CentralizedToolActor:
     #     return tools
 
     async def register_mcp(self, code: str, task_id: int = None, subtask_dict=None):
-        '\u5f02\u6b65\u6ce8\u518c MCP'
+        'Register an MCP asynchronously.'
 
         import concurrent.futures
         loop = asyncio.get_event_loop()
@@ -1807,7 +1807,7 @@ class CentralizedToolActor:
             return await loop.run_in_executor(executor, self._register_mcp_sync, code, task_id, subtask_dict)
 
     async def register_mcps_batch(self, mcp_data_list: List[Tuple[str, int, Optional[Dict]]]):
-        '\u6279\u91cf\u6ce8\u518c\u591a\u4e2aMCP\uff0c\u51cf\u5c11\u8fdc\u7a0b\u8c03\u7528\u5f00\u9500'
+        'Register MCPs in one batch to reduce remote-call overhead.'
         import concurrent.futures
         loop = asyncio.get_event_loop()
 
@@ -1826,7 +1826,7 @@ class CentralizedToolActor:
         return await asyncio.gather(*tasks, return_exceptions=True)
 
     def build_tfidf_indices(self, temp_mcps: Optional[Dict[int, str]] = None):
-        '\u6784\u5efa TF-IDF \u7d22\u5f15 - \u4f18\u5316\u7248\uff1a\u6700\u5c0f\u5316\u9501\u6301\u6709\u65f6\u95f4'
+        'Build TF-IDF indices while minimizing lock duration.'
         from sklearn.metrics.pairwise import cosine_similarity
         from scipy.sparse import vstack as safe_vstack
         from sklearn.utils.validation import check_is_fitted
@@ -1884,7 +1884,7 @@ class CentralizedToolActor:
                 self.field_components['mcp_ids'].extend(new_mcp_ids)
 
     def build_embeddings(self, temp_mcps: Optional[Dict[int, str]] = None):
-        '\u6784\u5efa\u5d4c\u5165 - \u4f18\u5316\u7248\uff1a\u6dfb\u52a0\u7f13\u5b58\u5e76\u6700\u5c0f\u5316\u9501\u6301\u6709\u65f6\u95f4'
+        'Build cached embeddings while minimizing lock duration.'
         batch_size = 32
 
         if temp_mcps is None:
@@ -1934,7 +1934,7 @@ class CentralizedToolActor:
                     mcp_data['query_embedding'] = new_embeddings[idx]
 
     def field_text_search(self, query: str, top_k: int = 3) -> List[dict]:
-        '\u6587\u672c\u76f8\u4f3c\u5ea6\u641c\u7d22'
+        'Search by text similarity.'
         from sklearn.metrics.pairwise import cosine_similarity
 
         with self.lock:
@@ -1960,7 +1960,7 @@ class CentralizedToolActor:
             return results
 
     def field_semantic_search(self, query: str, top_k: int = 3):
-        '\u8bed\u4e49\u76f8\u4f3c\u5ea6\u641c\u7d22'
+        'Search by semantic similarity.'
         import numpy as np
         from sklearn.metrics.pairwise import cosine_similarity
 
@@ -2000,7 +2000,7 @@ class CentralizedToolActor:
                            score_threshold: float = 0.2,
                            use_graph_enhanced: Optional[bool] = None,
                            max_hops: int = 2) -> List[List[Dict[str, Any]]]:
-        '\n        \u6df7\u5408\u641c\u7d22\uff0c\u53ea\u8fd4\u56de\u5206\u6570\u5927\u4e8e score_threshold \u7684\u5de5\u5177\n\n        Args:\n            query: \u67e5\u8be2\u6587\u672c\n            top_k: \u8fd4\u56de\u7ed3\u679c\u6570\u91cf\n            weights: \u6743\u91cd\u914d\u7f6e\uff08\u4f20\u7edf\u65b9\u6cd5\u6216 GraphRAG\uff09\n            score_threshold: \u5206\u6570\u9608\u503c\uff08\u4ec5\u4f20\u7edf\u65b9\u6cd5\uff09\n            use_graph_enhanced: \u662f\u5426\u4f7f\u7528 GraphRAG \u589e\u5f3a\u641c\u7d22\n                - None: \u6839\u636e self.use_graphrag \u81ea\u52a8\u51b3\u5b9a\n                - True: \u5f3a\u5236\u4f7f\u7528 GraphRAG\uff08\u5982\u679c\u53ef\u7528\uff09\n                - False: \u5f3a\u5236\u4f7f\u7528\u4f20\u7edf\u65b9\u6cd5\n            max_hops: \u591a\u8df3\u63a8\u7406\u6df1\u5ea6\uff08\u4ec5 GraphRAG\uff09\n\n        Returns:\n            \u641c\u7d22\u7ed3\u679c\u5217\u8868\n        '
+        'Search tools above score_threshold; weights select traditional or GraphRAG scoring, use_graph_enhanced overrides availability, and max_hops bounds graph search.'
 
         should_use_graphrag = use_graph_enhanced if use_graph_enhanced is not None else self.use_graphrag
 
@@ -2086,7 +2086,7 @@ class CentralizedToolActor:
         execution_time: float = 0.0,
         co_used_tools: Optional[List[str]] = None
     ):
-        '\n        \u8bb0\u5f55\u5de5\u5177\u6267\u884c\u5386\u53f2\u5230 GraphRAG \u5f15\u64ce\n\n        Args:\n            tool_name: \u5de5\u5177\u540d\u79f0\n            success: \u662f\u5426\u6267\u884c\u6210\u529f\n            execution_time: \u6267\u884c\u65f6\u95f4\uff08\u79d2\uff09\n            co_used_tools: \u540c\u65f6\u4f7f\u7528\u7684\u5176\u4ed6\u5de5\u5177\u5217\u8868\n        '
+        'Record tool success, execution time and co-used tools in GraphRAG.'
         if not self.use_graphrag or self.graphrag_engine is None:
             return
 
@@ -2105,7 +2105,7 @@ class CentralizedToolActor:
             print(f"[GraphRAG] Warning: Failed to record execution for {tool_name}: {e}")
 
     def get_graphrag_tool_stats(self, mcp_name: str) -> Dict[str, Any]:
-        '\n        \u83b7\u53d6\u5de5\u5177\u7684 GraphRAG \u6267\u884c\u7edf\u8ba1\u4fe1\u606f\n\n        Args:\n            mcp_name: \u5de5\u5177\u540d\u79f0\n\n        Returns:\n            \u5305\u542b\u6267\u884c\u7edf\u8ba1\u7684\u5b57\u5178\uff0c\u5982\u679c GraphRAG \u672a\u542f\u7528\u5219\u8fd4\u56de\u7a7a\u5b57\u5178\n        '
+        'Return GraphRAG execution statistics, or an empty mapping when disabled.'
         if not self.use_graphrag or self.graphrag_engine is None:
             return {}
 
@@ -2116,7 +2116,7 @@ class CentralizedToolActor:
             return {}
 
     def get_graphrag_community_info(self) -> Dict[str, Any]:
-        '\n        \u83b7\u53d6 GraphRAG \u793e\u533a\u4fe1\u606f\n\n        Returns:\n            \u5305\u542b\u793e\u533a\u7edf\u8ba1\u548c\u6458\u8981\u7684\u5b57\u5178\n        '
+        'Return GraphRAG community statistics and summaries.'
         if not self.use_graphrag or self.graphrag_engine is None:
             return {
                 'enabled': False,
@@ -2148,7 +2148,7 @@ class CentralizedToolActor:
             }
 
     def save_graphrag_cache(self) -> bool:
-        '\n        \u4fdd\u5b58 GraphRAG \u7f13\u5b58\u5230\u78c1\u76d8\n\n        Returns:\n            \u662f\u5426\u4fdd\u5b58\u6210\u529f\n        '
+        'Save GraphRAG state to disk and report success.'
         if not self.use_graphrag or self.graphrag_engine is None:
             print("[GraphRAG] GraphRAG not enabled, skipping cache save")
             return False
@@ -2164,7 +2164,7 @@ class CentralizedToolActor:
             return False
 
     def load_graphrag_cache(self) -> bool:
-        '\n        \u4ece\u78c1\u76d8\u52a0\u8f7d GraphRAG \u7f13\u5b58\n\n        Returns:\n            \u662f\u5426\u52a0\u8f7d\u6210\u529f\n        '
+        'Load GraphRAG state from disk and report success.'
         if not self.use_graphrag or self.graphrag_engine is None:
             print("[GraphRAG] GraphRAG not enabled, skipping cache load")
             return False
@@ -2180,7 +2180,7 @@ class CentralizedToolActor:
             return False
 
     def sync_tools_to_graphrag(self):
-        '\n        \u624b\u52a8\u540c\u6b65\u5f53\u524d\u7684\u5de5\u5177\u5217\u8868\u5230 GraphRAG \u5f15\u64ce\n        '
+        'Synchronize the current tool inventory into GraphRAG.'
         if not self.use_graphrag or self.graphrag_engine is None:
             return
 
@@ -2194,7 +2194,7 @@ class CentralizedToolActor:
             traceback.print_exc()
 
     def update_mcp(self, mcp_name: str, mcp_content: str):
-        '\u66f4\u65b0 MCP \u5185\u5bb9'
+        'Update MCP content.'
         with self.lock:
             if mcp_name in self.mcps:
                 self.mcps[mcp_name]['code'] = mcp_content
@@ -2211,7 +2211,7 @@ class CentralizedToolActor:
                 print(f"MCP '{mcp_name}' not found for update.")
 
     async def clear(self, temp_dict: Optional[dict] = None):
-        '\u6e05\u7406\u4e34\u65f6 MCP'
+        'Clear temporary MCPs.'
         if temp_dict is None:
             temp_dict = self.temp_mapping
         print("Clearing temp_mapping and rebuilding indices/embeddings.")
@@ -2220,17 +2220,17 @@ class CentralizedToolActor:
         self.temp_mapping.clear()
 
     def get_temp_mapping(self) -> Dict[str, Any]:
-        '\u83b7\u53d6\u4e34\u65f6\u6620\u5c04'
+        'Return the temporary tool mapping.'
         return self.temp_mapping
 
     async def get_mcps(self) -> Dict[str, Any]:
-        '\u83b7\u53d6\u6240\u6709 MCP'
+        'Get all MCPs.'
         mcp_copy = self.mcps.copy()
         mcp_copy.update(self.temp_mapping)
         return mcp_copy
 
     def _save_search_cache_sync(self, query: str, response: str) -> None:
-        '\u540c\u6b65\u4fdd\u5b58\u641c\u7d22\u7f13\u5b58\u5230\u6587\u4ef6'
+        'Save the search cache synchronously.'
 
         os.makedirs(self._search_cache_path, exist_ok=True)
 
@@ -2243,11 +2243,11 @@ class CentralizedToolActor:
                 os.fsync(f.fileno())
             print(f"DEBUG: Successfully saved search cache entry. File size: {os.path.getsize(self._search_cache_file)}")
         except Exception as e:
-            print(f"\u4fdd\u5b58\u641c\u7d22\u7f13\u5b58\u6587\u4ef6\u65f6\u5931\u8d25: {str(e)}")
+            print(f"Failed to save the search cache: {str(e)}")
             traceback.print_exc()
 
     async def list_mcps(self) -> str:
-        '\u5217\u51fa\u6240\u6709 MCP'
+        'List all MCPs.'
         mcps_to_list = self.mcps.copy()
         if not mcps_to_list:
             return "MCP Box is empty."
@@ -2263,7 +2263,7 @@ class CentralizedToolActor:
         return mcp_list_str
 
     def _check_search_cache_update(self) -> bool:
-        '\u68c0\u67e5\u641c\u7d22\u7f13\u5b58\u6587\u4ef6\u662f\u5426\u66f4\u65b0'
+        'Check whether the search cache file changed.'
         now = time.time()
         if now - self._search_cache_last_check < self._search_cache_refresh_interval:
             return False
@@ -2599,38 +2599,38 @@ class CentralizedToolActor:
     #     return result
 
     async def mcp_hybrid_search(self, query: str, top_k: int = 5, weights: Optional[Dict[str, float]] = None):
-        '\u5f02\u6b65\u6df7\u5408\u641c\u7d22'
+        'Search MCPs asynchronously.'
         return await self.hybrid_search(query, top_k, weights)
 
     async def mcp_clear(self, temp_dict: Optional[dict] = None):
-        '\u5f02\u6b65\u6e05\u7406'
+        'Clear MCPs asynchronously.'
         return await self.clear(temp_dict)
 
     async def mcp_get_mcps(self):
-        '\u5f02\u6b65\u83b7\u53d6 MCP'
+        'Get MCPs asynchronously.'
         return await self.get_mcps()
 
     async def mcp_list_mcps(self):
-        '\u5f02\u6b65\u5217\u51fa MCP'
+        'List MCPs asynchronously.'
         return await self.list_mcps()
 
     async def get_functions_mcps(self):
-        '\u83b7\u53d6\u6240\u6709 MCP \u5de5\u5177\u7684 OpenAI function schema \u5217\u8868'
+        'Return OpenAI function schemas for all MCP tools.'
         return self.functions_mcps
 
     async def get_mcp_version(self):
-        '\u83b7\u53d6\u5f53\u524d MCP \u5de5\u5177\u7248\u672c\u53f7'
+        'Return the MCP inventory version.'
         return self.mcp_version
 
     async def get_functions_mcps_with_version(self):
-        '\u83b7\u53d6 MCP \u5de5\u5177\u5217\u8868\u548c\u7248\u672c\u53f7'
+        'Return MCP function schemas and their inventory version.'
         return {
             'version': self.mcp_version,
             'functions_mcps': self.tool_manager.functions_mcps
         }
 
     async def get_mcp_statistics(self):
-        '\u83b7\u53d6 MCP \u5de5\u5177\u7684\u8be6\u7ec6\u7edf\u8ba1\u4fe1\u606f\uff0c\u7528\u4e8e wandb \u76d1\u63a7\n\n        Returns:\n            Dict[str, Any]: \u5305\u542b\u4ee5\u4e0b\u5b57\u6bb5\u7684\u5b57\u5178:\n                - total_mcps: \u603bMCP\u5de5\u5177\u6570\u91cf\n                - official_mcps: \u6b63\u5f0fMCP\u5de5\u5177\u6570\u91cf\n                - temp_mcps: \u4e34\u65f6MCP\u5de5\u5177\u6570\u91cf\n                - mcp_version: MCP\u7248\u672c\u53f7\uff08\u8868\u793a\u5de5\u5177\u5217\u8868\u7684\u66f4\u65b0\u6b21\u6570\uff09\n                - graph_nodes: \u5b50\u4efb\u52a1\u56fe\u4e2d\u7684\u8282\u70b9\u6570\u91cf\n                - graph_edges: \u5b50\u4efb\u52a1\u56fe\u4e2d\u7684\u8fb9\u6570\u91cf\n        '
+        'Return total_mcps, official_mcps, temp_mcps, mcp_version, graph_nodes and graph_edges for monitoring.'
         with self.lock:
             stats = {
                 "total_mcps": len(self.mcps),
@@ -2657,7 +2657,7 @@ class CentralizedToolActor:
         execution_time: float = 0.0,
         co_used_tools: Optional[List[str]] = None
     ):
-        '\n        \u8bb0\u5f55\u5de5\u5177\u6267\u884c\u7ed3\u679c\uff08\u7528\u4e8e GraphRAG \u5386\u53f2\u8ddf\u8e2a\uff09\n\n        Args:\n            mcp_name: \u5de5\u5177\u540d\u79f0\n            success: \u662f\u5426\u6210\u529f\n            execution_time: \u6267\u884c\u65f6\u95f4\uff08\u79d2\uff09\n            co_used_tools: \u540c\u65f6\u4f7f\u7528\u7684\u5176\u4ed6\u5de5\u5177\u5217\u8868\n        '
+        'Record tool execution success, elapsed seconds and co-used tools.'
         if self.use_graphrag and self.graphrag_engine is not None:
             try:
                 self.graphrag_engine.record_execution(
@@ -2670,7 +2670,7 @@ class CentralizedToolActor:
                 print(f"[GraphRAG] Warning: Failed to record execution for {mcp_name}: {e}")
 
     def get_tool_stats(self, mcp_name: str) -> Dict[str, Any]:
-        '\n        \u83b7\u53d6\u5de5\u5177\u7684\u6267\u884c\u7edf\u8ba1\u4fe1\u606f\n\n        Args:\n            mcp_name: \u5de5\u5177\u540d\u79f0\n\n        Returns:\n            \u7edf\u8ba1\u4fe1\u606f\u5b57\u5178\uff0c\u5305\u542b\u6210\u529f\u7387\u3001\u4f7f\u7528\u9891\u7387\u7b49\n        '
+        'Return tool success-rate and usage statistics.'
         if self.use_graphrag and self.graphrag_engine is not None:
             try:
                 return self.graphrag_engine.get_execution_stats(mcp_name)
@@ -2680,7 +2680,7 @@ class CentralizedToolActor:
         return {}
 
     def save_graphrag_cache(self):
-        '\u4fdd\u5b58 GraphRAG \u7f13\u5b58'
+        'Save the GraphRAG cache.'
         if self.use_graphrag and self.graphrag_engine is not None:
             try:
                 self.graphrag_engine.save_cache()
@@ -2689,7 +2689,7 @@ class CentralizedToolActor:
                 print(f"[GraphRAG] Warning: Failed to save cache: {e}")
 
     async def get_community_info(self) -> Dict[str, Any]:
-        '\n        \u83b7\u53d6\u793e\u533a\u68c0\u6d4b\u4fe1\u606f\uff08\u4ec5 GraphRAG\uff09\n\n        Returns:\n            \u793e\u533a\u7edf\u8ba1\u4fe1\u606f\u5b57\u5178\n        '
+        'Return GraphRAG community statistics.'
         if not self.use_graphrag or self.graphrag_engine is None:
             return {"graphrag_enabled": False}
 
@@ -2719,7 +2719,7 @@ class CentralizedToolActor:
             self.method_runtime.snapshot()
             self._runtime_sync_graph()
             return {'runtime': self.method_runtime.arm, 'registry_tools': len(self.mcps)}
-        '\n        \u5408\u5e76 self.mcps \u4e2d\u7684\u91cd\u590d/\u76f8\u4f3c\u8282\u70b9 - \u4f18\u5316\u7248\uff1a\u6700\u5c0f\u5316\u9501\u6301\u6709\u65f6\u95f4\n        \u5c06\u805a\u7c7b\u8ba1\u7b97\u5b8c\u5168\u79fb\u5230\u9501\u5916\u6267\u884c\uff0c\u907f\u514d\u6b7b\u9501\n        '
+        'Merge duplicate MCP nodes with clustering outside the lock to avoid deadlocks.'
 
         with self.lock:
             self.update_self_mcp()
@@ -2867,7 +2867,7 @@ class CentralizedToolActor:
             traceback.print_exc()
 
     def _update_dependencies_after_merge_on_snapshot(self, mcps_snapshot: dict, alias_map: dict):
-        '\u5728\u5feb\u7167\u4e0a\u66f4\u65b0\u4f9d\u8d56\u5173\u7cfb\uff0c\u4e0d\u9700\u8981\u9501'
+        'Update dependencies on a snapshot without acquiring the live lock.'
         if not alias_map:
             return
 
@@ -2881,7 +2881,7 @@ class CentralizedToolActor:
             data["requires"] = ", ".join(sorted(updated_reqs)) if updated_reqs else None
 
     def _write_merged_mcps_to_file_async(self, mcps_snapshot: dict):
-        '\u5f02\u6b65\u5199\u5165\u6587\u4ef6\uff0c\u907f\u514d\u963b\u585e\u4e3b\u6d41\u7a0b'
+        'Write merged MCPs asynchronously without blocking execution.'
         import threading
 
         def _write_file():
@@ -3015,7 +3015,7 @@ class CentralizedToolActor:
         thread.start()
 
     def _cleanup_invalid_nodes(self, G: nx.DiGraph):
-        '\u79fb\u9664\u65e0\u6548\u8282\u70b9\u5e76\u505a\u65c1\u8def\u91cd\u8fde\u3002'
+        'Remove invalid nodes and reconnect their bypass edges.'
         to_remove = [
             n for n in G.nodes
             if G.nodes[n].get("mcp_name") is None or G.nodes[n].get("mcp_name") not in self.mcps
@@ -3033,7 +3033,7 @@ class CentralizedToolActor:
             G.remove_nodes_from(to_remove)
 
     def _gather_valid_nodes_for_merging(self, G: nx.DiGraph) -> list:
-        '\u6536\u96c6\u53ef\u53c2\u4e0e\u5408\u5e76\u7684\u8282\u70b9\u6570\u636e\u3002'
+        'Collect valid nodes for merging.'
         valid_nodes = []
         for node in G.nodes:
             mcp_name = G.nodes[node].get("mcp_name")
@@ -3044,7 +3044,7 @@ class CentralizedToolActor:
         return valid_nodes
 
     def _cluster_nodes_by_similarity(self, valid_nodes: list, similarity_threshold: float) -> dict:
-        '\u4f7f\u7528\u4f59\u5f26\u76f8\u4f3c\u5ea6 + \u5e76\u67e5\u96c6\u8fdb\u884c\u805a\u7c7b\u3002'
+        'Cluster nodes with cosine similarity and union-find.'
         from collections import defaultdict
         from sklearn.metrics.pairwise import cosine_similarity
 
@@ -3076,7 +3076,7 @@ class CentralizedToolActor:
         return clusters
 
     def _merge_clusters(self, G: nx.DiGraph, mcps_dict: dict, alias_map_snapshot: dict, clusters: dict, valid_nodes: list, prefer_higher_degree: bool) -> Tuple[int, Dict[str, str]]:
-        '\u6839\u636e\u805a\u7c7b\u7ed3\u679c\u5408\u5e76\u8282\u70b9\u4e0e\u5143\u6570\u636e\u3002\n\n        Args:\n            G: \u56fe\u5feb\u7167\n            mcps_dict: MCP\u5b57\u5178\u5feb\u7167\uff08\u4f1a\u88ab\u4fee\u6539\uff09\n            alias_map_snapshot: alias_map\u5feb\u7167\uff08\u4f1a\u88ab\u4fee\u6539\uff09\n            clusters: \u805a\u7c7b\u7ed3\u679c\n            valid_nodes: \u6709\u6548\u8282\u70b9\u5217\u8868\n            prefer_higher_degree: \u662f\u5426\u4f18\u5148\u9009\u62e9\u9ad8\u5ea6\u6570\u8282\u70b9\u4f5c\u4e3a\u4ee3\u8868\n\n        Returns:\n            (merged_nodes_count, alias_map): \u5408\u5e76\u8282\u70b9\u6570\u548c\u522b\u540d\u6620\u5c04\n        '
+        'Merge clustered nodes and metadata on graph/MCP/alias snapshots; optionally prefer high-degree representatives and return the merge count and alias map.'
         merged_nodes_count = 0
         alias_map = {}
         node_ids = [t[0] for t in valid_nodes]
@@ -3124,7 +3124,7 @@ class CentralizedToolActor:
         return merged_nodes_count, alias_map
 
     def _merge_mcp_metadata(self, mcps_dict: dict, rep_name: str, dup_name: str):
-        '\u5408\u5e76\u5143\u6570\u636e\u5b57\u6bb5\u3002\n\n        Args:\n            mcps_dict: MCP\u5b57\u5178\uff08\u5feb\u7167\u6216\u539f\u59cb\u6570\u636e\uff09\n            rep_name: \u4ee3\u8868MCP\u7684\u540d\u79f0\n            dup_name: \u8981\u5408\u5e76\u7684\u91cd\u590dMCP\u7684\u540d\u79f0\n        '
+        'Merge duplicate MCP metadata into its representative.'
         if rep_name in mcps_dict and dup_name in mcps_dict:
             rep, old = mcps_dict[rep_name], mcps_dict[dup_name]
 
@@ -3144,7 +3144,7 @@ class CentralizedToolActor:
             rep["aliases"] = sorted(set(aliases))
 
     def _update_dependencies_after_merge(self, alias_map: dict):
-        '\u6839\u636e alias_map \u66f4\u65b0 requires \u5b57\u6bb5\u3002'
+        'Update requires fields through the alias map.'
         if not alias_map:
             return
 
@@ -3158,11 +3158,11 @@ class CentralizedToolActor:
             data["requires"] = ", ".join(sorted(updated_reqs)) if updated_reqs else None
 
     def extract_dag_and_parallel(self, text: str):
-        '\u540c\u6b65\u5c01\u88c5\uff1a\u89e3\u6790 DAG \u5217\u8868\u5e76\u8fd4\u56de (dag_list, task_id, subtask_dict)\u3002'
+        'Parse the DAG synchronously and return dag_list, task_id and subtask_dict.'
         return self.tool_manager.extract_dag_and_parallel(text)
 
     def batch_extract_dag_and_parallel(self, texts: list, traj_indices: list, max_turns_list: list):
-        '\u6279\u91cf\u89e3\u6790 DAG - \u771f\u6b63\u7684\u5e76\u884c\u5904\u7406'
+        'Parse DAGs concurrently in a batch.'
         import concurrent.futures
         import time
 
@@ -3170,7 +3170,7 @@ class CentralizedToolActor:
         results = [None] * len(texts)
 
         def process_single_planning(idx, text, max_turns):
-            '\u5904\u7406\u5355\u4e2a\u89c4\u5212\u4efb\u52a1'
+            'Process one planning task.'
             try:
                 result = self.tool_manager.extract_dag_and_parallel(text)
                 return idx, result, None
@@ -3215,7 +3215,7 @@ class CentralizedToolActor:
         return results
 
     async def batch_register_mcps(self, tool_call_strs: list, task_id: int, subtask_dict: dict):
-        '\u6279\u91cf\u6ce8\u518cMCPs - \u51cf\u5c11\u8fdc\u7a0b\u8c03\u7528\u5f00\u9500'
+        'Register MCPs in a batch to reduce remote-call overhead.'
         results = []
         for tool_call_str in tool_call_strs:
             try:
@@ -3227,14 +3227,14 @@ class CentralizedToolActor:
         return results
 
     def update_sub_task_graph(self, edge_list, single_nodes):
-        '\u540c\u6b65\u66f4\u65b0\u5b50\u4efb\u52a1\u56fe\uff08\u4f9b manager \u8fdc\u7a0b\u8c03\u7528\uff09'
+        'Update the subtask graph synchronously for remote managers.'
         if edge_list:
             self.sub_task_graph.add_edges_from(edge_list)
         if single_nodes:
             self.sub_task_graph.add_nodes_from(single_nodes)
 
     def preview_get_prompt(self, input_data, tokenizer, mode: str = 'initial', add_generation_prompt: bool = True, current_plan=None):
-        '\u751f\u6210 get_prompt \u7684\u7ed3\u679c\uff0c\u65b9\u4fbf\u8fdc\u7a0b\u6d4b\u8bd5'
+        'Return a generated prompt for remote testing.'
         return self.tool_manager.get_prompt(
             input_data=input_data,
             tokenizer=tokenizer,
@@ -3244,14 +3244,14 @@ class CentralizedToolActor:
         )
 
 def test_centralized_tool_actor():
-    '\u6d4b\u8bd5 CentralizedToolActor \u7684\u57fa\u672c\u529f\u80fd\uff08\u901a\u8fc7 Ray Actor \u5b9e\u4f8b\u5316\uff09'
+    'Test CentralizedToolActor through a Ray actor instance.'
     import os
     import sys
     import ray
     import asyncio
     import contextlib
     from statistics import mean
-    print('\U0001f680 \u5f00\u59cb\u6d4b\u8bd5 CentralizedToolActor (Ray)...')
+    print('Starting CentralizedToolActor tests with Ray...')
 
     class MockConfig:
         def __init__(self):
@@ -3272,30 +3272,30 @@ def test_centralized_tool_actor():
     # try:
     ray.init(ignore_reinit_error=True, include_dashboard=False)
 
-    print('1. \u521d\u59cb\u5316 Ray Actor...')
+    print('1. Initializing the Ray actor...')
     actor = CentralizedToolActor.options(name="test_centralized_tool_actor").remote(MockConfig())
-    print('\u2705 Actor \u521b\u5efa\u6210\u529f \u7528\u4e8e\u6d4b\u8bd5temp_tool_list\u662f\u5426\u6210\u529f')
+    print('Actor created for the temp_tool_list test.')
     mcp_list = ray.get(actor.mcp_list_mcps.remote())
-    print(f"MCP \u5217\u8868: {mcp_list}")
+    print(f"MCP list: {mcp_list}")
     mcps = ray.get(actor.mcp_get_mcps.remote())
-    print(f"\u83b7\u53d6\u5230 {len(mcps)} \u4e2a MCP")
+    print(f"Retrieved {len(mcps)} MCPs")
 
     concurrency_levels = [8, 16]
 
     def _summary(label, results):
         ok = sum(1 for r in results if r is not None)
-        print(f"{label}: {ok}/{len(results)} \u6210\u529f")
+        print(f"{label}: {ok}/{len(results)} succeeded")
 
-    print('\n3. \u5e76\u53d1\u6d4b\u8bd5\u6df7\u5408\u641c\u7d22 mcp_hybrid_search ...')
+    print('\n3. Testing concurrent mcp_hybrid_search...')
     try:
         for c in concurrency_levels:
             tasks = [actor.mcp_hybrid_search.remote("web search", top_k=2) for _ in range(c)]
             res = ray.get(tasks)
-            _summary(f"  \u5e76\u53d1 {c}", res)
+            _summary(f"  Concurrent {c}", res)
     except Exception as e:
-        print(f"\u641c\u7d22\u5e76\u53d1\u6d4b\u8bd5\u5931\u8d25: {e}")
+        print(f"Concurrent search test failed: {e}")
 
-    print('\n4. \u5e76\u53d1\u6d4b\u8bd5 execute_single_tool\uff08search-search\uff09...')
+    print('\n4. Testing concurrent execute_single_tool (search-search)...')
     create_tool_call = {
         "name": "execute_python_code-execute_python_code",
         "arguments": {
@@ -3308,24 +3308,24 @@ def test_centralized_tool_actor():
         for c in concurrency_levels:
             tasks = [actor.execute_single_tool.remote(create_tool_call) for _ in range(c)]
             res = ray.get(tasks)
-            _summary(f"  \u5e76\u53d1 {c}", res)
+            _summary(f"  Concurrent {c}", res)
             print(res[0])
     except Exception as e:
-        print(f"execute_single_tool \u5e76\u53d1\u6d4b\u8bd5\u5931\u8d25: {e}")
+        print(f"Concurrent execute_single_tool test failed: {e}")
 
-    print('\n4.1 \u5e76\u53d1\u6d4b\u8bd5 preview_get_prompt ...')
+    print('\n4.1 Testing concurrent preview_get_prompt...')
     tokenizer = AutoTokenizer.from_pretrained('assets/models/Qwen3-4B')
-    sample_chat = [{'role': USER, 'content': '\u8bf7\u7ed9\u51fa\u4e00\u6b21\u53bb\u5317\u4eac\u65c5\u6e38\u7684\u884c\u7a0b\u8349\u6848'}]
+    sample_chat = [{'role': USER, 'content': 'Draft a travel itinerary for Beijing.'}]
     try:
         for c in concurrency_levels:
             tasks = [actor.preview_get_prompt.remote(sample_chat, tokenizer, mode='plan_call', add_generation_prompt=True) for _ in range(c)]
             res = ray.get(tasks)
             print(res)
-            _summary(f"  \u5e76\u53d1 {c}", res)
+            _summary(f"  Concurrent {c}", res)
     except Exception as e:
-        print(f"preview_get_prompt \u5e76\u53d1\u6d4b\u8bd5\u5931\u8d25: {e}")
+        print(f"Concurrent preview_get_prompt test failed: {e}")
 
-    print('\n4.2 \u5e76\u53d1\u6d4b\u8bd5 DAG \u89e3\u6790/\u6ce8\u518c ...')
+    print('\n4.2 Testing concurrent DAG parsing and registration...')
 
     try:
         from envs.tools import creation as tool_creation
@@ -3344,7 +3344,7 @@ def test_centralized_tool_actor():
             "args": json.dumps(simple_payload)
         }
         simple_res = ray.get(actor.execute_single_tool.remote(simple_tool_call))
-        print(f"\u2713 \u7b80\u5355 MCP \u6d4b\u8bd5\u7ed3\u679c: {simple_res}")
+        print(f"Simple MCP test result: {simple_res}")
 
         complex_payload = {
             "name": "analyze_polynomial_roots",
@@ -3360,47 +3360,47 @@ def test_centralized_tool_actor():
             "args": json.dumps(complex_payload)
         }
         complex_res = ray.get(actor.execute_single_tool.remote(complex_tool_call))
-        print(f"\u2713 Prompt \u793a\u4f8b MCP \u6d4b\u8bd5\u7ed3\u679c: {complex_res}")
+        print(f"Prompt example MCP test result: {complex_res}")
 
         if complex_res and "error" not in str(complex_res).lower():
-            print('  - MCP \u521b\u5efa\u6210\u529f\uff0c\u7ed3\u679c\u5e94\u5305\u542b: roots=[3, 2], num_real=2, sum=5, product=6')
+            print('  - MCP created; expected: roots=[3, 2], num_real=2, sum=5, product=6')
 
     except Exception as e:
         import traceback
-        print(f"\u2717 MCP \u521b\u5efa\u6d4b\u8bd5\u5931\u8d25: {e}")
-        print(f"  \u5806\u6808: {traceback.format_exc()}")
+        print(f"MCP creation test failed: {e}")
+        print(f"  Traceback: {traceback.format_exc()}")
     sample_plan = '## ST1: demo\n1. plan step\n##DAG_LIST\n[(ST1)]\n'
     try:
         for c in concurrency_levels:
             dag_tasks = [actor.extract_dag_and_parallel.remote(sample_plan) for _ in range(c)]
             dag_res = ray.get(dag_tasks)
-            _summary(f"  DAG \u5e76\u53d1 {c}", dag_res)
+            _summary(f"  Concurrent DAG {c}", dag_res)
 
             reg_tasks = []
             for dag_list, task_id, subtask_dict in dag_res:
                 dummy_tool_call = "<subtask> ST_1: demo </subtask>\n<tool_call>{\"name\":\"dummy_mcp\"}</tool_call>"
                 reg_tasks.append(actor.register_mcp.remote(dummy_tool_call, task_id, subtask_dict))
             reg_res = ray.get(reg_tasks)
-            _summary(f"  register_mcp \u5e76\u53d1 {c}", reg_res)
+            _summary(f"  Concurrent register_mcp {c}", reg_res)
     except Exception as e:
-        print(f"DAG/\u6ce8\u518c \u5e76\u53d1\u6d4b\u8bd5\u5931\u8d25: {e}")
+        print(f"Concurrent DAG/registration test failed: {e}")
 
-    print('\n5. \u6d4b\u8bd5\u56fe\u53ef\u89c6\u5316...')
+    print('\n5. Testing graph visualization...')
     try:
         viz_result = ray.get(actor.mcp_visualize_graph.remote())
-        print(f"\u56fe\u53ef\u89c6\u5316\u7ed3\u679c: {viz_result}")
+        print(f"Graph visualization: {viz_result}")
     except Exception as e:
-        print(f"\u56fe\u53ef\u89c6\u5316\u5931\u8d25: {e}")
+        print(f"Graph visualization failed: {e}")
 
-    print('\n6. \u6d4b\u8bd5 DAG \u89e3\u6790\u4e0e MCP \u6ce8\u518c...')
+    print('\n6. Testing DAG parsing and MCP registration...')
     try:
         sample_plan = '## ST1: demo\n1. plan step\n##DAG_LIST\n[(ST1)]\n'
         dag_list, task_id, subtask_dict = ray.get(actor.extract_dag_and_parallel.remote(sample_plan))
-        print(f"DAG \u89e3\u6790\u7ed3\u679c dag_list={dag_list}, task_id={task_id}, subtask_dict={subtask_dict}")
+        print(f"Parsed DAG dag_list={dag_list}, task_id={task_id}, subtask_dict={subtask_dict}")
 
         dummy_tool_call = "<subtask> ST_1: demo </subtask>\n<tool_call>{\"name\":\"dummy_mcp\"}</tool_call>"
         ray.get(actor.register_mcp.remote(dummy_tool_call, task_id, subtask_dict))
-        print('\u2713 \u7b80\u5355 MCP \u6ce8\u518c\u5b8c\u6210')
+        print('Simple MCP registration completed.')
 
         try:
 
@@ -3408,24 +3408,24 @@ def test_centralized_tool_actor():
 
             complex_mcp_call = "<subtask> ST_1: Analyze polynomial x^3 - 6x^2 + 11x - 6 </subtask>\n<tool_call>{\"name\":\"analyze_polynomial_roots\", \"arguments\":{\"coeffs\":[1, -6, 11, -6]}}</tool_call>"
             ray.get(actor.register_mcp.remote(complex_mcp_call, task_id2, subtask_dict2))
-            print('\u2713 Prompt \u793a\u4f8b MCP \u6ce8\u518c\u5b8c\u6210')
+            print('Prompt example MCP registered.')
 
             test_call = {
                 "name": "analyze_polynomial_roots",
                 "args": json.dumps({"coeffs": [1, -6, 11, -6]})  # x^3 - 6x^2 + 11x - 6 = (x-1)(x-2)(x-3)
             }
             test_res = ray.get(actor.execute_single_tool.remote(test_call))
-            print(f"\u2713 MCP \u8c03\u7528\u6d4b\u8bd5\u7ed3\u679c: {test_res}")
-            print('  - \u9884\u671f: roots=[1, 2, 3], num_real=3, sum=6, product=6')
+            print(f"MCP invocation test result: {test_res}")
+            print('  - Expected: roots=[1, 2, 3], num_real=3, sum=6, product=6')
         except Exception as e:
-            print(f"\u2717 Prompt \u793a\u4f8b MCP \u6ce8\u518c/\u8c03\u7528\u5931\u8d25: {e}")
+            print(f"Prompt example MCP registration/invocation failed: {e}")
 
     except Exception as e:
         import traceback
-        print(f"\u2717 DAG/MCP \u6d4b\u8bd5\u5931\u8d25: {e}")
-        print(f"  \u5806\u6808: {traceback.format_exc()}")
+        print(f"DAG/MCP test failed: {e}")
+        print(f"  Traceback: {traceback.format_exc()}")
 
-    print('\n7. \u6d4b\u8bd5\u5b8c\u6574 Prompt \u5de5\u4f5c\u6d41\uff08\u521b\u5efa MCP \u2192 \u591a\u6b21\u8c03\u7528\uff09...')
+    print('\n7. Testing the prompt workflow: create MCP, then reuse...')
     try:
 
         workflow_plan = '## ST1: Analyze stability of system 1\n1. Create stability checker MCP\n##DAG_LIST\n[(ST1)]\n'
@@ -3445,12 +3445,12 @@ def test_centralized_tool_actor():
             "args": json.dumps(create_payload)
         }
         create_result = ray.get(actor.execute_single_tool.remote(create_call))
-        print(f"\u2713 Step 1 - MCP \u521b\u5efa\u7ed3\u679c: {create_result}")
+        print(f"Step 1 - MCP creation result: {create_result}")
 
         test_systems = [
-            {"coeffs": [1, 3, 2], "desc": '\u7cfb\u7edf1 (\u7a33\u5b9a)'},      # poles: [-1, -2]
-            {"coeffs": [1, -3, 2], "desc": '\u7cfb\u7edf2 (\u4e0d\u7a33\u5b9a)'},   # poles: [1, 2]
-            {"coeffs": [1, 1, 1], "desc": '\u7cfb\u7edf3 (\u7a33\u5b9a)'},      # complex poles with Re < 0
+            {"coeffs": [1, 3, 2], "desc": 'System 1 (stable)'},      # poles: [-1, -2]
+            {"coeffs": [1, -3, 2], "desc": 'System 2 (unstable)'},   # poles: [1, 2]
+            {"coeffs": [1, 1, 1], "desc": 'System 3 (stable)'},      # complex poles with Re < 0
         ]
 
         for i, system in enumerate(test_systems, start=2):
@@ -3459,25 +3459,25 @@ def test_centralized_tool_actor():
                 "args": json.dumps({"coeffs": system["coeffs"]})
             }
             result = ray.get(actor.execute_single_tool.remote(test_call))
-            print(f"\u2713 Step {i} - {system['desc']} \u6d4b\u8bd5\u7ed3\u679c: {result}")
+            print(f"PASS Step {i} - {system['desc']} test result: {result}")
 
-        print('\u2713 \u5b8c\u6574 Prompt \u5de5\u4f5c\u6d41\u6d4b\u8bd5\u901a\u8fc7\uff1aMCP \u521b\u5efa \u2192 \u591a\u6b21\u590d\u7528\u6210\u529f')
+        print('Prompt workflow passed: MCP creation and repeated reuse succeeded.')
 
     except Exception as e:
         import traceback
-        print(f"\u2717 Prompt \u5de5\u4f5c\u6d41\u6d4b\u8bd5\u5931\u8d25: {e}")
-        print(f"  \u5806\u6808: {traceback.format_exc()}")
+        print(f"Prompt workflow test failed: {e}")
+        print(f"  Traceback: {traceback.format_exc()}")
 
-    print('\n8. \u6d4b\u8bd5 python \u5de5\u5177 execute_python_code ...')
+    print('\n8. Testing execute_python_code...')
     try:
         from envs.tools import python as tool_python
 
         py_res = tool_python.execute_python_code("print(1+1)", timeout=5.0)
-        print(f"python tool \u8fd4\u56de: {py_res}")
+        print(f"Python tool returned: {py_res}")
     except Exception as e:
-        print(f"python \u5de5\u5177\u6d4b\u8bd5\u5931\u8d25: {e}")
+        print(f"Python tool test failed: {e}")
 
-    print('\n9. \u6d4b\u8bd5 _build_temp_mcp_tools \u65b9\u6cd5 ...')
+    print('\n9. Testing _build_temp_mcp_tools...')
     try:
 
         class TestManager(CentralizedQwenManager):
@@ -3486,17 +3486,17 @@ def test_centralized_tool_actor():
 
         test_manager = TestManager(MockConfig())
 
-        print('  \u6d4b\u8bd5 init_project=False (\u6b63\u5e38\u52a0\u8f7d)...')
+        print('  Testing init_project=False (load)...')
         initial_mcp_count = len(test_manager.functions_mcps) if hasattr(test_manager, 'functions_mcps') else 0
         test_manager._build_temp_mcp_tools(init_project=False)
         after_normal_mcp_count = len(test_manager.functions_mcps) if hasattr(test_manager, 'functions_mcps') else 0
-        print(f"    \u521d\u59cb MCP \u5de5\u5177\u6570\u91cf: {initial_mcp_count}")
-        print(f"    \u52a0\u8f7d\u540e MCP \u5de5\u5177\u6570\u91cf: {after_normal_mcp_count}")
+        print(f"    Initial MCP count: {initial_mcp_count}")
+        print(f"    Loaded MCP count: {after_normal_mcp_count}")
 
-        print('  \u6d4b\u8bd5 init_project=True (\u9879\u76ee\u521d\u59cb\u5316)...')
+        print('  Testing init_project=True (initialize)...')
         test_manager._build_temp_mcp_tools(init_project=False)
         after_init_mcp_count = len(test_manager.functions_mcps) if hasattr(test_manager, 'functions_mcps') else 0
-        print(f"    \u521d\u59cb\u5316\u540e MCP \u5de5\u5177\u6570\u91cf: {after_init_mcp_count}")
+        print(f"    Initialized MCP count: {after_init_mcp_count}")
 
         from pathlib import Path
         base_dir = Path(__file__).resolve().parents[2] / "tools"
@@ -3504,18 +3504,18 @@ def test_centralized_tool_actor():
         temp_file = invented_dir / "temp_tool_list.py"
         official_file = invented_dir / "official_tool_list.py"
 
-        print(f"  \u68c0\u67e5\u6587\u4ef6\u521b\u5efa: temp_tool_list.py - {temp_file.exists()}, official_tool_list.py - {official_file.exists()}")
+        print(f"  File check: temp_tool_list.py - {temp_file.exists()}, official_tool_list.py - {official_file.exists()}")
 
         if official_file.exists():
             official_content = official_file.read_text()
             has_imports = "import json" in official_content and "from mcp.server.fastmcp import FastMCP" in official_content
             has_main = "if __name__ == \"__main__\":" in official_content
-            print(f"    official_tool_list.py \u6587\u4ef6\u9a8c\u8bc1: \u5bfc\u5165={has_imports}, \u4e3b\u51fd\u6570={has_main}")
+            print(f"    official_tool_list.py verification: import={has_imports}, main function={has_main}")
 
-        print('  \u2705 _build_temp_mcp_tools \u6d4b\u8bd5\u5b8c\u6210')
+        print('  _build_temp_mcp_tools tests completed.')
 
     except Exception as e:
-        print(f"_build_temp_mcp_tools \u6d4b\u8bd5\u5931\u8d25: {e}")
+        print(f"_build_temp_mcp_tools test failed: {e}")
         import traceback
         traceback.print_exc()
 
@@ -3527,8 +3527,8 @@ if __name__ == "__main__":
         success = test_centralized_tool_actor()
         sys.exit(0 if success else 1)
     else:
-        print('CentralizedToolActor \u9700\u8981\u901a\u8fc7 Ray \u542f\u52a8\uff0c\u800c\u4e0d\u662f\u76f4\u63a5\u8fd0\u884c')
-        print('\u4f7f\u7528 --test \u53c2\u6570\u6765\u8fd0\u884c\u672c\u5730\u6d4b\u8bd5')
+        print('Start CentralizedToolActor through Ray.')
+        print('Use --test to run local tests.')
 
 # Author: Weiliang Zhu
 # Email: wlzchina05@gmail.com

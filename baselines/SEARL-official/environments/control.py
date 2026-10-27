@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 # EvoCond: Preserving Conditional Tool Relations for Co-Evolving Language Agents
 
-'Thread\u2011safe Android emulator pool with Redis coordination.\n\n*   Action whitelist + sanitize_action() to reject illegal fields (e.g. x2/y2).\n*   Health\u2011check of running emulators via adb.\n*   Automatic port recycling on failures and zombie reclaim.\n*   Ready to be imported from FastAPI server.\n'
+'Thread-safe Android emulator pool with Redis coordination.\n\n*   Action whitelist + sanitize_action() to reject illegal fields (e.g. x2/y2).\n*   Health-check of running emulators via adb.\n*   Automatic port recycling on failures and zombie reclaim.\n*   Ready to be imported from FastAPI server.\n'
 from __future__ import annotations
 
 import base64
 import json
 import logging
+import os
+import shutil
 import subprocess
 import threading
 import time
@@ -26,7 +28,7 @@ import cv2
 # =============================================================================
 # 0. Global constants & logging ------------------------------------------------
 # =============================================================================
-ADB_PATH = "/opt/android-sdk/platform-tools/adb"  # your adb
+ADB_PATH = os.environ.get('ADB_PATH') or shutil.which('adb') or 'adb'
 EMULATOR_SETUP = False  # If AndroidWorld should create AVD internally
 NUM_EMULATORS = 8
 BASE_TELNET_PORT = 5554  # First console port
@@ -206,7 +208,7 @@ class AndroidEnvInteractor(base_agent.EnvironmentInteractingAgent):
 # =============================================================================
 
 class EmulatorPool:
-    'Redis\u2011coordinated, thread\u2011safe emulator pool.'
+    'Redis-coordinated, thread-safe emulator pool.'
 
     KEY_IDLE = "android:idle_ports"
     KEY_BUSY = "android:busy_map"  # rollout_id -> port

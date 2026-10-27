@@ -6,12 +6,12 @@ from typing import Optional
 
 from vllm import LLM, SamplingParams
 
-'\n\u57fa\u4e8e vLLM \u7684\u5f00\u6e90\u6a21\u578b\u5224\u5206\u5668\uff0c\u9ed8\u8ba4\u4f7f\u7528\u5f00\u6e90\u6743\u91cd\uff08\u53ef\u901a\u8fc7\u73af\u5883\u53d8\u91cf/\u5165\u53c2\u66ff\u6362\uff09\u3002\n\u73af\u5883\u53d8\u91cf\uff1a\n- VLLM_MODEL_PATH\uff1a\u6a21\u578b\u6743\u91cd\uff08HF \u540d\u79f0\u6216\u672c\u5730\u8def\u5f84\uff09\uff0c\u9ed8\u8ba4 Qwen/Qwen2.5-7B-Instruct\n- VLLM_TP_SIZE\uff1atensor parallel \u5927\u5c0f\uff0c\u9ed8\u8ba4 1\n- VLLM_GPU_MEM_UTIL\uff1aGPU \u663e\u5b58\u5229\u7528\u7387\uff0c\u9ed8\u8ba4 0.9\n'
+'Open-weight vLLM judge.\nVLLM_MODEL_PATH selects a Hugging Face model ID or local weights (default Qwen/Qwen2.5-7B-Instruct).\nVLLM_TP_SIZE sets tensor parallelism (default 1).\nVLLM_GPU_MEM_UTIL sets GPU memory utilization (default 0.9).'
 
 DEFAULT_MODEL = os.environ.get("VLLM_MODEL_PATH", "Qwen/Qwen2.5-7B-Instruct")
 
 class VLLMJudge:
-    '\u4f7f\u7528 vLLM \u90e8\u7f72\u7684\u5f00\u6e90\u6a21\u578b\u505a\u6570\u503c\u7b54\u6848\u5224\u5206\u3002'
+    'Judge numeric answers using an open-weight model served by vLLM.'
 
     _shared_llm: Optional[LLM] = None
     _shared_model_path: Optional[str] = None
@@ -58,12 +58,12 @@ class VLLMJudge:
         ]
 
     def _call_llm(self, messages: list) -> str:
-        '\u5355\u6837\u672c\u63a8\u7406\uff08\u517c\u5bb9\u65e7\u63a5\u53e3\uff09'
+        'Run single-item inference through the legacy interface.'
         results = self._call_llm_batch([messages])
         return results[0] if results else ""
 
     def _call_llm_batch(self, messages_list: list) -> list:
-        '\u6279\u6b21\u63a8\u7406'
+        'Run batch inference.'
         if not messages_list:
             return []
 
@@ -97,12 +97,12 @@ class VLLMJudge:
         return results
 
     def judge(self, prediction: str, reference: str, question: str) -> float:
-        '\n        \u8fd4\u56de 1.0 / 0.0 \u8868\u793a\u662f\u5426\u5339\u914d\u3002\n        '
+        'Return 1.0 for a match and 0.0 otherwise.'
         results = self.judge_batch([(prediction, reference, question)])
         return results[0] if results else 0.0
 
     def judge_batch(self, items: list) -> list:
-        '\n        \u6279\u6b21\u5224\u65ad\u591a\u4e2a\u6837\u672c\n        items: list of (prediction, reference, question) tuples\n        \u8fd4\u56de: list of float scores\n        '
+        'Judge (prediction, reference, question) tuples and return float scores.'
         if not items:
             return []
 
@@ -145,11 +145,11 @@ class VLLMJudge:
         return all_results
 
     def evaluation(self, res: str, golden: str, question: str) -> float:
-        '\n        \u517c\u5bb9\u65e7\u63a5\u53e3\uff0c\u76f4\u63a5\u8c03\u7528 judge\u3002\n        '
+        'Call judge through the legacy interface.'
         return self.judge(res, golden, question)
 
     def evaluation_batch(self, items: list) -> list:
-        '\n        \u6279\u6b21\u8bc4\u4f30\u591a\u4e2a\u6837\u672c\n        items: list of (res, golden, question) tuples\n        \u8fd4\u56de: list of float scores\n        '
+        'Evaluate (res, golden, question) tuples and return float scores.'
         return self.judge_batch(items)
 
 MathLLM = VLLMJudge
