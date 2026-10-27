@@ -104,6 +104,8 @@ The primary metric is **pass@1 accuracy**, following [SEARL](https://aclantholog
 
 ## Data Preparation
 
+The experiment proceeds from fixed source partitions to prepared Parquet inputs, seeded online training, validation-selected paired checkpoints, and final benchmark scoring.
+
 ```bash
 python assets.py --root assets --assets datasets evaluation retriever judge --mirror --run
 python convert.py --inspect-source assets/data/toolstar_rl10k/grpo_mix_train.parquet --input-format parquet
@@ -111,7 +113,23 @@ python convert.py --manifest assets/deployment/datasets.json
 python convert.py --manifest assets/deployment/datasets.json --output assets/splits --run
 ```
 
-Use a conversion manifest that specifies the source files, checksums, field mapping, and train/validation/test assignments. [convert.py](convert.py) validates the source schema; [partition.py](partition.py) prepares grouped splits. Keep related task variants in the same partition. Downloaded upstream sources and converted experiment splits are separate artifacts.
+### Partitions
+
+The data recipe follows [SEARL, Sections 4.1 and 4.3](https://aclanthology.org/2026.acl-long.1125.pdf#page=6): Tool-star supplies the 10K RL training pool, and benchmark test membership follows [ARPO, Section 4.1](https://arxiv.org/html/2507.19849v1#S4.SS1). The [released SEARL entry](https://github.com/circles-post/SEARL/blob/main/main_searl.sh) assigns its processed files as follows:
+
+| Role | Released source | Local experiment artifact |
+|---|---|---|
+| Training | `train_v4_plan_merged.parquet`, passed through `TRAIN_FILES` | `assets/splits/train.parquet` |
+| Online validation | `qa_test_our_plan.parquet`, `test_math_v2_our_plan.parquet`, and `test_aime25_our_plan.parquet`, passed through `VAL_FILES` | `assets/splits/validation.parquet` |
+| Final benchmark evaluation | The fixed ARPO benchmark test partitions used by SEARL | Frozen test exports named by the experiment and per-benchmark judge manifests |
+
+Use the supplied partition memberships and record source versions, row counts, and checksums in `assets/deployment/datasets.json`. The released entry specifies validation files rather than a new split percentage. File roles follow `TRAIN_FILES` and `VAL_FILES`, including validation filenames containing `test`. An export into one file per role preserves the contributing rows and source identities. All conditions and seeds use the same prepared partitions.
+
+### Preparation and Cache
+
+[assets.py](assets.py) downloads versioned sources into `assets/data` and model files into `assets/models`. [convert.py](convert.py) prepares the declared inputs under `assets/splits`; `dataset_audit.json` records the source manifest, row counts, and output checksums. Keep that metadata with the Parquet files when moving the prepared directory.
+
+Use `mode: author_preprocessed` for one supplied author-preprocessed Parquet per role; the converter preserves its bytes. Set the experiment's `dataset_provenance` to the same mode. Use `mode: adapted_upstream` when mapping raw public data into the native schema, and record the field mapping in the manifest. Downloaded Tool-star sources and the author's processed training exports are separate preparation stages.
 
 For a JSONL source with `question` and `answer` fields, an entry in `assets/deployment/datasets.json` has this form:
 
@@ -135,24 +153,9 @@ For a JSONL source with `question` and `answer` fields, an entry in `assets/depl
 }
 ```
 
-Replace the source identity and pointers with inspected values, then add distinct validation and test entries. Source paths use forward slashes relative to the manifest directory; absolute source paths are rejected. Inspection reports use paths relative to the working directory. A single-source manifest supports conversion inspection; native training requires all three disjoint splits. Use `mode: author_preprocessed` only for preserved author Parquet inputs, without mapping or relabelling.
+Replace the source identity and pointers with inspected values, then add the validation and test entries. Paths use forward slashes relative to the manifest directory. The preparation command records the actual converted row counts; the experiment configuration names all three prepared roles.
 
-Keep `dataset_audit.json` with the converted Parquet files. Training checks its completion, split counts, source-manifest identity, and content checksums; a missing or damaged audit blocks adapted inputs. Audit output paths are relative to the conversion directory, so the completed directory can be moved together. An interrupted conversion retains its incomplete output for inspection; rerun into a new output directory.
-
-Seal the official evaluation sets first. Remove repeated questions and evaluation overlaps from the training candidate pool, keeping a record of the excluded training identities. Split the remaining training pool by original task and template family, then freeze the same files for every method and all four seeds. The seeds `42`, `52`, `3047`, and `3407` vary training randomness; they do not redraw the test set. Keep official evaluation questions and denominators unchanged. If earlier training used contaminated data, prepare a new run from the base model with fresh memory.
-
-For sources with task or template identities, add this declaration to each adapted source entry, using the same namespace and logical labels across its splits:
-
-```json
-"grouping": {
-  "namespace": "dataset-name",
-  "fields": {"task": "/task_id", "template": "/template_id"}
-}
-```
-
-Each pointer must exist in every row of that source. Omit a label only when that identity is unavailable throughout the source family; use another namespace for an independent dataset whose IDs restart. For [partition.py](partition.py) output, map a common logical label to `/group`. Conversion preserves the resulting identities in `extra_info.split_group_keys`, outside the actor prompt. Both conversion and native training reject cross-split group overlap even when the question wording differs. The [split audit](splits.py) reports normalized-text overlap, declared-group overlap, and rows without group metadata. Missing metadata requires checking task variants upstream; exact-text checks do not identify every paraphrase or base-model pretraining overlap.
-
-Validation selects checkpoints. Test evaluation uses the selected checkpoint and frozen training memory; its trajectories, newly created tools, correctness feedback, and retrieval statistics do not update later training state. Use [leakage.py](leakage.py) to audit normalized benchmark JSONL splits and the native training preflight to audit prepared Parquet splits.
+The native Parquet loader uses the [SEARL/verl dataset path](baselines/SEARL-official/verl/utils/dataset/reinforcement.py): local files are read directly, remote files use the loader's local cache, and prompts are tokenized with the actor tokenizer. Training trajectories are generated online with the current actor and tool inventory. Reusing prepared input files does not reuse an earlier actor's rollouts. A paired checkpoint restores the data iterator along with the actor and memory state.
 
 Arrange local artifacts as follows:
 
@@ -173,7 +176,7 @@ assets/
 
 `configs/contextual.json` specifies the eight-GPU experiment. `run.py` generates configurations for seeds **42, 52, 3047, 3407**, holding dataset partitions fixed. Every condition starts from the same initial Qwen3-4B checkpoint with an empty generated-tool inventory and the same built-in Python and search tools. Source, weights, data, deployment receipt, initialization stage, and execution settings are frozen before training.
 
-The `initialization` section declares a pretrained or cold-start checkpoint. A cold-start comparison uses the same supplied SFT checkpoint in every condition. Model architecture and weight fingerprints are checked; a folder named `Qwen3-4B` cannot substitute for the 4B architecture.
+The `initialization` section declares the starting checkpoint. To follow the [released SEARL entry](https://github.com/circles-post/SEARL/blob/main/main_searl.sh), set `initialization.stage` to `coldstart`, record the supplied SFT checkpoint in `initialization.source`, and point `model` to that Qwen3-4B checkpoint in every condition. The starter configuration also supports a declared `pretrained` comparison. Model architecture and weight fingerprints identify the common starting actor.
 
 ## Main Experiments
 
@@ -193,6 +196,10 @@ python run.py status --suite main
 ```
 
 These commands train each condition and seed sequentially on the same eight GPUs. `--conditions evocond --seeds 42` selects one job. Without `--run`, configuration and training commands print their plans. A shared GPU lock prevents a second condition from starting on the same allocation.
+
+### Training Sampling
+
+The [native sampler](baselines/SEARL-official/verl/trainer/train.py) shuffles the fixed training rows without replacement using the job seed. One epoch visits the training partition once; each selected base question generates eight online rollouts. Conditions with the same seed receive the same question order. SEARL's tool-anchored credit and EvoCond's adoption learner operate on those collected trajectories.
 
 The collection batch is 256 base questions, with eight rollouts per question. Full two-batch windows contain 512 questions. The final batch and final short window are retained. For 10,000 training questions this gives 40 collection batches, a final batch of 16, and a final two-batch update window of 272 questions. These are schedule calculations, not benchmark measurements. The frozen protocol records actual window sizes and update calls. SEARL's paper Table 2 reports global batch 384 on H200; the released entry uses 256. The eight-4090 runs use the explicit 256 collection configuration above.
 
@@ -239,17 +246,30 @@ Each panel cell reports `paired_success`: observed rescues, harms, unchanged suc
 
 ## Evaluation
 
+### Validation and Checkpoint Selection
+
+Training begins with validation, following the [released SEARL entry](https://github.com/circles-post/SEARL/blob/main/main_searl.sh). Its defaults validate every five collection steps and set `save_freq=0`. The eight-GPU recipe in this repository sets both `validation_freq` and `save_freq` to two collection batches, matching its actor-memory barriers. Validation runs through the native reward path; candidate checkpoints retain the paired actor and memory snapshot used for that validation.
+
 ```bash
 python run.py evaluate --suite main --conditions evocond --seeds 42 \
   --resume runs/reproduction/main/evocond/seed42/teacher/checkpoints/global_step_40 \
   --split validation --run
 ```
 
-Choose the checkpoint on validation, then use `--split test --allow-test` with the same checkpoint. `global_step_40` illustrates the 10,000-question schedule; use the actual validation-selected checkpoint shown by `status`. Batch evaluation accepts a frozen map through `--checkpoints`; see `configs/checkpoints.example.json`. No latest-checkpoint guessing or test-score selection is performed.
+For each condition and seed, choose the saved candidate with the highest declared validation score on the fixed validation partition. Native `val-core` metrics use `acc` when available and `reward` otherwise; keep the scoring route and aggregate selection metric the same across conditions. Record the selected paired checkpoint in `configs/checkpoints.example.json` or a study-specific map with the same schema. The runner uses that explicit selection. `global_step_40` is a checkpoint-path example for a 10,000-question schedule; replace it with the selected saved step reported by `status`.
 
 The checkpoint map restored by [source.py](source.py) at `configs/checkpoints.example.json` contains the three main conditions for seed 42. Use `--seeds 42` with that map, or extend it to the exact selected seed/condition grid. Judge and result manifest paths are relative to the manifest file, not the shell's working directory. Set the real file checksums before running either manifest.
 
-Evaluation uses one greedy rollout per scheduled question, a frozen tool inventory, and task-private newly created tools. Failure, timeout, and missing prediction count as zero in the v2 judge manifest; duplicates and unaligned identities are rejected. The final Qwen3-32B scoring uses the author answer parser:
+### Final Benchmark Test
+
+Run the selected checkpoint map on the fixed test partitions:
+
+```bash
+python run.py evaluate --suite main --seeds 42 \
+  --checkpoints configs/checkpoints.example.json --split test --allow-test --run
+```
+
+Evaluation uses one greedy rollout per scheduled question, a frozen tool inventory, and task-private newly created tools. Failure, timeout, and missing prediction count as zero in the v2 judge manifest; duplicates and unaligned identities are rejected. Final scoring follows [SEARL, Section 4.4](https://aclanthology.org/2026.acl-long.1125.pdf#page=6): Qwen3-32B judges binary correctness, the answer parser extracts the final answer, and the reported metric is pass@1 accuracy.
 
 ```bash
 python judge.py --manifest assets/deployment/judge.json \
