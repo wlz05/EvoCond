@@ -466,6 +466,10 @@ def relative(root, name):
     path = Path(name)
     if path.is_absolute() or '..' in path.parts or not path.parts:
         raise ValueError('Relative artifact paths cannot escape their declared root')
+    for part in path.parts:
+        if (part.endswith(('.', ' ')) or any(ord(char) < 32 or char in '<>:"|?*' for char in part)
+                or re.fullmatch(r'(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?', part, flags=re.IGNORECASE)):
+            raise ValueError('Artifact paths must use portable file and directory names')
     base = Path(root).resolve()
     result = base/path
     if not result.resolve().is_relative_to(base):

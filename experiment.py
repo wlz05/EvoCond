@@ -22,7 +22,7 @@ from control.runtime import load_config as load_runtime
 from control.runtime import execution_context_fingerprint
 from splits import audit, file_digest, rows
 from convert import validate_official_row, question_hash
-from control.contracts import strict_json
+from control.contracts import publish, strict_json
 from namespace import install as install_packages
 from source import reviewed
 install_packages()
@@ -36,9 +36,8 @@ DEFAULTS = dict(gpus=8, batch_size=256, rollouts=8, epochs=1, max_prompt=4096,
 def read(path):
     return strict_json(Path(path).read_text(encoding='utf-8-sig'), max_text=64*1024*1024)
 def write_new(path, value):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("x", encoding="utf-8") as stream:
-        json.dump(value, stream, ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False)
+    payload = json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False)
+    publish(path, payload)
 def directory_digest(path, *, model=False):
     path = Path(path).resolve(strict=True)
     if not path.is_dir():
@@ -70,6 +69,8 @@ def directory_digest(path, *, model=False):
     inventory = {p.relative_to(path).as_posix(): file_digest(p) for p in files}
     return {"sha256": canonical_hash(inventory), "files": inventory}
 def settings(value, *, collection=False):
+    if not isinstance(value, dict):
+        raise ValueError('Experiment budgets must be an object')
     unknown = set(value) - set(DEFAULTS)
     if unknown:
         raise ValueError(f"Unknown budget fields: {sorted(unknown)}")
@@ -147,7 +148,7 @@ def teacher_options(teacher):
 def rollout_contract(budget):
     return {key: budget[key] for key in ("max_turns", "max_context", "max_prompt", "max_response")}
 def freeze(config, *, collection=False, base=None):
-    if config.get("format") != FORMAT:
+    if not isinstance(config, dict) or config.get("format") != FORMAT:
         raise ValueError("Unknown experiment configuration")
     result = json.loads(json.dumps(config))
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", result.get("run_id", "")):
@@ -291,12 +292,15 @@ def runtimes(frozen, root):
         output[arm] = value
     return output
 def checkpoint(root, arm, value):
+    root = Path(root).resolve(strict=True)
     path = Path(value).resolve(strict=True)
     if not path.is_relative_to(root / arm / "checkpoints") or not re.fullmatch(r"global_step_[1-9][0-9]*", path.name):
         raise ValueError("Resume checkpoint must belong to this arm and experiment")
-    for item in ("actor", "data.pt", "method_runtime/runtime.json", "method_runtime/graphrag.json", "method_runtime/subtasks.graphml"):
-        if not (path / item).exists():
-            raise ValueError(f"Incomplete paired checkpoint: missing {item}")
+    if not (path/'actor').is_dir():
+        raise ValueError('Incomplete paired checkpoint: missing actor directory')
+    for item in ("data.pt", "method_runtime/runtime.json", "method_runtime/graphrag.json", "method_runtime/subtasks.graphml"):
+        if not (path / item).is_file():
+            raise ValueError(f"Incomplete paired checkpoint: missing or invalid {item}")
     return str(path)
 def launch_spec(frozen, root, arm, *, stage="train", split="validation", resume=None, attempt="attempt"):
     if arm not in arms(frozen['config']):
@@ -373,13 +377,13 @@ def environment_identity():
 
 @contextmanager
 def allocation(root, workspace, identity, *, shared=False):
+    payload = json.dumps(identity, sort_keys=True, allow_nan=False)
+    locked = strict_json(payload)
     owned = []
     paths = ([workspace/'runs/.gpu.lock'] if shared else [])+[root/'.launch.lock']
     try:
         for path in paths:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with path.open('x', encoding='utf-8') as stream:
-                json.dump(identity, stream)
+            publish(path, payload)
             owned.append(path)
         yield
     finally:
@@ -388,7 +392,7 @@ def allocation(root, workspace, identity, *, shared=False):
                 owner = read(path) if path.is_file() else None
             except (OSError, ValueError):
                 continue
-            if owner == identity:
+            if owner == locked:
                 path.unlink()
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -432,6 +436,8 @@ def main():
         return
     if args.arm is None:
         parser.error("train/evaluate require --arm; launch arms sequentially on shared GPUs")
+    if args.arm not in arms(frozen['config']):
+        parser.error('Requested arm does not belong to the frozen study condition')
     if args.stage == "train" and args.split != "validation":
         parser.error("Training may only monitor validation; use evaluate --split test --allow-test for final evaluation")
     if args.split == "test" and args.stage == "evaluate" and not args.allow_test:

@@ -287,6 +287,10 @@ The statistical suite compares full EvoCond, `simple` (raw geometry and untraine
 
 ### Epoch Tails and Checkpoints
 
+Before a suite starts, the runner checks every selected job against its frozen configuration, including normalized paths, sampling settings, and training budget. A mismatch stops the suite before the first worker starts. Checkpoint preflight requires the actor directory and all paired state files to have the expected file types.
+
+Configuration and launch-lock files are published only after a complete write. If matrix generation is interrupted, repeat the same command: complete matching files are retained and missing files are generated. A failed native batch concatenation restores the original batch references for a clean retry.
+
 No base question is dropped or duplicated to fill a batch. The last collection batch retains its actual size. A short final actor-memory window publishes all its events and updates the actor once. At the next epoch, the two-batch schedule restarts. The frozen schedule records `questions_per_epoch`, `window_questions`, `tail_questions`, and `total_actor_updates`.
 
 For 10,000 training questions and batch 256, the schedule contains 40 collection batches, with 16 questions in the final batch. Native SEARL performs 40 actor update calls; `pace` and EvoCond perform 20. The final two-batch update covers 272 questions. These counts describe calls into the native actor updater; optimizer minibatch steps remain part of the native training log.

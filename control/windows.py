@@ -75,6 +75,19 @@ def join(batches, concatenate, pad_token):
         raise ValueError('Native windows require a real tokenizer pad id')
     # Reject inconsistent inputs before padding mutates any tensors.
     validate_batches(batches)
+    original = [(row, dict(row.batch.items()), dict(row.non_tensor_batch)) for row in batches]
+    try:
+        return padded(batches, concatenate, pad_token)
+    except BaseException:
+        # Padding replaces tensors, so restoring references needs no tensor copies.
+        for row, tensors, metadata in original:
+            for key, value in tensors.items():
+                row.batch[key] = value
+            row.non_tensor_batch.clear()
+            row.non_tensor_batch.update(metadata)
+        raise
+
+def padded(batches, concatenate, pad_token):
     keys = set(batches[0].batch.keys())
     auxiliary = set(batches[0].non_tensor_batch)
     if any(set(row.batch.keys()) != keys or set(row.non_tensor_batch) != auxiliary for row in batches):

@@ -14,10 +14,13 @@ import tempfile
 import unittest
 from unittest.mock import patch
 import numpy as np
+import experiment
 import run
+import study
 import summary
 from judge import digest
-from control import bandit, dynamic, windows
+from control import bandit, dynamic, stage, windows
+from control.contracts import relative
 from tests.bandits import records
 from tests.fatigues import zero
 from tests import stages as stage_fixtures, studies as study_fixtures, windows as window_fixtures
@@ -153,6 +156,192 @@ class AuditTests(unittest.TestCase):
 
     def write(self, path, value):
         path.write_text(json.dumps(value), encoding='utf-8')
+
+    def test_failed_json_publication_leaves_no_partial_artifact(self):
+        target = self.root/'broken.json'
+        with self.assertRaises(TypeError):
+            experiment.write_new(target, {'bad': object()})
+        self.assertFalse(target.exists())
+
+    def test_disk_failure_cleans_temporary_publication_files(self):
+        target = self.root/'result.json'
+        for operation in ('fsync', 'link'):
+            with patch('control.contracts.os.'+operation, side_effect=OSError('disk failure')):
+                with self.subTest(operation=operation), self.assertRaises(OSError):
+                    experiment.write_new(target, {'complete': True})
+            self.assertEqual(list(self.root.iterdir()), [])
+
+    def test_invalid_lock_identity_cannot_leave_a_stale_lock(self):
+        with self.assertRaises(TypeError):
+            with experiment.allocation(self.root/'job', self.root, {'bad': object()}, shared=True):
+                self.fail('Invalid identity acquired the allocation')
+        self.assertFalse((self.root/'runs/.gpu.lock').exists())
+        self.assertFalse((self.root/'job/.launch.lock').exists())
+
+    def test_lock_cleanup_uses_the_published_identity_snapshot(self):
+        owner = {'attempt': 'original'}
+        with experiment.allocation(self.root/'job', self.root, owner, shared=True):
+            owner['attempt'] = 'changed'
+        self.assertFalse((self.root/'runs/.gpu.lock').exists())
+        self.assertFalse((self.root/'job/.launch.lock').exists())
+
+    def test_study_labels_cannot_escape_the_matrix_or_change_the_seed(self):
+        values = study.matrix(study_fixtures.StudyTests().config(), seeds=[42], conditions=['evocond'])
+        config = values['evocond/seed42']
+        for name in ('../escaped', 'evocond/seed52'):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                study.write(self.root/'matrix', {name: deepcopy(config)})
+        self.assertFalse((self.root/'escaped.json').exists())
+        for changes in ({'seed': True}, {'gpus': 4}):
+            altered = deepcopy(values)
+            altered['evocond/seed42']['budget'].update(changes)
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                study.inventory(altered)
+
+    def test_study_resume_reads_bom_but_rejects_duplicate_keys(self):
+        values = study.matrix(study_fixtures.StudyTests().config(), seeds=[42], conditions=['evocond'])
+        study.write(self.root, values)
+        target = self.root/'evocond/seed42.json'
+        original = target.read_text(encoding='utf-8')
+        target.write_text('\ufeff'+original, encoding='utf-8')
+        study.write(self.root, values)
+        target.write_text('{"run_id":"tampered",'+original.lstrip()[1:], encoding='utf-8')
+        with self.assertRaises(ValueError):
+            study.write(self.root, values)
+
+    def test_invalid_study_numbers_are_rejected_before_any_file_is_created(self):
+        values = study.matrix(study_fixtures.StudyTests().config(), seeds=[42], conditions=['evocond'])
+        values['evocond/seed42']['contextual']['penalty'] = float('nan')
+        target = self.root/'matrix'
+        with self.assertRaises(ValueError):
+            study.write(target, values)
+        self.assertFalse(target.exists())
+
+    def test_interrupted_matrix_publication_resumes_without_partial_json(self):
+        values = study.matrix(study_fixtures.StudyTests().config(), seeds=[42], conditions=['searl', 'pace'])
+        target = self.root/'matrix'
+        with patch('control.contracts.os.fsync', side_effect=[None, OSError('disk failure')]):
+            with self.assertRaises(OSError):
+                study.write(target, values)
+        self.assertEqual(json.loads((target/'searl/seed42.json').read_text()), values['searl/seed42'])
+        self.assertFalse((target/'pace/seed42.json').exists())
+        self.assertFalse((target/'matrix.json').exists())
+        self.assertEqual(list(target.rglob('*.tmp')), [])
+        self.assertEqual(set(study.write(target, values)['jobs']), set(values))
+        self.assertEqual(json.loads((target/'matrix.json').read_text())['format'], study.FORMAT)
+
+    def normalized(self, value):
+        result = deepcopy(value)
+        result['budget'] = experiment.settings(result['budget'])
+        for key in ('official_root', 'model', 'encoder', 'isolation_config', 'isolation_receipt'):
+            result[key] = str((self.root/result[key]).resolve())
+        result['datasets'] = {key: str((self.root/name).resolve()) for key, name in result['datasets'].items()}
+        if 'contextual' in result:
+            result['contextual'] = stage.settings(result['contextual'])
+        return result
+
+    def test_batch_launch_checks_every_frozen_configuration_before_starting(self):
+        config = study_fixtures.StudyTests().config()
+        self.write(self.root/'config.json', config)
+        values = study.matrix(config, seeds=[42])
+        for name, value in values.items():
+            target = self.root/'runs/main'/name/'protocol.json'
+            target.parent.mkdir(parents=True)
+            self.write(target, dict(config=self.normalized(value)))
+        target = self.root/'runs/main/pace/seed42/protocol.json'
+        frozen = json.loads(target.read_text(encoding='utf-8'))
+        frozen['config']['budget']['learning_rate'] *= 10
+        self.write(target, frozen)
+        with patch.object(run, 'HERE', self.root), patch.object(run.subprocess, 'run') as launch, \
+                redirect_stdout(io.StringIO()), self.assertRaises(ValueError):
+            run.main(['train', '--config', 'config.json', '--root', 'runs', '--seeds', '42', '--run'])
+        launch.assert_not_called()
+
+    def test_batch_launch_accepts_matching_normalized_configuration(self):
+        config = study_fixtures.StudyTests().config()
+        (self.root/'config.json').write_text('\ufeff'+json.dumps(config), encoding='utf-8')
+        values = study.matrix(config, seeds=[42], conditions=['evocond'])
+        target = self.root/'runs/main/evocond/seed42/protocol.json'
+        target.parent.mkdir(parents=True)
+        self.write(target, dict(config=self.normalized(values['evocond/seed42'])))
+        with patch.object(run, 'HERE', self.root), patch.object(run.subprocess, 'run') as launch, redirect_stdout(io.StringIO()):
+            run.main(['train', '--config', 'config.json', '--root', 'runs', '--seeds', '42', '--conditions', 'evocond', '--run'])
+        launch.assert_called_once()
+
+    def test_prepare_checks_all_settings_before_starting_any_worker(self):
+        config = study_fixtures.StudyTests().config()
+        self.write(self.root/'config.json', config)
+        values = study.matrix(config, seeds=[42])
+        study.write(self.root/'runs/main', values)
+        target = self.root/'runs/main/pace/seed42.json'
+        altered = deepcopy(values['pace/seed42'])
+        altered['budget']['learning_rate'] *= 10
+        self.write(target, altered)
+        with patch.object(run, 'HERE', self.root), patch.object(run.subprocess, 'run') as launch, \
+                redirect_stdout(io.StringIO()), self.assertRaises(ValueError):
+            run.main(['prepare', '--config', 'config.json', '--root', 'runs', '--seeds', '42', '--run'])
+        launch.assert_not_called()
+
+    def test_checkpoint_preflight_rejects_wrong_file_kinds(self):
+        from tests.experiments import ExperimentTests
+        for name in ('actor', 'data.pt', 'method_runtime/runtime.json'):
+            fixture = ExperimentTests()
+            fixture.setUp()
+            self.addCleanup(fixture.doCleanups)
+            checkpoint = fixture.checkpoint()
+            target = checkpoint/name
+            if target.is_dir():
+                target.rmdir()
+                target.write_bytes(b'not a directory')
+            else:
+                target.unlink()
+                target.mkdir()
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                experiment.checkpoint(fixture.root, 'evocond', checkpoint)
+
+    def test_concatenation_failure_restores_the_original_batches(self):
+        batches = [batch([1], [2]), batch([1, 2], [3, 4])]
+        before = [deepcopy(row.__dict__) for row in batches]
+        with patch.object(windows, 'validate_batches', wraps=windows.validate_batches), self.assertRaises(RuntimeError):
+            windows.join(batches, lambda rows: (_ for _ in ()).throw(RuntimeError('concatenation failed')), 0)
+        for row, saved in zip(batches, before):
+            for key, value in saved['batch'].items():
+                self.assertTrue(np.array_equal(row.batch[key], value, equal_nan=True), key)
+            for key, value in saved['non_tensor_batch'].items():
+                self.assertEqual(row.non_tensor_batch[key].tolist(), value.tolist())
+
+    def test_contextual_probabilities_and_prices_reject_booleans_and_nonfinite_values(self):
+        for key in ('epsilon', 'fixed_alpha', 'identity_shrinkage', 'actor_kl_threshold', 'penalty',
+                'reference', 'actor_input_price', 'actor_output_price', 'tool_price', 'retrieval_price'):
+            for value in (True, float('nan'), float('inf'), '0.2'):
+                with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                    stage.settings({key: value})
+
+    def test_portable_paths_reject_device_names_and_alternate_streams(self):
+        for name in ('outputs/report.json:extra', 'NUL', 'outputs/part.', 'outputs/part '):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                relative(self.root, name)
+
+    def test_summary_rejects_malformed_protocol_metadata(self):
+        path, manifest = self.results()
+        sources = []
+        for entry in manifest['reports']:
+            target = self.root/entry['path']
+            protocol_path = target.parent/'judge_protocol.json'
+            sources.append((entry, target, protocol_path, json.loads(protocol_path.read_text(encoding='utf-8')),
+                json.loads(target.read_text(encoding='utf-8'))))
+        for changes in ({'arms': manifest['conditions']}, {'dataset': {'sha256': False}},
+                {'dataset': []}, {'judge_model': {}}, {'parser': ''}, {'generation': []}):
+            # Consistent corruption across all seeds must still be rejected.
+            for entry, target, protocol_path, original, report in sources:
+                protocol = {**deepcopy(original), **changes}
+                report['protocol_sha256'] = digest(protocol)
+                self.write(protocol_path, protocol)
+                self.write(target, report)
+                entry['sha256'] = sha256(target.read_bytes()).hexdigest()
+            self.write(path, manifest)
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                summary.aggregate(path)
 
     def test_b01_absorbing_cost_receipts_are_checked(self):
         row = zero('q')

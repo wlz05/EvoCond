@@ -64,7 +64,7 @@ def main(argv=None):
         parser.error('Test evaluation requires evaluate --split test --allow-test')
     if args.resume and args.checkpoints:
         parser.error('Use either one --resume or a --checkpoints map')
-    config = strict_json((HERE/args.config).read_text(encoding='utf-8'))
+    config = strict_json((HERE/args.config).read_text(encoding='utf-8-sig'))
     values = study.matrix(config, args.suite, args.seeds, args.conditions)
     folder = args.root/args.suite
     if args.stage == 'configs':
@@ -78,6 +78,16 @@ def main(argv=None):
         parser.error('Checkpoint map must exactly cover the selected condition/seed jobs')
     if args.stage == 'evaluate' and not (args.resume or selected):
         parser.error('Evaluation requires --resume or --checkpoints; select on validation only')
+    if args.run and args.stage in ('train', 'evaluate'):
+        # Check every job before starting the first GPU process.
+        for name, value in values.items():
+            protocol = HERE/folder/name/'protocol.json'
+            study.prepared(value, strict_json(protocol.read_text(encoding='utf-8-sig'), max_text=64*1024*1024), HERE)
+    if args.run and args.stage == 'prepare':
+        for name, value in values.items():
+            setting = HERE/folder/(name+'.json')
+            if strict_json(setting.read_text(encoding='utf-8-sig')) != value:
+                raise ValueError('Generated configuration differs from the requested study: '+name)
     if args.run and args.stage in ('train', 'evaluate'):
         from experiment import checkpoint
         for name, value in values.items():
@@ -94,7 +104,7 @@ def main(argv=None):
         if args.stage == 'prepare':
             if args.run and not (HERE/setting).is_file():
                 raise ValueError('Generate the study configurations first: run.py configs --suite '+args.suite+' --run')
-            if (HERE/setting).is_file() and strict_json((HERE/setting).read_text(encoding='utf-8')) != value:
+            if (HERE/setting).is_file() and strict_json((HERE/setting).read_text(encoding='utf-8-sig')) != value:
                 raise ValueError('Generated configuration differs from the requested study: '+name)
             command += ['--config', setting.as_posix()]
         elif args.stage in ('train', 'evaluate'):

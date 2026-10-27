@@ -28,6 +28,11 @@ def settings(value):
         raise ValueError('Contextual budgets must be positive integers')
     if type(result['seed']) is not int or result['seed'] < 0 or result['rollouts'] < 2 or result['minimum_labels'] < 2:
         raise ValueError('Require an identified grouped learning budget')
+    numeric = ('bandwidth', 'decay', 'shrinkage', 'epsilon', 'holdout', 'beta', 'delta_max',
+        'identity_shrinkage', 'actor_kl_threshold', 'penalty', 'reference', 'actor_input_price',
+        'actor_output_price', 'tool_price', 'retrieval_price')
+    if any(not bandit.finite(result[key]) for key in numeric):
+        raise ValueError('Contextual probabilities, distances and prices must be finite numbers')
     relations.new(**{key: result[key] for key in ('horizon', 'limit', 'bandwidth', 'decay', 'shrinkage')})
     if not result['top_k'] < result['recall'] or result['variant'] not in fusion.VARIANTS:
         raise ValueError('Invalid semantic candidate pool or ablation')
@@ -43,7 +48,7 @@ def settings(value):
     if result['variant'] in ('simple', 'raw'):
         result['metric'].update(protection='identity', residual=1.0)
     result['actor_drift'] = drift.options(result['actor_drift'])
-    if result['fixed_alpha'] is not None and result['fixed_alpha'] not in bandit.ACTIONS:
+    if result['fixed_alpha'] is not None and (not bandit.finite(result['fixed_alpha']) or result['fixed_alpha'] not in bandit.ACTIONS):
         raise ValueError('Fixed fusion must use a declared three-action ratio')
     for key in ('penalty', 'reference', 'actor_input_price', 'actor_output_price', 'tool_price', 'retrieval_price'):
         if not math.isfinite(result[key]) or result[key] < 0 or (key == 'reference' and result[key] == 0):

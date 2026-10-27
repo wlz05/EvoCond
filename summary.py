@@ -6,6 +6,7 @@ from hashlib import sha256
 import json
 import math
 from pathlib import Path
+import re
 import statistics
 from control.contracts import publish, relative, strict_json
 from judge import digest
@@ -66,25 +67,35 @@ def aggregate(path):
             raise ValueError('Incomplete result or unmatched judge protocol')
         if protocol.get('split') != 'test' or type(protocol.get('samples_per_question')) is not int or protocol['samples_per_question'] != 1 or protocol.get('dataset_name') != key[0] or type(protocol.get('training_seed')) is not int or protocol['training_seed'] != key[1]:
             raise ValueError('Aggregate only the declared test benchmark with one answer per question')
-        if set(protocol.get('arms', {})) != set(value['conditions']):
+        if not isinstance(protocol.get('arms'), dict) or set(protocol['arms']) != set(value['conditions']):
             raise ValueError('Judge protocol and result condition labels differ')
+        dataset = protocol.get('dataset')
+        if (not isinstance(dataset, dict) or not isinstance(dataset.get('sha256'), str)
+                or not re.fullmatch(r'[a-f0-9]{64}', dataset['sha256'])):
+            raise ValueError('Dataset protocol needs a valid content SHA256')
+        generation = protocol.get('generation')
+        if (not isinstance(protocol.get('judge_model'), dict) or not protocol['judge_model']
+                or not isinstance(protocol.get('parser'), str) or not protocol['parser'].strip()
+                or not isinstance(generation, dict) or type(generation.get('temperature')) not in (int, float)
+                or generation['temperature'] != 0):
+            raise ValueError('Declare the judge identity, parser and deterministic generation settings')
         current_judge = digest({name: protocol.get(name) for name in ('judge_model', 'parser', 'generation',
             'author_source_sha256', 'wrapper_sha256', 'metric', 'deviations')})
         if judge_identity is not None and judge_identity != current_judge:
             raise ValueError('Judge model or evaluation settings differ between reports')
         judge_identity = current_judge
-        dataset = (protocol['dataset']['sha256'], protocol['reference_count'])
+        if type(protocol.get('reference_count')) is not int or protocol['reference_count'] < 1:
+            raise ValueError('Reference denominators must be positive integers')
+        dataset = (dataset['sha256'], protocol['reference_count'])
         if key[0] in identities and identities[key[0]] != dataset:
             raise ValueError('Test questions or denominators differ across seeds')
         identities[key[0]] = dataset
-        if set(report.get('arms', {})) != set(value['conditions']):
+        if not isinstance(report.get('arms'), dict) or set(report['arms']) != set(value['conditions']):
             raise ValueError('Result conditions do not match the declared comparison')
-        if type(protocol.get('reference_count')) is not int or protocol['reference_count'] < 1:
-            raise ValueError('Reference denominators must be positive integers')
         for row in report['arms'].values():
             if not isinstance(row, dict) or type(row.get('n')) is not int or row['n'] <= 0 or row['n'] != protocol['reference_count'] or type(row.get('correct')) is not int or not 0 <= row['correct'] <= row['n']:
                 raise ValueError('Invalid complete-test denominator or correctness count')
-            if type(row.get('acc')) not in (int, float) or not math.isfinite(row['acc']) or not math.isclose(row['acc'], row['correct']/row['n'], rel_tol=0., abs_tol=1e-12):
+            if type(row.get('acc')) not in (int, float) or not 0 <= row['acc'] <= 1 or not math.isfinite(row['acc']) or not math.isclose(row['acc'], row['correct']/row['n'], rel_tol=0., abs_tol=1e-12):
                 raise ValueError('Reported accuracy differs from its counts')
         reports[key] = report['arms']
     if set(reports) != expected:
