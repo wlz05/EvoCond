@@ -404,6 +404,33 @@ class FatigueTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 fatigue.panel(self.save(altered))
 
+    def test_panel_rejects_nonportable_cell_paths(self):
+        manifest = self.fixture()
+        for name in ('C:outside.json', 'cells\\outside.json', 'cells/NUL.json'):
+            altered = deepcopy(manifest)
+            altered['cells'][0]['path'] = name
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                fatigue.panel(self.save(altered))
+
+    def test_panel_rejects_cell_symlink_outside_manifest_root(self):
+        manifest = self.fixture()
+        entry = manifest['cells'][0]
+        path = self.root/entry['path']
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder)/'cell.json'
+            target.write_bytes(path.read_bytes())
+            link = self.root/'linked.json'
+            try:
+                link.symlink_to(target)
+            except (OSError, NotImplementedError):
+                self.skipTest('File symlinks are unavailable')
+            entry['path'] = link.name
+            try:
+                with self.assertRaisesRegex(ValueError, 'declared root'):
+                    fatigue.panel(self.save(manifest))
+            finally:
+                link.unlink()
+
     def panels(self):
         original, paths = self.root, []
         try:

@@ -46,6 +46,17 @@ class RuntimeTests(unittest.TestCase):
         self.runtime = Runtime(self.config, self.dispatcher)
     def tearDown(self):
         self.temp.cleanup()
+
+    def test_runtime_config_accepts_bom_and_rejects_ambiguous_json(self):
+        path = self.root/'runtime.json'
+        path.write_text('\ufeff'+json.dumps(self.config), encoding='utf-8')
+        self.assertEqual(load_config(path), self.config)
+        duplicate = json.dumps(self.config)[:-1]+', "arm": "searl"}'
+        for text in ('null', '[]', duplicate, '{"format":NaN}'):
+            path.write_text(text, encoding='utf-8')
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                load_config(path)
+
     def tool(self, name="add"):
         return {"name": name, "description": "Add two numbers", "arguments": {"type": "object", "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}}},
                 "returns": "sum", "side_effects": "none", "code": f"def {name}(x: int, y: int):\n    return x+y"}

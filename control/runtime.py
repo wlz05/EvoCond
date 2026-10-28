@@ -16,6 +16,7 @@ import unicodedata
 import uuid
 from control import dynamic, edges, ranking, boundary, subtasks, teacher
 from control.joint import Controller
+from control.contracts import strict_json
 FORMAT = "evocond_searl_runtime_v1"
 ARMS = ("searl", "evocond", "teacher")
 TEACHER_MODES = ("exact_policy", "frozen_controller_transfer", "semantic_fallback_on_policy_change")
@@ -76,8 +77,11 @@ def schemas(dispatcher):
     return [{**deepcopy(row.get("function", row)), "tool_version": row.get("tool_version")}
             for row in dispatcher.schemas()]
 def load_config(path):
-    config = json.loads(Path(path).read_text(encoding="utf-8"))
-    if config.get("format") != FORMAT or config.get("arm") not in ARMS:
+    config = strict_json(Path(path).read_text(encoding='utf-8-sig'), max_text=64*1024*1024)
+    return validate_config(config)
+
+def validate_config(config):
+    if not isinstance(config, dict) or config.get("format") != FORMAT or config.get("arm") not in ARMS:
         raise ValueError("Unknown SEARL runtime format or arm")
     if config.get('design') is not None:
         from study import validate

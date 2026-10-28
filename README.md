@@ -67,9 +67,9 @@ EvoCond/
 - Linux with NVIDIA drivers and a CUDA-compatible [PyTorch installation](https://pytorch.org/get-started/locally/).
 - **8 RTX 4090 GPUs** for the distributed actor experiment.
 - Python 3.10 or newer, [Ray](https://docs.ray.io/en/latest/), [vLLM](https://docs.vllm.ai/en/latest/), Transformers, [PyArrow](https://arrow.apache.org/docs/python/), and the dependencies of the bundled [SEARL runtime](https://github.com/circles-post/SEARL).
-- An isolated tool-execution service, a retrieval service, and configured judge endpoints.
+- An isolated tool-execution service, a Wikipedia retrieval service, and a separate final-scoring allocation.
 
-The actor is [Qwen3-4B](https://huggingface.co/Qwen/Qwen3-4B). Tool retrieval uses [e5-base-v2](https://huggingface.co/intfloat/e5-base-v2). The training and evaluation judge configurations support [QwQ-32B](https://huggingface.co/Qwen/QwQ-32B) and [Qwen3-32B](https://huggingface.co/Qwen/Qwen3-32B), respectively. Judge services run separately from the eight-GPU actor allocation.
+The actor is [Qwen3-4B](https://huggingface.co/Qwen/Qwen3-4B). Tool retrieval uses [e5-base-v2](https://huggingface.co/intfloat/e5-base-v2). The released native entry disables reward-model rollouts and uses its answer, format, and tool-call reward functions during training and online validation. Final benchmark scoring loads [Qwen3-32B](https://huggingface.co/Qwen/Qwen3-32B) through [judge.py](judge.py), after training or on another allocation. The upstream QwQ-32B configuration is inactive in this recipe.
 
 ## Installation
 
@@ -78,13 +78,15 @@ git clone https://github.com/wlz05/EvoCond.git
 cd EvoCond
 python source.py --run
 python install.py --profile native
+python install.py --profile native --requirements assets/deployment/requirements.txt
 python install.py --profile native --requirements assets/deployment/requirements.txt --run
 python -B test.py
+mkdir -p outputs
 ```
 
 Run [source.py](source.py) with `--run` after cloning or pulling source updates to restore the pinned configurations, prompts, package map, and native launch scripts. Existing local settings are preserved. A recognized older source receipt is refreshed after the bundled source passes verification. The command downloads no models or datasets.
 
-Place the exact dependency lock for the selected CUDA environment at `assets/deployment/requirements.txt`. The first installation command checks dependency provenance; the second installs that lock. Keep the repository root on `PYTHONPATH` when invoking the bundled baseline directly. The experiment launcher sets this automatically for its workers.
+Run commands from the repository root in a Linux shell. Place the exact dependency lock for the selected CUDA environment at `assets/deployment/requirements.txt` before the lock-specific commands. The initial native audit reads upstream dependency declarations; the next command checks the supplied lock, and `--run` installs it. Keep the repository root on `PYTHONPATH` when invoking the bundled baseline directly. The experiment launcher sets this automatically for its workers.
 
 ## Datasets
 
@@ -127,7 +129,9 @@ Use the supplied partition memberships and record source versions, row counts, a
 
 ### Preparation and Cache
 
-[assets.py](assets.py) downloads versioned sources into `assets/data` and model files into `assets/models`. [convert.py](convert.py) prepares the declared inputs under `assets/splits`; `dataset_audit.json` records the source manifest, row counts, and output checksums. Keep that metadata with the Parquet files when moving the prepared directory.
+[assets.py](assets.py) downloads versioned sources into `assets/data` and the requested retriever and final judge into `assets/models`. Supply the initial Qwen3-4B actor checkpoint separately; this download command does not create its cold-start SFT weights. The optional `wiki` download retrieves source archives; prepare the corresponding corpus and matching FAISS index for the retrieval service.
+
+[convert.py](convert.py) prepares the declared inputs under `assets/splits`; `dataset_audit.json` records the source manifest, row counts, and output checksums. Keep that metadata with the Parquet files when moving the prepared directory. Conversion writes to a new output directory. If interrupted before the audit is published, preserve that partial directory and rerun into a fresh directory, then update the experiment's dataset paths to the completed export.
 
 Use `mode: author_preprocessed` for one supplied author-preprocessed Parquet per role; the converter preserves its bytes. Set the experiment's `dataset_provenance` to the same mode. Use `mode: adapted_upstream` when mapping raw public data into the native schema, and record the field mapping in the manifest. Downloaded Tool-star sources and the author's processed training exports are separate preparation stages.
 
@@ -163,6 +167,9 @@ Arrange local artifacts as follows:
 assets/
 |-- models/Qwen3-4B/
 |-- models/e5-base-v2/
+|-- models/Qwen3-32B/
+|-- wiki/wiki-18.jsonl
+|-- wiki/e5_Flat.index
 |-- deployment/requirements.txt
 |-- deployment/datasets.json
 |-- deployment/isolation.json
@@ -171,6 +178,32 @@ assets/
 |-- splits/validation.parquet
 |-- splits/test.parquet
 ```
+
+### Execution Services
+
+Set the following fields in `configs/contextual.json` before generating the study matrix:
+
+| Field | Required artifact or service |
+|---|---|
+| `model` and `initialization` | Common initial Qwen3-4B weights and their pretrained or cold-start provenance |
+| `encoder` | Local e5-base-v2 weights used by retrieval and conditional memory |
+| `datasets` and `dataset_provenance` | The three completed Parquet roles and their matching preparation mode |
+| `search_url` | The running Wikipedia service's `/retrieve` endpoint |
+| `isolation_config` | Actual executor endpoint, deployment identity, and enforced execution limits |
+| `isolation_receipt` | Matching, current deployment inspection receipt |
+
+The [bundled retrieval server](baselines/SEARL-official/rag_server/retrieval.py) serves port 5003. Start it on its own allocation with the corpus and index built for the declared e5 encoder:
+
+```bash
+PYTHONPATH=. python baselines/SEARL-official/rag_server/retrieval.py \
+  --index_path assets/wiki/e5_Flat.index \
+  --corpus_path assets/wiki/wiki-18.jsonl \
+  --retriever_model assets/models/e5-base-v2
+```
+
+This entry uses GPU FAISS and loads the encoder; provision its resources separately from the eight actor GPUs. Set `search_url` to an address reachable by all actor workers. A corpus and an index from different document orderings cannot be interchanged.
+
+Provision the isolated executor before training. Use `configs/searl_isolation.example.json` as the configuration schema and record the real deployment in `assets/deployment/isolation.json`. The deployment operator supplies `assets/deployment/inspection.json` following [the receipt schema](control/isolation.py): its configuration hash, endpoint, deployment identity, inspector, validity interval, and checks describe the inspected running service. `prepare` validates this receipt; it does not start or inspect the service. The native launcher connects to the configured retrieval and execution services, while final scoring is a separate command.
 
 ## Reproducibility
 
@@ -186,7 +219,7 @@ The `initialization` section declares the starting checkpoint. To follow the [re
 | `pace` | Same native graph and credit | Every two batches |
 | `evocond` | Full conditional memory and adoption teacher | Every two batches |
 
-`pace` isolates the actor update cadence; its graph keeps the SEARL update path. All conditions share actor initialization, data order per seed, tools, isolation, judge, and generation budgets. The previous contextual three-arm entry used `searl` as a semantic control. Current main experiments keep that control in the ablation suite and run the native tool graph in `searl`.
+`pace` isolates the actor update cadence; its graph keeps the SEARL update path. All conditions share actor initialization, data order per seed, tools, isolation, reward functions, and generation budgets. The semantic-only control belongs to the ablation suite; `searl` uses the native tool graph.
 
 ```bash
 python run.py configs --suite main --run
@@ -196,6 +229,8 @@ python run.py status --suite main
 ```
 
 These commands train each condition and seed sequentially on the same eight GPUs. `--conditions evocond --seeds 42` selects one job. Without `--run`, configuration and training commands print their plans. A shared GPU lock prevents a second condition from starting on the same allocation.
+
+Repeat the same `configs` or `prepare` command after an interrupted preparation. Matching complete artifacts are reused and missing configurations are filled in; differing artifacts stop preparation. A missing runtime configuration inside an arm that already contains execution state requires recovery of that original configuration before launch.
 
 ### Training Sampling
 
@@ -274,13 +309,20 @@ Evaluation uses one greedy rollout per scheduled question, a frozen tool invento
 ```bash
 python judge.py --manifest assets/deployment/judge.json \
   --official-root baselines/SEARL-official --model assets/models/Qwen3-32B \
-  --output outputs/judging --run
+  --tensor-parallel 8 --output outputs/judging --run
 python summary.py --manifest assets/deployment/results.json --output outputs/summary.json
 ```
 
-Use `configs/judge.example.json` for the actual study labels and `configs/results.example.json` for aggregation. These examples are restored by [source.py](source.py). Run [judge.py](judge.py) after the actor job or on a separate allocation. [summary.py](summary.py) reports per-benchmark mean and sample standard deviation over the four training seeds, plus macro and question-weighted summaries. A complete test denominator is required in every condition.
+Use `configs/judge.example.json` for the actual study labels and `configs/results.example.json` for aggregation. These examples are restored by [source.py](source.py). The scoring command distributes Qwen3-32B across eight GPUs; run it after releasing the actor allocation or on a separate allocation. [summary.py](summary.py) reports per-benchmark mean and sample standard deviation over the four training seeds, plus macro and question-weighted summaries. A complete test denominator is required in every condition.
 
-For interrupted training, select one condition and seed and pass its paired checkpoint through `run.py train --resume`. Checkpoints bind actor weights, optimizer and data position, tool graph, registry, and adoption state. Existing frozen runs retain their original configuration; create the new `runs/reproduction` study for this protocol.
+For interrupted training, select one condition and seed and pass its paired checkpoint explicitly:
+
+```bash
+python run.py train --suite main --conditions evocond --seeds 42 \
+  --resume runs/reproduction/main/evocond/seed42/teacher/checkpoints/global_step_20 --run
+```
+
+Replace the example step with the completed paired checkpoint reported by `status`. Checkpoints bind actor weights, optimizer and data position, tool graph, registry, and adoption state. Existing frozen runs retain their original configuration; a changed source or protocol uses a new study root. Judge, summary, and fatigue commands preserve existing output paths; choose a new output name for another report. The judge output's parent directory must exist.
 
 ## Experimental Protocol
 

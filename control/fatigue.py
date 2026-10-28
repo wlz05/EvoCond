@@ -6,11 +6,11 @@ from collections import Counter
 from hashlib import sha256
 import math
 import os
-from pathlib import Path, PureWindowsPath
+from pathlib import Path
 import re
 import statistics
 from control import bandit, dynamic
-from control.contracts import strict_json
+from control.contracts import relative, strict_json
 
 FORMAT = 'evocond_memory_value_v1'
 PANEL = 'evocond_fatigue_panel_v1'
@@ -266,9 +266,9 @@ def panel(path):
         fingerprint(entry['bank'])
         key = (entry['actor'], entry['bank'])
         name = entry['path']
-        if key not in expected or key in cells or not isinstance(name, str) or not name or '\\' in name or Path(name).is_absolute() or PureWindowsPath(name).drive or '..' in Path(name).parts:
+        if key not in expected or key in cells:
             raise ValueError('Unknown, duplicate or nonportable panel cell')
-        payload = (path.parent/name).read_bytes()
+        payload = relative(path.parent, name).read_bytes()
         if sha256(payload).hexdigest() != fingerprint(entry['sha256']):
             raise ValueError('Panel cell checksum mismatch')
         cell = strict_json(payload.decode('utf-8-sig'), max_text=128_000_000)

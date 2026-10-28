@@ -18,7 +18,7 @@ import subprocess
 import sys
 from urllib.parse import urlsplit
 from control.isolation import canonical_hash, validate_deployment
-from control.runtime import load_config as load_runtime
+from control.runtime import validate_config as validate_runtime
 from control.runtime import execution_context_fingerprint
 from splits import audit, file_digest, rows
 from convert import prepared, validate_official_row, question_hash
@@ -380,6 +380,36 @@ def environment_identity():
                       "memory": torch.cuda.get_device_properties(i).total_memory}
                      for i in range(torch.cuda.device_count())]}
 
+def prepare(root, frozen, *, run=False):
+    root = Path(root)
+    protocol = root/'protocol.json'
+    values = runtimes(frozen, root)
+    # Validate every runtime before publishing any preparation artifact.
+    for value in values.values():
+        validate_runtime(value)
+    planned = {protocol: frozen, **{root/arm/'runtime_config.json': value for arm, value in values.items()}}
+    for value in planned.values():
+        json.dumps(value, allow_nan=False)
+    if root.exists() and not root.is_dir():
+        raise ValueError('Experiment root must be a directory')
+    if root.is_dir() and any(root.iterdir()) and not protocol.is_file():
+        raise FileExistsError('Existing directory has no matching preparation protocol')
+    for path, value in planned.items():
+        if path.exists() and (not path.is_file() or read(path) != value):
+            raise FileExistsError('Existing preparation artifact differs: '+str(path))
+    missing = [path for path in planned if not path.exists()]
+    for path in missing:
+        if path != protocol and path.parent.exists() and (
+                not path.parent.is_dir() or any(path.parent.iterdir())):
+            raise FileExistsError('Missing runtime configuration in a nonempty arm; preserve its execution state')
+    if run:
+        for path in missing:
+            write_new(path, planned[path])
+    names = [path.relative_to(root).as_posix() for path in missing]
+    return dict(prepared=run or not missing, reused=not missing,
+        missing=[] if run else names, created=names if run else [], root=str(root),
+        protocol_sha256=canonical_hash(frozen), gpu_started=False, claim=frozen['claim'])
+
 @contextmanager
 def allocation(root, workspace, identity, *, shared=False):
     payload = json.dumps(identity, sort_keys=True, allow_nan=False)
@@ -418,20 +448,7 @@ def main():
         if not args.config:
             parser.error("prepare requires --config")
         frozen = freeze(read(workspace/args.config), base=workspace)
-        if root.exists() and any(root.iterdir()):
-            if protocol.is_file() and read(protocol) == frozen and all(
-                    (root/arm/'runtime_config.json').is_file() and read(root/arm/'runtime_config.json') == value
-                    for arm, value in runtimes(frozen, root).items()):
-                print(json.dumps(dict(prepared=True, reused=True, root=str(root), gpu_started=False)))
-                return
-            raise FileExistsError("Existing experiment differs; prepare requires a new empty directory")
-        if args.run:
-            write_new(protocol, frozen)
-            for arm, value in runtimes(frozen, root).items():
-                write_new(root / arm / "runtime_config.json", value)
-                load_runtime(root / arm / "runtime_config.json")
-        print(json.dumps({"prepared": args.run, "root": str(root), "protocol_sha256": canonical_hash(frozen),
-                          "gpu_started": False, "claim": frozen["claim"]}))
+        print(json.dumps(prepare(root, frozen, run=args.run)))
         return
     frozen = read(protocol)
     if args.stage == "status":

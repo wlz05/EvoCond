@@ -30,7 +30,10 @@ class ExperimentTests(unittest.TestCase):
             "run_id": "unit", "model": str(self.root / "model"),
             "official_root": str(self.root / "official"), "encoder": str(self.root / "encoder"),
             "isolation_config": str(self.root / "config.json"), "isolation_receipt": str(self.root / "receipt.json"),
-            "search_url": "http://localhost:9000/retrieve", "teacher": {"value_contracts": True},
+            "search_url": "http://localhost:9000/retrieve", "teacher": {
+                "value_contracts": True, "teacher_path": str(self.root / "teacher.json"),
+                "alignment_path": str(self.root / "alignment.json"), "encoder_id": "c" * 64,
+                "teacher_policy_mode": "exact_policy"},
             "datasets": {s: str(self.root / (s+".parquet")) for s in ("train", "validation", "test")},
             "budget": experiment.settings({})},
             "fingerprints": {"model": {"sha256": "a" * 64}, "official_source": {"sha256": "b" * 64}}}
@@ -209,6 +212,63 @@ class ExperimentTests(unittest.TestCase):
             experiment.main()
         self.assertFalse(output.exists())
         launch.assert_not_called()
+
+    def test_prepare_recovers_missing_configs_after_interrupted_publication(self):
+        output, frozen = self.root/'prepared', self.frozen()
+        original = experiment.write_new
+        def interrupted(path, value):
+            if path == output/'evocond/runtime_config.json':
+                raise OSError('Interrupted publication')
+            original(path, value)
+        with patch.object(experiment, 'write_new', side_effect=interrupted), self.assertRaises(OSError):
+            experiment.prepare(output, frozen, run=True)
+        saved = (output/'protocol.json').read_bytes()
+        result = experiment.prepare(output, frozen, run=True)
+        self.assertTrue(result['prepared'])
+        self.assertFalse(result['reused'])
+        self.assertEqual(result['missing'], [])
+        self.assertTrue(result['created'])
+        self.assertEqual((output/'protocol.json').read_bytes(), saved)
+        self.assertTrue(all((output/arm/'runtime_config.json').is_file() for arm in experiment.ARMS))
+        self.assertTrue(experiment.prepare(output, frozen, run=True)['reused'])
+
+    def test_prepare_validates_all_runtimes_before_publishing(self):
+        output, frozen = self.root/'prepared', self.frozen()
+        frozen['config']['teacher'].pop('teacher_path')
+        with self.assertRaisesRegex(ValueError, 'fitted artifact'):
+            experiment.prepare(output, frozen, run=True)
+        self.assertFalse(output.exists())
+
+    def test_prepare_preserves_conflicting_config_and_existing_execution_state(self):
+        output, frozen = self.root/'prepared', self.frozen()
+        experiment.prepare(output, frozen, run=True)
+        config = output/'evocond/runtime_config.json'
+        original = config.read_bytes()
+        config.write_text('{}', encoding='utf-8')
+        with self.assertRaises(FileExistsError):
+            experiment.prepare(output, frozen, run=True)
+        self.assertEqual(config.read_text(encoding='utf-8'), '{}')
+        config.unlink()
+        state = config.parent/'runtime'
+        state.mkdir()
+        with self.assertRaisesRegex(FileExistsError, 'execution state'):
+            experiment.prepare(output, frozen, run=True)
+        self.assertFalse(config.exists())
+        self.assertTrue(state.is_dir())
+        config.write_bytes(original)
+
+    def test_prepare_refuses_file_root_and_unowned_nonempty_directory(self):
+        output, frozen = self.root/'prepared', self.frozen()
+        output.write_text('preserve', encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'directory'):
+            experiment.prepare(output, frozen, run=True)
+        self.assertEqual(output.read_text(encoding='utf-8'), 'preserve')
+        output.unlink()
+        output.mkdir()
+        (output/'unrelated').write_text('preserve', encoding='utf-8')
+        with self.assertRaises(FileExistsError):
+            experiment.prepare(output, frozen, run=True)
+        self.assertFalse((output/'protocol.json').exists())
     def test_train_dry_run_does_not_touch_gpu_or_start_trainer(self):
         frozen = self.frozen()
         experiment.write_new(self.root / "protocol.json", frozen)
