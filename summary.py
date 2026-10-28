@@ -12,22 +12,37 @@ from control.contracts import publish, relative, strict_json
 from judge import digest
 from study import SEEDS
 
+def effects(conditions, cells, weights):
+    # Form each matched-seed contrast before aggregating training runs.
+    benchmarks = {}
+    for benchmark in conditions[cells[-1]]['benchmarks']:
+        estimates = {}
+        for name, coefficients in weights.items():
+            scores = [sum(weight*conditions[cell]['benchmarks'][benchmark]['per_seed'][str(seed)]
+                for cell, weight in zip(cells, coefficients)) for seed in SEEDS]
+            estimates[name] = dict(mean=statistics.mean(scores), sample_std=statistics.stdev(scores),
+                per_seed=dict(zip(map(str, SEEDS), scores)))
+        benchmarks[benchmark] = estimates
+    return benchmarks
+
 def contrasts(conditions):
     cells = ('pooled', 'global', 'fixed', 'evocond')
     weights = dict(condition_at_fixed=(-1, 0, 1, 0), condition_at_learned=(0, -1, 0, 1),
         adoption_at_pooled=(-1, 1, 0, 0), adoption_at_conditional=(0, 0, -1, 1),
+        condition_average=(-.5, -.5, .5, .5), adoption_average=(-.5, .5, -.5, .5),
         interaction=(1, -1, -1, 1))
-    benchmarks = {}
-    for benchmark in conditions['evocond']['benchmarks']:
-        effects = {}
-        for name, coefficients in weights.items():
-            scores = [sum(weight*conditions[cell]['benchmarks'][benchmark]['per_seed'][str(seed)]
-                for cell, weight in zip(cells, coefficients)) for seed in SEEDS]
-            effects[name] = dict(mean=statistics.mean(scores), sample_std=statistics.stdev(scores),
-                per_seed=dict(zip(map(str, SEEDS), scores)))
-        benchmarks[benchmark] = effects
     return dict(metric='pass_at_one_accuracy_difference', unit='fraction', cells=list(cells),
-        seed_unit='independent_training_run', benchmarks=benchmarks)
+        seed_unit='independent_training_run', comparison='independently_trained_conditions',
+        coefficients={name: dict(zip(cells, values)) for name, values in weights.items()},
+        benchmarks=effects(conditions, cells, weights))
+
+def systems(conditions):
+    cells = ('searl', 'pace', 'evocond')
+    weights = dict(total=(-1, 0, 1), cadence=(-1, 1, 0), matched_cadence=(0, -1, 1))
+    return dict(metric='pass_at_one_accuracy_difference', unit='fraction', cells=list(cells),
+        seed_unit='independent_training_run', comparison='independently_trained_systems',
+        coefficients={name: dict(zip(cells, values)) for name, values in weights.items()},
+        benchmarks=effects(conditions, cells, weights))
 
 def aggregate(path):
     path = Path(path).resolve()
@@ -118,6 +133,8 @@ def aggregate(path):
     # Emit crossed effects only when all four registered cells are present.
     if {'pooled', 'global', 'fixed', 'evocond'} <= set(output):
         result['conditional_adoption'] = contrasts(output)
+    if {'searl', 'pace', 'evocond'} <= set(output):
+        result['system_comparison'] = systems(output)
     return result
 
 def main():

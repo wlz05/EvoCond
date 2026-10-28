@@ -200,6 +200,24 @@ def success_pairs(rows, alternative='structural', reference='semantic'):
             harm_rate=counts['harmed']/succeeded if succeeded else None),
         scope='paired_observed_success_transitions')
 
+def components(rows, penalty, alternative='structural', reference='semantic'):
+    # Account for rescues, harms and signed cost on the same task denominator.
+    if type(penalty) not in (int, float) or not math.isfinite(penalty) or penalty < 0:
+        raise ValueError('Use the frozen nonnegative utility penalty')
+    rescued, harmed, costs, utility = [], [], [], []
+    for row in rows:
+        left, right = row[reference], row[alternative]
+        difference = right['success']-left['success']
+        rescued.append(max(difference, 0.))
+        harmed.append(max(-difference, 0.))
+        costs.append(penalty*(right['clipped_cost']-left['clipped_cost']))
+        utility.append(right['utility']-left['utility'])
+    if any(not math.isclose(gain-loss-cost, value, rel_tol=1e-10, abs_tol=1e-12)
+            for gain, loss, cost, value in zip(rescued, harmed, costs, utility)):
+        raise ValueError('Paired utility differs from its success and cost components')
+    return dict(rescue_share=moments(rescued), harm_share=moments(harmed),
+        cost_penalty=moments(costs), net_utility_lift=moments(utility))
+
 def summarize_pairs(entries):
     result = dict(per_seed={str(seed): row for seed, row in entries}, rates={}, defined_seeds={})
     for name in entries[0][1]['rates']:
@@ -296,11 +314,14 @@ def panel(path):
             summary['outcomes'] = {arm: {metric: moments(rows[base][arm][metric] for base in order)
                 for metric in ('success', 'cost', 'clipped_cost', 'utility')} for arm in sorted(arms)}
             summary['paired_success'] = dict(structural_vs_semantic=success_pairs(rows.values()))
+            summary['benefit_components'] = dict(structural_vs_semantic=components(rows.values(), protocol['penalty']))
             if 'adopted' in arms:
                 summary['adopted_vs_semantic'] = moments(rows[base]['adopted']['utility']-rows[base]['semantic']['utility'] for base in order)
                 summary['adopted_vs_structural'] = moments(rows[base]['adopted']['utility']-rows[base]['structural']['utility'] for base in order)
                 summary['paired_success']['adopted_vs_semantic'] = success_pairs(rows.values(), 'adopted')
                 summary['paired_success']['adopted_vs_structural'] = success_pairs(rows.values(), 'adopted', 'structural')
+                summary['benefit_components']['adopted_vs_semantic'] = components(rows.values(), protocol['penalty'], 'adopted')
+                summary['benefit_components']['adopted_vs_structural'] = components(rows.values(), protocol['penalty'], 'adopted', 'structural')
             summaries[f'actor{i}_bank{j}'] = summary
     # Pair each task before averaging the factorial contrasts.
     first, bank, actor, last = gains[0, 0], gains[0, 1], gains[1, 0], gains[1, 1]
@@ -341,6 +362,10 @@ def aggregate(paths):
         summary['paired_success'] = {comparison: summarize_pairs(sorted(
             (row['seed'], row['cells'][name]['paired_success'][comparison]) for row in reports))
             for comparison in reports[0]['cells'][name]['paired_success']}
+        summary['benefit_components'] = {comparison: {
+            metric: dict(**moments(row['cells'][name]['benefit_components'][comparison][metric]['mean'] for row in reports),
+                per_seed={str(row['seed']): row['cells'][name]['benefit_components'][comparison][metric]['mean'] for row in reports})
+            for metric in values} for comparison, values in reports[0]['cells'][name]['benefit_components'].items()}
     return result
 
 # Author: Weiliang Zhu

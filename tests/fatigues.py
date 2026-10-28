@@ -223,6 +223,37 @@ class FatigueTests(unittest.TestCase):
         self.assertEqual(report['cells']['actor1_bank1']['outcomes']['structural']['success']['mean'], 1)
         self.assertEqual(report['cells']['actor1_bank1']['net_utility_lift']['mean'], 0)
 
+    def test_benefit_components_keep_one_denominator_and_the_signed_cost(self):
+        manifest = self.fixture(adopted=True)
+        def change(cell):
+            first, second = cell['records']
+            first['semantic'].update(success=False, costs=dict(actor=1., tools=1., retrieval=1.))
+            first['structural'].update(success=True, costs=dict(actor=4., tools=4., retrieval=4.))
+            second['semantic'].update(success=True, costs=dict(actor=4., tools=4., retrieval=4.))
+            second['structural'].update(success=False, costs=dict(actor=0., tools=0., retrieval=0.))
+        self.change(manifest, change)
+        cell = fatigue.panel(self.save(manifest))['cells']['actor1_bank1']
+        values = cell['benefit_components']['structural_vs_semantic']
+        self.assertEqual(values['rescue_share']['mean'], .5)
+        self.assertEqual(values['harm_share']['mean'], .5)
+        self.assertAlmostEqual(values['cost_penalty']['mean'], -.015)
+        self.assertAlmostEqual(values['net_utility_lift']['mean'], .015)
+        self.assertTrue(all(value['n'] == 2 for value in values.values()))
+        for comparison, components in cell['benefit_components'].items():
+            self.assertAlmostEqual(components['rescue_share']['mean']-components['harm_share']['mean']-
+                components['cost_penalty']['mean'], components['net_utility_lift']['mean'], msg=comparison)
+        self.assertAlmostEqual(values['net_utility_lift']['mean'], cell['net_utility_lift']['mean'])
+
+    def test_benefit_accounting_rejects_a_different_reward_scale(self):
+        rows = [dict(semantic=dict(success=0., clipped_cost=.3, utility=-.03),
+            structural=dict(success=1., clipped_cost=1., utility=.9))]
+        self.assertAlmostEqual(fatigue.components(rows, .1)['net_utility_lift']['mean'], .93)
+        with self.assertRaisesRegex(ValueError, 'components'):
+            fatigue.components(rows, .2)
+        for value in (True, -1., float('nan')):
+            with self.assertRaises(ValueError):
+                fatigue.components(rows, value)
+
     def test_zero_average_success_lift_can_hide_rescues_and_harm(self):
         rows = [dict(semantic=dict(success=left), structural=dict(success=right))
             for left, right in ((False, True), (True, False), (False, False), (True, True))]
@@ -403,6 +434,12 @@ class FatigueTests(unittest.TestCase):
         self.assertEqual(outcomes['structural']['success']['n'], 4)
         self.assertEqual(outcomes['structural']['success']['mean'], 1)
         self.assertEqual(outcomes['semantic']['success']['mean'], 1)
+        components = report['cells']['actor1_bank1']['benefit_components']['structural_vs_semantic']
+        for metric, values in components.items():
+            self.assertEqual(values['n'], 4, msg=metric)
+            self.assertEqual(set(values['per_seed']), {'42', '52', '3047', '3407'})
+        self.assertAlmostEqual(components['rescue_share']['mean']-components['harm_share']['mean']-
+            components['cost_penalty']['mean'], components['net_utility_lift']['mean'])
         with self.assertRaises(ValueError):
             fatigue.aggregate(paths[:3])
         with self.assertRaises(ValueError):

@@ -244,6 +244,50 @@ class StudyTests(unittest.TestCase):
             self.assertAlmostEqual(effects['interaction']['per_seed']['42'], .1)
             self.assertAlmostEqual(effects['interaction']['per_seed']['3407'], .25)
             self.assertGreater(effects['interaction']['sample_std'], 0.)
+            self.assertEqual(result['comparison'], 'independently_trained_conditions')
+            self.assertAlmostEqual(effects['condition_average']['mean'], .2875)
+            self.assertAlmostEqual(effects['adoption_average']['mean'], .1875)
+            for name, coefficients in result['coefficients'].items():
+                self.assertAlmostEqual(sum(coefficients.values()), 0., msg=name)
+
+    def test_system_summary_separates_actor_cadence_from_matched_method(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            path, value = self.result_manifest(root)
+            value['conditions'] = ['searl', 'pace', 'evocond']
+            for index, item in enumerate(value['reports']):
+                target = root/item['path']
+                protocol_path = target.parent/'judge_protocol.json'
+                protocol = json.loads(protocol_path.read_text(encoding='utf-8'))
+                protocol.update(reference_count=20, arms={name: {} for name in value['conditions']})
+                protocol_path.write_text(json.dumps(protocol), encoding='utf-8')
+                counts = (5, 7+index, 12)
+                report = dict(complete=True, protocol_sha256=judge.digest(protocol), arms={
+                    name: dict(n=20, correct=count, acc=count/20) for name, count in zip(value['conditions'], counts)})
+                target.write_text(json.dumps(report), encoding='utf-8')
+                item['sha256'] = judge.file_hash(target)
+            path.write_text(json.dumps(value), encoding='utf-8')
+            result = summary.aggregate(path)['system_comparison']
+            effects = result['benchmarks']['fixture']
+            self.assertEqual(result['comparison'], 'independently_trained_systems')
+            self.assertAlmostEqual(effects['total']['mean'], .35)
+            for seed in map(str, study.SEEDS):
+                self.assertAlmostEqual(effects['cadence']['per_seed'][seed]+effects['matched_cadence']['per_seed'][seed],
+                    effects['total']['per_seed'][seed])
+            value['conditions'].remove('pace')
+            for item in value['reports']:
+                target = root/item['path']
+                protocol_path = target.parent/'judge_protocol.json'
+                protocol = json.loads(protocol_path.read_text(encoding='utf-8'))
+                protocol['arms'].pop('pace')
+                protocol_path.write_text(json.dumps(protocol), encoding='utf-8')
+                report = json.loads(target.read_text(encoding='utf-8'))
+                report['arms'].pop('pace')
+                report['protocol_sha256'] = judge.digest(protocol)
+                target.write_text(json.dumps(report), encoding='utf-8')
+                item['sha256'] = judge.file_hash(target)
+            path.write_text(json.dumps(value), encoding='utf-8')
+            self.assertNotIn('system_comparison', summary.aggregate(path))
 
     def test_summary_does_not_relabel_one_report_as_multiple_training_seeds(self):
         with tempfile.TemporaryDirectory() as folder:
