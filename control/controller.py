@@ -372,5 +372,5 @@ def validate(model: dict) -> None:
         if not edge.get("outcomes") or any(type(v) not in (int, float) or not 0 <= v <= 1 for v in edge["outcomes"].values()):
             raise ValueError("Invalid per-query edge evidence")
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -110,5 +110,5 @@ if __name__ == "__main__":
                 json.dump(result, f, indent=4)
         print(cb)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

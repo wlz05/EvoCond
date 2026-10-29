@@ -259,5 +259,5 @@ def validate_ulysses_config(num_heads, ulysses_sequence_size):
             f"num_heads ({num_heads}) must be divisible by ulysses sequence size({ulysses_sequence_size})"
         )
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -126,5 +126,5 @@ class CalibrationTests(unittest.TestCase):
         self.assertEqual(rows[0]['interventions'], 0)
         self.assertEqual(rows[0]['status'], 'unreached')
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

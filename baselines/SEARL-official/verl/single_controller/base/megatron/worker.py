@@ -107,5 +107,5 @@ class MegatronWorker(Worker):
         self.hf_config = hf_config
         self.tf_config = tf_config
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

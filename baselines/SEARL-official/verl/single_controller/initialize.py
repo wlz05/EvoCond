@@ -27,5 +27,5 @@ with open(os.path.join(os.path.join(version_folder, os.pardir), "version/version
 
 __all__ = base.__all__
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

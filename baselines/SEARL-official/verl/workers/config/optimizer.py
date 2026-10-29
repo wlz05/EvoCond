@@ -65,5 +65,5 @@ class McoreOptimizerConfig(OptimizerConfig):
     use_checkpoint_opt_param_scheduler: bool = False
     override_optimizer_config = None
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

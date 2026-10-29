@@ -49,5 +49,5 @@ class ActorWorker(Worker):
     def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=False):
         raise NotImplementedError
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

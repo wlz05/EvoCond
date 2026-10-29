@@ -126,5 +126,5 @@ class GoogleDistanceMatrix:
             info = {"duration": "N/A", "distance": "N/A", "cost": "N/A", "Hint":"Please check the input."}
         return info
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -213,5 +213,5 @@ class EvoltBridge:
         selected = min(eligible, key=lambda item: (-ready[item.plan.actions].fused, item.expected_total, item.plan.actions))
         return Choice(selected, baseline, selected is not baseline, "memory_rerank" if selected is not baseline else "cost_only_retained", ready)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

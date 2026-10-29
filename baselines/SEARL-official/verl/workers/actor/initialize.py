@@ -20,5 +20,5 @@ from .actor import DataParallelPPOActor
 
 __all__ = ["BasePPOActor", "DataParallelPPOActor"]
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -21,5 +21,5 @@ TOOL_MANAGER_REGISTRY = {
     'qwen3_baseline': QwenManagerBaseline,
 }
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

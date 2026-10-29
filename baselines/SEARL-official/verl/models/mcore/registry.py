@@ -200,5 +200,5 @@ def get_mcore_weight_converter(hf_config: PretrainedConfig, dtype: torch.dtype) 
     tfconfig = hf_to_mcore_config(hf_config, dtype)
     return MODEL_WEIGHT_CONVERTER_REGISTRY[model](hf_config, tfconfig)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

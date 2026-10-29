@@ -24,5 +24,5 @@ def compute_score_batched(data_sources, solution_strs, ground_truths, extra_info
         for solution_str, ground_truth in zip(solution_strs, ground_truths, strict=True)
     ]
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

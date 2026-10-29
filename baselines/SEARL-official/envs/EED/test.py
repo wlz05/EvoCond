@@ -18,5 +18,5 @@ result_2 = EED(answer_latex,gen_latex_2)[0]
 print(f"The EED Score of Expression 1 is: {result_1:.0f}")
 print(f"The EED Score of Expression 2 is: {result_2:.0f}")
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

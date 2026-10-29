@@ -75,5 +75,5 @@ class ParallelLlamaMLP(nn.Module):
         gate, up = gate_up.split(self.gate_size, dim=-1)
         return self.down_proj(self.act_fn(gate) * up)[0]
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -23,5 +23,5 @@ _ = [SingleTurnAgentLoop, ToolAgentLoop]
 
 __all__ = ["AgentLoopBase", "AgentLoopManager"]
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

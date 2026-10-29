@@ -104,5 +104,5 @@ class LinearCrossEntropy(torch.autograd.Function):
 
 linear_cross_entropy = LinearCrossEntropy.apply
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

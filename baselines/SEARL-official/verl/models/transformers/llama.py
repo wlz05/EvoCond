@@ -231,5 +231,5 @@ def llama_attn_forward(
     attn_output = self.o_proj(attn_output)
     return attn_output, attn_weights
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

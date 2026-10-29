@@ -176,5 +176,5 @@ def settings(arm: str, memory: Any) -> tuple[str, Any, str]:
             memory if arm.startswith("joint_") else None,
             "family" if arm == "joint_family" else "exact")
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

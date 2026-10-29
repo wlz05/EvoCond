@@ -56,5 +56,5 @@ def load_dist_checkpointing(sharded_state_dict, ckpt_dir):
 
     return state_dict
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -277,5 +277,5 @@ def support(artifact, descriptor, sample, pool, left_scale=None):
     right = saved['descriptor'] if saved is not None else prepare(artifact, right)
     return kernel(artifact, descriptor, right, left_scale, right_scale, identity=fallback)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -86,5 +86,5 @@ class MegatronEngine(BaseEngine):
         '\n        Load model, optimizer, and scheduler states from a checkpoint.\n\n        Args:\n            local_path: Local filesystem path of the checkpoint.\n            hdfs_path: Optional HDFS path where checkpoint is stored.\n            del_local_after_load: Whether to delete local copy after loading.\n        '
         raise NotImplementedError
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

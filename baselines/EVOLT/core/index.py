@@ -107,5 +107,5 @@ class Aligned:
         Aligned.sync(graph, semantic, structural)
         return {key: (list(semantic.vectors[key]), list(structural.vectors[key])) for key in graph.tools if key in semantic.vectors and key in structural.vectors}
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

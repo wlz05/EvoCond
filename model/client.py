@@ -144,5 +144,5 @@ class Rule:
             raise ValueError("Unknown reasoning scale")
         return {"action": "advance", "arguments": {}, "assumptions": ["The action is available"], "guarantees": ["Progress increases"], "predictions": {"progress": self.point(self.step(environment), audit)}, "due": 1, "progress": "progress", "wait": False}
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

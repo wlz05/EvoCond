@@ -36,5 +36,5 @@ class Ledger:
             return 0.0
         return 1.0 - health.get(scale, Health(scale)).score if "h" in channels else 0.0
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

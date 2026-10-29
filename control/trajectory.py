@@ -146,5 +146,5 @@ def load_rollouts(path: Path, arm: str, config_hash: str, tokenizer_hash: str,
               "rollouts_sha256": digest(path)}
     return records, report
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -21,5 +21,5 @@ class BaseServer(ABC):
         print(f'Starting {self.app.title}... listening at 127.0.0.1:{self.port}')
         uvicorn.run(self.app, host="127.0.0.1", port=self.port)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

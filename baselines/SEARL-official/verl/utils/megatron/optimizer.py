@@ -75,5 +75,5 @@ def get_megatron_last_lr(optimizer):
     '\n    Get the last learning rate from the optimizer parameter scheduler.\n    '
     return optimizer.param_groups[0]["lr"]
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

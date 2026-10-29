@@ -64,5 +64,5 @@ if is_npu_available:
             f"package {package_name} is not installed, please run pip install {package_name}=={required_version_spec}"
         ) from e
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

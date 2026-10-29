@@ -447,5 +447,5 @@ def format_reflections(reflections: List[str],
 
 # if __name__ == '__main__':
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

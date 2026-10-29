@@ -123,5 +123,5 @@ class Proposal:
     def load(cls, data: dict) -> "Proposal":
         return cls(str(data["token"]), Decision.load(data["decision"]), str(data["key"]), data.get("target"), str(data["name"]), str(data["text"]), str(data.get("code", "")), str(data.get("schema", "")), list(data["vector"]), float(data["stamp"]), int(data["revision"]))
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

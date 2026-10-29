@@ -114,5 +114,5 @@ class SPPOActorRolloutRefWorker(ActorRolloutRefWorker):
                 checkpoint_contents=self.config.actor.checkpoint.contents,
             )
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

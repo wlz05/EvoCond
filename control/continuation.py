@@ -32,5 +32,5 @@ def validate_snapshot(snapshot, *, question_id):
         raise ValueError('Snapshot leaves no real continuation step')
     return runtime
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -246,5 +246,5 @@ def async_server_class(
 
     return load_extern_type(rollout_backend_module, rollout_backend_class)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

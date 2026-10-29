@@ -631,5 +631,5 @@ def _cleanup_mcp(_sig_num=None, _frame=None):
 if threading.current_thread() is threading.main_thread():
     atexit.register(_cleanup_mcp)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

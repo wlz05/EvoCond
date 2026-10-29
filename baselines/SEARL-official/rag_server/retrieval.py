@@ -385,5 +385,5 @@ if __name__ == "__main__":
     print('Starting the service')
     uvicorn.run(app, host="0.0.0.0", port=5003)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

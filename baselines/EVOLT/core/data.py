@@ -163,5 +163,5 @@ def baseline() -> dict:
     """Describe the exact baseline data protocol."""
     return {"train": {"datasets": list(TRAIN), "samples": 10000}, "test": {"datasets": list(TEST)}, "auxiliary": {"datasets": list(AUX), "main_table": False}, "metrics": ["pass@1", "accuracy", "average rank"], "judge": "binary llm judge"}
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

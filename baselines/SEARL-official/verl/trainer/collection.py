@@ -134,5 +134,5 @@ def run(trainer):
         'seeds': seeds, 'capture_turn': turn, 'shared_registry_hash_before': shared_hash,
         'shared_registry_hash_after': ray.get(actor.runtime_registry_hash.remote())})
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

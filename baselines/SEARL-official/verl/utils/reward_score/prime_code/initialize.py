@@ -74,5 +74,5 @@ def compute_score(completion, test_cases, continuous=False):
         metadata_list = None
     return success, metadata_list
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -300,5 +300,5 @@ def decide(model: dict, features: dict, *, query_embedding: list[float] | None =
             "predicted_delta": prediction, "lower_bound": lower,
             "reason": "executed_action_train_calibrated_benefit"}
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

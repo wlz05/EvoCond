@@ -1139,5 +1139,5 @@ def _patch_optimizer_state_dict(
         optim.state_dict = state_dict_call
         optim.load_state_dict = load_state_dict_call
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

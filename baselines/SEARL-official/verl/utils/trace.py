@@ -225,5 +225,5 @@ def rollout_trace_op(func):
 
     return async_wrapper if inspect.iscoroutinefunction(func) else wrapper
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

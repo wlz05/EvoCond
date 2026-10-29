@@ -537,5 +537,5 @@ class ToolAgentLoop(AgentLoopBase):
     def _decode_response_text(self, token_ids: list[int]) -> str:
         return self.tokenizer.decode(token_ids, skip_special_tokens=False)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

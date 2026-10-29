@@ -28,5 +28,5 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

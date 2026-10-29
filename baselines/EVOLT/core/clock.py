@@ -25,5 +25,5 @@ class Clock:
     def load(cls, data: dict | None) -> "Clock":
         return cls(float((data or {}).get("value", 0.0)))
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

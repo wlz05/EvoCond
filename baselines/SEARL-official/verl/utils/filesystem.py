@@ -104,5 +104,5 @@ def _hdfs_cmd(cmd: str) -> str:
 def _is_non_local(path: str):
     return path.startswith(_HDFS_PREFIX)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

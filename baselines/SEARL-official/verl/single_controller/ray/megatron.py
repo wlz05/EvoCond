@@ -64,5 +64,5 @@ class MegatronRayWorkerGroup(RayWorkerGroup, MegatronWorkerGroup):
             # only init_megatron if the WorkerGroup is created from scratch
             self.execute_all_sync(method_name="init_megatron", default_megatron_kwargs=default_megatron_kwargs)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

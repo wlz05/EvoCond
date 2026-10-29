@@ -44,5 +44,5 @@ async def execute_python_code(code: str, timeout: float = 15.0):
 if __name__ == "__main__":
     mcp.run(transport="stdio")
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

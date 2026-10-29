@@ -40,5 +40,5 @@ class AbstractCurriculumSampler(AbstractSampler):
     def update(self, batch: DataProto) -> None:
         pass
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

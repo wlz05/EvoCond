@@ -61,5 +61,5 @@ class BaseConfig(collections.abc.Mapping):
         '\n        Return the number of fields in the dataclass.\n\n        Returns:\n            int: The number of fields in the dataclass.\n        '
         return len(fields(self))
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

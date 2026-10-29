@@ -33,5 +33,5 @@ __all__ = [
     "log_with_rank",
 ]
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

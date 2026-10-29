@@ -123,5 +123,5 @@ class IdentityTests(unittest.TestCase):
         result = mixing.rank(value, Encoder(), initial, context.visible('Add'), recall=4, top_k=1)
         self.assertEqual(len(result['candidates']), 1)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

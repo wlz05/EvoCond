@@ -31,5 +31,5 @@ __all__ = [
     "create_colocated_worker_cls_fused",
 ]
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

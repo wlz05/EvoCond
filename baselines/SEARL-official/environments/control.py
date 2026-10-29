@@ -362,5 +362,5 @@ class EmulatorPool:
 
         return True
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

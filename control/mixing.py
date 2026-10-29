@@ -135,5 +135,5 @@ def rank(registry, encoder, alignment, context, *, completed=(), recall=12, top_
                     retention_horizon=memory['horizon'], history_query_limit=memory['limit']),
                 bounds=dict(recall=recall, neighbors=neighbors, events=memory['limit'], actions=3))
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

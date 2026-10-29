@@ -34,5 +34,5 @@ class SweepTests(unittest.TestCase):
         self.assertEqual(sweep.recipes(config), sweep.recipes(config))
         self.assertEqual(config, original)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

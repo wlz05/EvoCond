@@ -2077,5 +2077,5 @@ class RewardRolloutWorker(Worker, DistProfilerExtension):
         # return something to block the caller
         return True
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

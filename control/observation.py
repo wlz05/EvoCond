@@ -147,5 +147,5 @@ def fit(episodes: list[dict], seed: int = 20260927) -> tuple[dict, dict]:
                    "diagnostics": counters,
                    "warning": "Training loss is not held-out performance; gates do not estimate causal edge utility."}
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

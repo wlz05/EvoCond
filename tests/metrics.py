@@ -148,5 +148,5 @@ class MetricTests(unittest.TestCase):
         for key in ('weight', 'mass', 'cold_start_blind', 'eligible_contexts', 'minimum_distance'):
             self.assertEqual(normal[key], audited[key])
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

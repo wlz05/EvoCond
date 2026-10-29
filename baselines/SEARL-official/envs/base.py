@@ -310,5 +310,5 @@ class Env(ABC):
         # return 1.0
         raise NotImplementedError
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

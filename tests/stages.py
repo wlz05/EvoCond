@@ -241,5 +241,5 @@ class StageTests(unittest.TestCase):
         self.runtime.restore(snapshot)
         self.assertEqual(self.runtime.snapshot(), snapshot)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

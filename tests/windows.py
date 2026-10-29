@@ -163,5 +163,5 @@ class WindowTests(unittest.TestCase):
         runtime.restore(state)
         self.assertEqual(runtime.native_batches, 3)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

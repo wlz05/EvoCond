@@ -73,5 +73,5 @@ class AlgoConfig(BaseConfig):
     pf_ppo: Optional[PFPPOConfig] = None
     filter_groups: Optional[FilterGroupsConfig] = None
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

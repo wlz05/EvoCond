@@ -35,5 +35,5 @@ def compute_score(predict_str: str, ground_truth: str, use_boxed: bool = True, f
         predict_str
     )
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

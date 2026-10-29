@@ -49,5 +49,5 @@ def profile(spec):
             "generality_certified": False, "behavioral_cross_task_tests": 0,
             "warning": "lexical diagnostics only; length, constants and unused parameters are not a generality score"}
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -27,5 +27,5 @@ class Decomposer:
         raw = clean if nonce is None else f"{clean}|{nonce:.12g}"
         return blake2b(raw.encode("utf-8"), digest_size=12).hexdigest()
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

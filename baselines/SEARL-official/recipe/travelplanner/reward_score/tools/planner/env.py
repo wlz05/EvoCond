@@ -202,5 +202,5 @@ class ReactReflectEnv(ReactEnv):
                 self.is_terminated = True
             return message
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

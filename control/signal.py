@@ -48,5 +48,5 @@ def metrics(rewards, groups, advantages, loss_masks, *, tolerance=1e-8, answer_c
                        'signal/groups_with_correctness_variation': sum(len(set(v)) > 1 for v in known)})
     return result
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

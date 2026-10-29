@@ -1276,5 +1276,5 @@ class SGLangRollout(BaseRollout):
         await self.sharding_manager.sleep()
         self.is_sleep = True
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

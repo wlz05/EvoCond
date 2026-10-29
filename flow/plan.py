@@ -54,5 +54,5 @@ class Compiler:
             if not isfinite(limit) or limit < 0.0 or any(prediction.width() / 2.0 > limit + 1e-9 for prediction in contract.predictions.values()):
                 raise ValueError("Audit exceeded the sharpness limit")
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

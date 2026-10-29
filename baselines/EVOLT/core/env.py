@@ -168,5 +168,5 @@ class World:
         world.history = [dict(item) for item in data.get("history", [])]
         return world
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

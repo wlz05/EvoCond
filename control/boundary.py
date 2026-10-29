@@ -84,5 +84,5 @@ def receipt(views, mode, current_user_text):
             "capabilities_removed": 0, "unknown_labeled_as_failure": False,
             "claim": "explicit historical-context compatibility only; not tool preconditions or causal benefit"}
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

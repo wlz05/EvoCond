@@ -153,5 +153,5 @@ class Ranker:
         self.strsup = Calib.load(data.get("strsup", {}))
         self.actsup = Calib.load(data.get("actsup", {}))
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

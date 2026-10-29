@@ -17,5 +17,5 @@ result == 1665
 values = solve(result == 1665, (a, b, c, d, e, f, g, h, i))
 values
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

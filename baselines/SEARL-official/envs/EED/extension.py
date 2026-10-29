@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 # EvoCond: Preserving Conditional Tool Relations for Co-Evolving Language Agents
 
-#Original Authors: Tim Henderson and Steve Johnson
-
 #For licensing see the LICENSE file in the top level directory.
 
 # This is a modified version of zss package.
@@ -135,5 +133,5 @@ def ext_distance(A, B, get_children, single_insert_cost,insert_cost,single_remov
 
     return treedists[-1][-1]
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

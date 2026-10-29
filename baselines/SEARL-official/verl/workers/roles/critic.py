@@ -182,5 +182,5 @@ class CriticWorker(Worker, DistProfilerExtension):
     def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=True):
         self.engine.load_checkpoint(local_path, hdfs_path, del_local_after_load)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

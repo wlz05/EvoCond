@@ -13,5 +13,5 @@ print(query_attractions("Houston"))
 
 print(query_accommodations("Houston"))
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

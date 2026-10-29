@@ -283,5 +283,5 @@ class Qwen2_5VisionModel(VisionModule):
             max_seqlen_kv=max_seqlen_q,
         )
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

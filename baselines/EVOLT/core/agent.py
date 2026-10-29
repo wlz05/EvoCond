@@ -204,5 +204,5 @@ class Agent:
     def open(cls, path: str | Path) -> "Agent":
         return cls.restore(read(path))
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

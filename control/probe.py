@@ -50,5 +50,5 @@ class TriPerturb:
             scores.append(0.0 if precision + recall == 0.0 else 2.0 * precision * recall / (precision + recall))
         return {"cases": len(rows), "accuracy": sum(row["expected"] == row["predicted"] for row in rows) / len(rows), "macrof1": sum(scores) / len(scores), "rows": rows}
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

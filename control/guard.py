@@ -305,5 +305,5 @@ def intervene(messages: Sequence[Mapping[str, Any]], tools: Sequence[Mapping[str
     revised = [*map(dict, messages), {"role": "system", "content": note}]
     return revised, reachable, {"scale": scale, "pressure": issue, "action": "recover", "failed": last, "current": sorted(state), "visible": len(reachable)}
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

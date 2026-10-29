@@ -255,5 +255,5 @@ class DataParallelPPOCritic(BasePPOCritic):
         self.critic_optimizer.zero_grad()
         return metrics
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

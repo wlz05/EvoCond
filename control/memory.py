@@ -110,5 +110,5 @@ def record_transition(store: dict[str, Any], *, source: str, target: str,
     edge["weight"] = min(1.0, max(0.0, (1 - decay) * edge["weight"] + learning_rate * (signal - edge["weight"])))
     return result
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

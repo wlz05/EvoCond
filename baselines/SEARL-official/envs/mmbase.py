@@ -353,5 +353,5 @@ class MMEnv(ABC): # Serves as the base environment for multimodal environments
         # return 1.0
         raise NotImplementedError
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

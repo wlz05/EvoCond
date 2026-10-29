@@ -45,5 +45,5 @@ if __name__ == "__main__":
     print('\nStarting the MCP image-rotation service...')
     mcp.run(transport='stdio')
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

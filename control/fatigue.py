@@ -368,5 +368,5 @@ def aggregate(paths):
             for metric in values} for comparison, values in reports[0]['cells'][name]['benefit_components'].items()}
     return result
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -48,5 +48,5 @@ def json_loads(text: str) -> dict:
         except ValueError:
             raise json_err
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

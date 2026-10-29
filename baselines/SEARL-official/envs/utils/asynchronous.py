@@ -118,5 +118,5 @@ class AsyncMCPManager(SSEMCPManager):
         'Initialize with retries through the parent implementation.'
         return await super()._init_client_with_retry(client, server_name, server, max_retries)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

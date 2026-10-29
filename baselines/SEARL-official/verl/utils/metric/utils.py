@@ -31,5 +31,5 @@ def reduce_metrics(metrics: dict[str, list[Any]]) -> dict[str, Any]:
             metrics[key] = np.mean(val)
     return metrics
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

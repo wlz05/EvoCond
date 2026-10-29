@@ -33,5 +33,5 @@ __all__ = [
     "get_reward_manager_cls",
 ]
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

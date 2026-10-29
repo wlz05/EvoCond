@@ -24,5 +24,5 @@ from . import actor #, critic, engine, optimizer
 # __all__ = actor.__all__ + critic.__all__ + engine.__all__ + optimizer.__all__
 __all__ = actor.__all__
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

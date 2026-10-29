@@ -378,5 +378,5 @@ def compute_score(model_output: str, ground_truth: str) -> bool:
 
     return is_correct, format_correctness, extracted_model_output
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

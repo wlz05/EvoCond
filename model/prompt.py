@@ -9,5 +9,5 @@ GLOBAL = BASE + " Act as the GG governor. Return assumptions, guarantees, predic
 BRIDGE = BASE + " Act as the GL compiler. Return assumptions, guarantees, predictions, due, plan, progress, and invariants. Plan must be a JSON array of step strings. " + SHAPE + " " + AUDIT
 LOCAL = BASE + " Act as the LL executor. Return action, arguments, predictions, due, progress, invariants, and wait. Predict the immediate external result before acting. " + SHAPE + " " + AUDIT
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

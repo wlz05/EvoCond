@@ -143,5 +143,5 @@ def reduce_timing(timing_raw: dict[str, float]) -> dict[str, float]:
     timing_generate = {key_list[i]: timing_list[i] for i in range(len(key_list))}
     return timing_generate
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

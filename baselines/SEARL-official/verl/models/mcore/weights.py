@@ -474,5 +474,5 @@ class McoreToHFWeightConverterQwen3Moe(McoreToHFWeightConverterDense):
             raise NotImplementedError(f"Unsupported parameter name: {name}")
         return convert_names, params
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

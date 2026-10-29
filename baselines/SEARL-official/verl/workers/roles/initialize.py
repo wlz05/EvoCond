@@ -19,5 +19,5 @@ from .critic import CriticWorker
 
 __all__ = ["CriticWorker"]
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -42,5 +42,5 @@ def destroy_global_process_group():
     if torch.distributed.is_initialized():
         torch.distributed.destroy_process_group()
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

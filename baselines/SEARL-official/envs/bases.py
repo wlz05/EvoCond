@@ -411,5 +411,5 @@ if __name__ == '__main__':
     print("is_tool:", is_tool)
     print("tool_names:", tool_names)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

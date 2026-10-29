@@ -247,5 +247,5 @@ class Graph:
         graph.revision = max(graph.revision, int(data.get("revision", graph.revision)))
         return graph
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

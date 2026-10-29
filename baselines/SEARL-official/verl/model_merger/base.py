@@ -293,5 +293,5 @@ class BaseModelMerger(ABC):
     def cleanup(self):
         raise NotImplementedError("Subclasses should implement this method to clean up resources if needed")
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

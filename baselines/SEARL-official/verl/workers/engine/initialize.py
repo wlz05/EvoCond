@@ -19,5 +19,5 @@ from .fsdp import FSDPEngine
 
 __all__ = ["BaseEngine", "EngineRegistry", "FSDPEngine"]
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

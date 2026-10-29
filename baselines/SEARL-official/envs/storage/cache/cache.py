@@ -80,5 +80,5 @@ class CacheBoxCache(CacheBase):
     def set_eviction_policy(self, policy: EvictionPolicy) -> None:
         self.eviction_policy = policy
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

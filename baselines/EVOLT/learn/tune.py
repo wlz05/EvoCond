@@ -193,5 +193,5 @@ def tune(data: str, state: Path, model: str = "autodl-tmp/model/qwen4b", output:
     saved = state.resolve().relative_to(Path(root).resolve())
     return {"records": len(records), "steps": steps, "save": save, "rate": float(rate), "backend": backend, "adapter": str(Path(output) / "final"), "state": str(saved), "metrics": metrics}
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

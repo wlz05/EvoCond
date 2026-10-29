@@ -175,5 +175,5 @@ def get_cache_manager(**kwargs) -> RedisCacheManager:
 
     return _cache_managers[cache_key]
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

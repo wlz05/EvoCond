@@ -366,5 +366,5 @@ def _init_tool(function_list):
     functions=[func.function for func in function_map.values()]
     return functions
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

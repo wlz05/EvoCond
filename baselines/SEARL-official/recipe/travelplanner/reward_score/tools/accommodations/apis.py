@@ -35,5 +35,5 @@ class Accommodations:
         results = self.data[self.data["city"] == extract_before_parenthesis(city)]
         return results
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

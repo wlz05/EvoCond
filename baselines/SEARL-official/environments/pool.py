@@ -87,5 +87,5 @@ async def close_env(req: CloseRequest):
         raise HTTPException(400, "Invalid rollout_id")
     return CloseResponse(ok=True)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

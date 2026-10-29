@@ -116,5 +116,5 @@ def patch_ray_worker_logging():
 
 suppress_mcp_warnings()
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

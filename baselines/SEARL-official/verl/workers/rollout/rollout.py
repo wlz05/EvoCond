@@ -171,5 +171,5 @@ class HFRollout(BaseRollout):
         self.module.train()
         return DataProto(batch=batch)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

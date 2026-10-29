@@ -78,5 +78,5 @@ def initialize_interactions_from_config(interaction_config_file):
 
     return interaction_map
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

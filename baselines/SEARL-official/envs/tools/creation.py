@@ -43,5 +43,5 @@ def create_and_execute_mcp(name: str, description: str, arguments: str,
 if __name__ == "__main__":
     mcp.run(transport="stdio")
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

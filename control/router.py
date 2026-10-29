@@ -37,5 +37,5 @@ class Router:
         normalized = tuple((value - center) / width for value, center, width in zip(values, self.mean, self.scale))
         return {label: offset + sum(weight * value for weight, value in zip(row, normalized)) for label, row, offset in zip(self.labels, self.weights, self.bias)}
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -56,5 +56,5 @@ def evaluate(cases: list[Case] | None = None) -> dict:
         rows.append({"name": case.name, "action": case.action, "best": best, "utility": [item.utility for item in results], "success": [item.success for item in results]})
     return {"cases": rows, "oracle": sum(item["best"] == 0 for item in rows) / max(1, len(rows))}
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -117,5 +117,5 @@ def _default_compute_score(
 
 __all__ = ["default_compute_score"]
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

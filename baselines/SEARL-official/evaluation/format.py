@@ -117,5 +117,5 @@ if __name__ == "__main__":
     test_nested_structure()
     test_model_name_extraction()
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -187,5 +187,5 @@ def ranks(scores: dict[str, dict[str, float]]) -> dict[str, float]:
                 totals[method] += rank
     return {method: totals[method] / len(datasets) for method in methods}
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

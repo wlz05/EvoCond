@@ -294,5 +294,5 @@ class FlopsCounter:
         promised_flops = get_device_flops()
         return estimated_flops, promised_flops
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -73,5 +73,5 @@ class BanditTests(unittest.TestCase):
         report = bandit.evaluate(independent, model)
         self.assertIn('not_end_to_end', report['scope'])
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

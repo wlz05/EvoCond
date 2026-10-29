@@ -40,5 +40,5 @@ def compute_score(model_output: str, ground_truth: str, timeout_score: float = 0
 
     return ret_score
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

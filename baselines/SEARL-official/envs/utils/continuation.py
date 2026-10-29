@@ -162,5 +162,5 @@ def attach_receipts(su, output):
     output.non_tensor_batch['continuation_receipt'] = values
     return output
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

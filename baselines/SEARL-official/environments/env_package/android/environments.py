@@ -29,5 +29,5 @@ class BaseEnv(ABC):
         '\n        give final reward\n        Currently the reward calculation in rollout manager will be: sum(step_rewards)+env.compute_reward()\n        In most cases you can set this to 0.0 since the step rewards are already accumulated, but if you want to add some extra reward for the final step, define it here.\n        '
         return 0.0
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

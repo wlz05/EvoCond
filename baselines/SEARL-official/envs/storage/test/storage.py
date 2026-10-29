@@ -42,5 +42,5 @@ async def test_storage_manager():
 if __name__ == "__main__":
     asyncio.run(test_storage_manager())
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

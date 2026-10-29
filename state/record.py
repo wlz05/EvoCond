@@ -40,5 +40,5 @@ class Journal:
         with self.path.open("a", encoding="utf-8", newline="\n") as stream:
             stream.write(json.dumps(item, ensure_ascii=True, separators=(",", ":")) + "\n")
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

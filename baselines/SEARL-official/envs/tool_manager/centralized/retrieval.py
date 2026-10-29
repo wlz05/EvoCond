@@ -730,5 +730,5 @@ if __name__ == "__main__":
     print('Tests completed.')
     print("=" * 60)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

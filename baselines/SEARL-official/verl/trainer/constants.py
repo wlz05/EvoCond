@@ -47,5 +47,5 @@ def get_ppo_ray_runtime_env():
             runtime_env["env_vars"][key] = os.environ[key]
     return runtime_env
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

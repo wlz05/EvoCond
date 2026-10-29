@@ -86,5 +86,5 @@ def interpret(text: str, user: str, item: dict) -> dict[str, Any]:
         return {"decision": "uncertain", "mismatches": [], "reason": "unsupported_rejection"}
     return {"decision": "reject", "mismatches": mismatches}
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

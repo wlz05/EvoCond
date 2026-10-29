@@ -238,5 +238,5 @@ class Qwen2_5VisionTransformerBlock(TransformerBlock):
 
         return hidden_states
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

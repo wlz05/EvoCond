@@ -387,5 +387,5 @@ def create_rl_sampler(data_config, dataset):
 if __name__ == "__main__":
     main()
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

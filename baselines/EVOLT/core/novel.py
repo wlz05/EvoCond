@@ -179,5 +179,5 @@ class Novelty:
         model.items = [vector for vector in items if isinstance(vector, list) and len(vector) == model.dim and all(isinstance(value, (int, float)) and not isinstance(value, bool) and isfinite(value) for value in vector)] if isinstance(items, list) else []
         return model
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

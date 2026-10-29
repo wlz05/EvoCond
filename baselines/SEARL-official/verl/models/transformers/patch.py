@@ -306,5 +306,5 @@ def is_transformers_version_in_range(min_version: Optional[str] = None, max_vers
 
     return lower_bound_check and upper_bound_check
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

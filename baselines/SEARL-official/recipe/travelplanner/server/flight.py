@@ -67,5 +67,5 @@ if __name__ == "__main__":
     server = FlightServer()
     server.run()
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

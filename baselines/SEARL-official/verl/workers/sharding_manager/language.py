@@ -270,5 +270,5 @@ class FSDPSGLangShardingManager(BaseShardingManager):
     def get_dp_group(self):
         return self.device_mesh["dp"].get_group()
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

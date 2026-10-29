@@ -227,5 +227,5 @@ if __name__ == "__main__":
         print("STOP: " + (str(error) if isinstance(error, ValueError) else type(error).__name__ + "; retry the same command or check network/disk"), file=sys.stderr)
         sys.exit(1)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

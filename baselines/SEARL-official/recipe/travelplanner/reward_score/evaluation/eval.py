@@ -271,5 +271,5 @@ if __name__ == "__main__":
     result = eval_score(args.set_type, args.evaluation_file_path, args.single_eval, args.eval_index)
     print(json.dumps(result, indent=2, ensure_ascii=False))
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

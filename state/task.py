@@ -24,5 +24,5 @@ class Terminal:
         index = {label(key): value for key, value in values.items()}
         return self.key in index and label(index[self.key]) in self.values
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -186,5 +186,5 @@ def forward_with_triton_backend(
         attentions=outputs.attentions,
     )
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

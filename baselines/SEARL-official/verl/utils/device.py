@@ -65,5 +65,5 @@ def get_nccl_backend() -> str:
     else:
         raise RuntimeError(f"No available nccl backend found on device type {get_device_name()}.")
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

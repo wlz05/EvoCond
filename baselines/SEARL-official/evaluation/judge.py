@@ -165,5 +165,5 @@ if __name__ == "__main__":
     demo_q = "What is 6 * 7?"
     main_debug(demo_pred, demo_ref, demo_q)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

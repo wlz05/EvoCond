@@ -164,5 +164,5 @@ class MegatronMemoryBufferForRollout:
     def memory_buffers(self):
         return self._memory_buffers
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

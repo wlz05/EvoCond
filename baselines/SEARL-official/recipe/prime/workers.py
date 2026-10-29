@@ -365,5 +365,5 @@ class PRIMERewardModelWorker(Worker):
         if self._is_offload_param:
             offload_fsdp_model_to_cpu(self.reward_module)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

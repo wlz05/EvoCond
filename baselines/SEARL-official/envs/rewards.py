@@ -514,5 +514,5 @@ if __name__ == "__main__":
     extra_info = None
     print(compute_score_baseline(solution_str, ground_truth))
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

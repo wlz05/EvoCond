@@ -161,5 +161,5 @@ def _ulysses_flash_attn_forward(
 
     return attn_output, None, None
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

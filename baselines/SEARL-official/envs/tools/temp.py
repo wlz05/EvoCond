@@ -15,5 +15,5 @@ def quadratic_solver(a, b, c):
     root = math.sqrt(discriminant)
     return [(-b+root)/(2*a), (-b-root)/(2*a)]
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

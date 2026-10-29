@@ -193,5 +193,5 @@ def is_version_ge(pkg: str = "vllm", minver: str = "0.7.3"):
     """check if the package version is greater than or equal to the minimum version"""
     return vs.parse(get_version(pkg)) >= vs.parse(minver)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -336,5 +336,5 @@ def restore_dynamic_batch(data: torch.Tensor, batch_idx_list: list[list[int]]) -
     revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
     return data[revert_indices]
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -28,5 +28,5 @@ class BaseEnvConfig(ABC):
         seeds = random.sample(range(0, n_candidate + size), size)
         return seeds
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

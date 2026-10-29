@@ -77,5 +77,5 @@ def decision(receipt, actor, threshold, diagnostics=None):
         trimmed_exceeded=trimmed, isolated_tail_suppressed=mean and not reset,
         threshold=threshold, tail_threshold=recipe['tail_threshold'], quantile=recipe['quantile'], trim=recipe['trim'])
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

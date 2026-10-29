@@ -199,5 +199,5 @@ class EvidenceGraph:
             if isfinite(expected_repair):
                 yield ProspectivePlan(plan, expected_repair)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

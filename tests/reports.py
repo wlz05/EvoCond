@@ -55,5 +55,5 @@ class PairedReportTests(unittest.TestCase):
 if __name__ == "__main__":
     unittest.main()
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

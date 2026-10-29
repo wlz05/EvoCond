@@ -170,5 +170,5 @@ class DistProfilerExtension:
         """Stop profiling for the current rank in the current training step."""
         self.profiler.stop()
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

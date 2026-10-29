@@ -70,5 +70,5 @@ def turn(rewards: list[list[float]]) -> list[list[float]]:
             output[row][col] = value - center
     return output
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -55,5 +55,5 @@ def update_dict_with_config(dictionary: dict, config: DictConfig):
         if hasattr(config, key):
             dictionary[key] = getattr(config, key)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

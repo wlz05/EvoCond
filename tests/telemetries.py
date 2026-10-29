@@ -24,5 +24,5 @@ class TelemetryTests(unittest.TestCase):
         self.assertEqual(result['splits']['validation']['independent_questions'], 1)
         self.assertEqual(result['splits']['validation']['fallback_contract_violations'], 1)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -55,5 +55,5 @@ class MegatronWorkerGroup(WorkerGroup):
     def get_megatron_global_info(self):
         return self._megatron_global_info
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -16,5 +16,5 @@ r.lpush("android:idle_ports", *ports)
 
 print(" Redis idle port list reset:", ports)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

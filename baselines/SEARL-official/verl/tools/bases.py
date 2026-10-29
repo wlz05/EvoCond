@@ -110,5 +110,5 @@ class MCPBaseTool(BaseTool):
         tools_content = [part.text for part in filter(lambda x: x.type == "text", content)]
         return " ".join(tools_content), {}
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

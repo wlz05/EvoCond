@@ -62,5 +62,5 @@ if __name__ == "__main__":
 
     print(f"Plotting completed; generated {len(all_metrics)} plots in {output_dir}")
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -59,5 +59,5 @@ class AndroidEnvConfig(BaseEnvConfig):
             f"use_prm={self.use_prm})"
         )
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

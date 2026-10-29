@@ -149,5 +149,5 @@ def build_android_envs(
         env_kwargs=None):
     return AndroidMultiProcessEnv(seed, env_num, group_n, is_train, env_kwargs=env_kwargs)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

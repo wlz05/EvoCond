@@ -394,5 +394,5 @@ class FSDPVLLMRewardShardingManager(FSDPVLLMShardingManager):
             self.gen_random_states = get_torch_device().get_rng_state()
             get_torch_device().set_rng_state(self.torch_random_states)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -330,5 +330,5 @@ def _read_edge(memory, edge, vector, encoder_id, min_cosine, prior_support, boun
     result["score"] = result["association"] * result["utility"] * result["reliability"]
     return result
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

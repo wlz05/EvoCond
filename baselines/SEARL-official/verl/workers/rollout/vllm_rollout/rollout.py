@@ -604,5 +604,5 @@ class vLLMRewardRollout(vLLMRollout):
         self.pad_token_id = tokenizer.pad_token_id
         self.lora_kwargs = None
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

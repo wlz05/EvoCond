@@ -57,7 +57,7 @@ class CodeStyleTests(unittest.TestCase):
                 self.assertEqual(lines[0], '# -*- coding: utf-8 -*-')
                 self.assertEqual(lines[1], '# '+TITLE)
                 self.assertEqual(lines[2], '')
-                self.assertEqual(lines[-2:], ['# Author: Weiliang Zhu', '# Email: wlzchina05@gmail.com'])
+                self.assertEqual(lines[-2:], ['# Author: Weiliang Zhu; Other main author: Yaming Lv', '# Email: wlzchina05@gmail.com'])
         paper = ROOT.parent/'writing'/'EvoCond.md'
         if paper.is_file():
             self.assertEqual(paper.read_text(encoding='utf-8-sig').splitlines()[0], '# '+TITLE)
@@ -160,5 +160,5 @@ class CodeStyleTests(unittest.TestCase):
 if __name__ == "__main__":
     unittest.main()
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

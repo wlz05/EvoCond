@@ -229,5 +229,5 @@ class Reference:
         normalized = max(-1.0, min(1.0, difference / self.scale(key, scale, context, horizon)))
         return Score(State.SCORED, prediction.width(), own, reference, difference, normalized, display(own, reference), ready)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

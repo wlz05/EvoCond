@@ -6,5 +6,5 @@ from rewards import compute_score
 result = compute_score(solution_str=input_text, ground_truth="Hot toddy")
 print(result)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

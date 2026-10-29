@@ -114,5 +114,5 @@ class Verifier:
         anchors = anchors or {}
         return {scale: Evidence(scale) if scale not in contracts else self.check(contracts[scale], anchors.get(scale, before), after, contexts.get(scale, "")) for scale in Scale}
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

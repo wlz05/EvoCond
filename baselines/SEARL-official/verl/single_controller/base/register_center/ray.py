@@ -36,5 +36,5 @@ class WorkerGroupRegisterCenter:
 def create_worker_group_register_center(name, info):
     return WorkerGroupRegisterCenter.options(name=name).remote(info)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

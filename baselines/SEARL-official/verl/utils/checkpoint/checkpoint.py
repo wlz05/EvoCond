@@ -188,5 +188,5 @@ def should_save_ckpt_esi(max_steps_duration: float, save_ckpt_duration: float = 
     else:
         return False
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

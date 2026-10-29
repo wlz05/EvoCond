@@ -41,5 +41,5 @@ def relative_path(value: str):
 if __name__ == "__main__":
     print(json.dumps({"benchmarks": [asdict(item) for item in BENCHMARKS.values()], "notice": "Reserved integration contracts, not installed native evaluators. Preserve official splits; group prompt variants by task identity."}, indent=2))
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

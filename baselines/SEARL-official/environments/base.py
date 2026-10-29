@@ -109,5 +109,5 @@ class EnvironmentManagerBase:
         image = Image.fromarray(image)
         image.save(path)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

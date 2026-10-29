@@ -56,5 +56,5 @@ class BaseTool:
         'Release the tool instance.\n\n        Args:\n            instance_id: The instance id of the tool.\n        '
         pass
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

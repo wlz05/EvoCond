@@ -489,5 +489,5 @@ def layered_summon_lora_params(fsdp_module) -> OrderedDict:
                 get_torch_device().empty_cache()
     return lora_params
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -76,5 +76,5 @@ class Geo3kTool(BaseTool):
     async def release(self, instance_id: str, **kwargs) -> None:
         del self._instance_dict[instance_id]
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

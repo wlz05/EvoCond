@@ -276,5 +276,5 @@ class Qwen2_5VLModel(MegatronModule):
 
         return output
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

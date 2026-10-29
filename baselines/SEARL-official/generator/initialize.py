@@ -12,5 +12,5 @@ def get_generator(name: str) -> BaseGenerator:
     else:
         raise Exception("Error: Trying to access a generator that has not been registered")
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

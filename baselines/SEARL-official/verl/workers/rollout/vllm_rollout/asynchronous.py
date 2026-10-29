@@ -316,5 +316,5 @@ class AsyncvLLMServer(AsyncServerBase):
         if self.config.rollout.free_cache_engine:
             await self.engine.sleep()
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

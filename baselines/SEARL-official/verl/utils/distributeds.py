@@ -68,5 +68,5 @@ def parallel_put(data_list: list[Any], max_workers: Optional[int] = None):
 
     return output
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

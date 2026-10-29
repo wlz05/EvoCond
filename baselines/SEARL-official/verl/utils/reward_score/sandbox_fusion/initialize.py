@@ -99,5 +99,5 @@ def compute_score(
     # Ensure float and list are returned
     return float(score), final_metadata if isinstance(final_metadata, list) else [final_metadata]
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

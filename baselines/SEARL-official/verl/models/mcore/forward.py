@@ -148,5 +148,5 @@ def gptmodel_forward_qwen2_5_vl(
         output = output[..., 0]
     return output
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

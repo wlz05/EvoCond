@@ -155,5 +155,5 @@ def vocab_parallel_log_probs_from_logits_response_rmpad(input_ids, attention_mas
     output = full_output.squeeze(-1)[:, -response_length - 1 : -1]  # [batch_size, response_length]
     return output
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

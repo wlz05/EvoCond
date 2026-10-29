@@ -127,5 +127,5 @@ if __name__ == "__main__":
 
     asyncio.run(run_stress_test(args.c, args.n))
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

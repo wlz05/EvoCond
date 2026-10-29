@@ -235,5 +235,5 @@ PARSE_FUNC_MAP = {
     "grounding_worldmodeling_symbolic": parse_grounding_worldmodeling,
 }
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

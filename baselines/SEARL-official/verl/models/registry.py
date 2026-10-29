@@ -59,5 +59,5 @@ class ModelRegistry:
     def get_supported_archs() -> list[str]:
         return list(_MODELS.keys())
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

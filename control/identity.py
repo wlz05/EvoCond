@@ -201,5 +201,5 @@ def admit(registry, spec, backend, *, probe_inputs, task_id, encoder, ledger=(),
     decision.update(probe_runs=probe_budget-budget+1, semantic_recall=recall)
     return updated, decision
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

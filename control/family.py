@@ -64,5 +64,5 @@ def score_route(memory: EvoltBridge, actions: tuple[str, ...]) -> FamilyRouteSco
     score = mean(values) - (0.12 * unknown + 0.04 * family) / count
     return FamilyRouteScore(score, exact, family, unknown)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

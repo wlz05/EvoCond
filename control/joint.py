@@ -127,5 +127,5 @@ class Controller:
                 reason += f";{memory_reason}"
         return Decision(scale, action, available, suggested, memory_used, reason, valid, note)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

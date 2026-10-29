@@ -153,5 +153,5 @@ class Store:
                 base["contracts"] = {key.value: value.export() for key, value in self._contracts.items()}
             return base
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

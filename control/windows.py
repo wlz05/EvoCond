@@ -155,5 +155,5 @@ def accumulate(pending, batch, ready, count, concatenate):
     pending.clear()
     return result
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

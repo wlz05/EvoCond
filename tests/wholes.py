@@ -66,5 +66,5 @@ class WholeTests(unittest.TestCase):
         self.assertEqual(fitted['samples'], 2)
         self.assertEqual(fitted['samples_limit'], 2)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

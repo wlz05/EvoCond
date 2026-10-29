@@ -414,5 +414,5 @@ class ValidationGenerationsLogger:
         # Flush to ensure data is written
         self.writer.flush()
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

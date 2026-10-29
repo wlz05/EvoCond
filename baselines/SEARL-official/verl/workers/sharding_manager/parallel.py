@@ -226,5 +226,5 @@ class MegatronSGLangShardingManager(BaseShardingManager):
             return data
         return data.chunk(chunks=self.infer_tp_size)[self.device_mesh["tp"].get_local_rank()]
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

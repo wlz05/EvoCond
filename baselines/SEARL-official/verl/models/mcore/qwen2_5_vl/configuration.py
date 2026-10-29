@@ -85,5 +85,5 @@ def get_vision_projection_config(
     config.sequence_parallel = False
     return config
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

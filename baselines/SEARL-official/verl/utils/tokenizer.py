@@ -63,5 +63,5 @@ def hf_processor(name_or_path, **kwargs):
         processor = None
     return processor
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

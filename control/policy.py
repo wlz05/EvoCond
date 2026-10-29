@@ -256,5 +256,5 @@ class Scheduler:
             raise ValueError("Feedback cost must be finite and nonnegative")
         self.arms[move].update(success, value, max(0.05, min(1.0, float(support))))
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

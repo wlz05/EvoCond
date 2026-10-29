@@ -87,5 +87,5 @@ def parse_proposal(text: str, question: str, *, epoch: int = 0) -> dict:
     proposals = json.loads(text)
     return make_plan(question, proposals, epoch=epoch)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

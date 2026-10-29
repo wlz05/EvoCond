@@ -906,5 +906,5 @@ def _repeat_tile(value: Union[torch.Tensor, np.ndarray], repeats: int) -> Union[
                 repeated_list.append(deepcopy(item))
         return repeated_list
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

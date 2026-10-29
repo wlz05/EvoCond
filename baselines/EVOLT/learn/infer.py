@@ -216,5 +216,5 @@ class Batch:
                 stream.flush()
         return {"data": len(records), "selected": len(selected), "generated": len(pending), "skipped": len(selected) - len(pending), "output": str(output)}
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -78,5 +78,5 @@ class Tools:
             raise RuntimeError(f"local Wikipedia preflight failed: {retrieval[:300]}")
         return {"python": "ok", "search": "ok"}
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -61,5 +61,5 @@ def compatible(requirements, context):
     return not any(key in current and current[key] is not None and current[key] != value
                    for key, value in (requirements or {}).items() if value is not None)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

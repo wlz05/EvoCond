@@ -167,5 +167,5 @@ def collect_teacher_policy_pairs(*, evaluator: ContinuationEvaluator,
                         **({'execution_context_hash': execution_context_hash} if execution_context_hash is not None else {})})
     return records
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

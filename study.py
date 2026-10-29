@@ -160,5 +160,5 @@ def write(root, values):
                     raise ValueError('Concurrent study configuration differs: '+str(path))
     return record
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

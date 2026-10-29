@@ -75,5 +75,5 @@ class RelationTests(unittest.TestCase):
         self.assertAlmostEqual(used['truncation_bound'], actual)
         self.assertLess(used['truncation_bound'], 2*used['omitted_mass']/(3+used['mass']+used['omitted_mass']))
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

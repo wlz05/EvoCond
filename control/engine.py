@@ -157,5 +157,5 @@ class Engine:
             self.scheduler.learn(self.lastmove, self.lastscale, support, success, cost)
             self.awaiting = False
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

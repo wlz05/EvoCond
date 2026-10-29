@@ -90,5 +90,5 @@ class DynamicGenDataset(RLHFDataset):
         new_data = self.data_generator.generate(self)
         self.append_dataframe(new_data)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

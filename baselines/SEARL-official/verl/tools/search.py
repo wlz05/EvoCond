@@ -70,5 +70,5 @@ class MCPSearchTool(MCPBaseTool):
         metadata["total_results"] = res_cnt
         return res, metadata
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -421,5 +421,5 @@ class AsyncRewardManager:
 
         return data
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

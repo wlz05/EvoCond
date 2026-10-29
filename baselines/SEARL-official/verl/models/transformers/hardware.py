@@ -48,5 +48,5 @@ def rms_norm_forward(self, x):
 Qwen2RMSNorm.forward = rms_norm_forward
 modeling_qwen2_5_vl.apply_rotary_pos_emb_flashatt = apply_rotary_pos_emb_flashatt_npu
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

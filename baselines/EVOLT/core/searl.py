@@ -87,5 +87,5 @@ class SearlTools:
             raise RuntimeError(f"SEARL local retrieval preflight failed: {retrieval[:300]}")
         return {"python": "ok", "search": "ok", "search_url": self.search_url, "sandbox_url": self.sandbox_url}
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

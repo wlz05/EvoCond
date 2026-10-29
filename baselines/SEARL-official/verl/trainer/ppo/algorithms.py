@@ -1281,5 +1281,5 @@ if __name__ == "__main__":
     else:
         print(f"Debug file not found at {load_path}. Please run the training first to generate it.")
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

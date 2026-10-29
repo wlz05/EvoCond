@@ -133,5 +133,5 @@ def compute_dpo_accuracy(token_level_scores, acc, response_mask, n_samples):
 def compute_dpo_abs_accuracy(token_level_scores, acc, response_mask, n_samples):
     return (torch.sign((token_level_scores * response_mask).sum(dim=-1)) == torch.sign(acc * 2 - 1)).float().mean()
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

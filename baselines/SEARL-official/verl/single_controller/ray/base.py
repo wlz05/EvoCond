@@ -688,5 +688,5 @@ def create_colocated_worker_cls_fused(class_dict: dict[str, RayClassWithInitArgs
 
     return cia
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -260,5 +260,5 @@ def action_template(**kwargs):
     done = kwargs.get("done", "No done status provided.")
     return f"""After your answer, the extracted valid action is {valid_action}.\nThe environment feedback is: {env_feedback}\nreward: {reward}\ndone: {done}\nAfter that, the observation is:\n{observation}\nHuman Instruction: {instruction}\nDecide your next action(s)."""
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -501,5 +501,5 @@ class AndroidEnv(BaseEnv):
             print(f"[ERROR] {self.task_name}_{self.rollout_id}_{self.device_id} Failed to save rollout: {e}")
             logger.debug(f"[ERROR] {self.task_name}_{self.rollout_id}_{self.device_id} Failed to save rollout: {e}")
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

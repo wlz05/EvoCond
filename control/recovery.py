@@ -293,5 +293,5 @@ def control_schema(state):
                 "searl_plan": {"type": "string"}},
                 "required": ["goal_epoch", "base_revision", "question_sha256"], "additionalProperties": False}}
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

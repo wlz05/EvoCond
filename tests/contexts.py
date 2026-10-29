@@ -29,5 +29,5 @@ class ContextTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             context.visible('sum', constraints={'budget': float('nan')})
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

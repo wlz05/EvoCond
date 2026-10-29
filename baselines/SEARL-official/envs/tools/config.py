@@ -10,5 +10,5 @@ REDIS_HOST = os.environ.get("SEARL_REDIS_HOST", "127.0.0.1")
 REDIS_PORT = int(os.environ.get("SEARL_REDIS_PORT", "6379"))
 REDIS_DB = int(os.environ.get("SEARL_REDIS_DB", "0"))
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

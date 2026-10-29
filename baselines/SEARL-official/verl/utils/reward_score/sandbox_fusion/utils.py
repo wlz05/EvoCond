@@ -440,5 +440,5 @@ def check_correctness(
     logger.info(f"Correctness check finished. Results: {results}")
     return results, metadata_list
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

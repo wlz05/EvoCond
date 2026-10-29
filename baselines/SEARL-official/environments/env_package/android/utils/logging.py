@@ -24,5 +24,5 @@ def log_with_time(msg: str, level=logging.DEBUG):
 
     logging.log(level, f"[{now}] {msg}")
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

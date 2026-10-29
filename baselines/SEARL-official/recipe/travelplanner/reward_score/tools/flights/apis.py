@@ -75,5 +75,5 @@ class Flights:
             city_set.add(unit[5])
             city_set.add(unit[6])
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

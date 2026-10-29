@@ -271,5 +271,5 @@ if __name__ == "__main__":
         final_answer_reward = evaluate_plan(query, plan['answer'])
         print(final_answer_reward)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

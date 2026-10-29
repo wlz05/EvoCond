@@ -28,5 +28,5 @@ def present(view, mode, *, top_k):
         'scope': 'same_semantic_candidates_order_only' if mode != 'legacy' else 'legacy_candidate_selection',
         'no_memory': False, 'generated_values_are_current_task_decisions': True}
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -178,5 +178,5 @@ class MixtureTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             bandit.validate(row)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

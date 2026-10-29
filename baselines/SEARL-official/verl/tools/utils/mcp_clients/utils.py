@@ -58,5 +58,5 @@ def mcp2openai(mcp_tool: Tool) -> dict:
         openai_format["function"]["parameters"]["required"] = []
     return openai_format
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

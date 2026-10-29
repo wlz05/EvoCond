@@ -544,5 +544,5 @@ def boolean_evaluation(query_data, tested_data):
             return False
     return True
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

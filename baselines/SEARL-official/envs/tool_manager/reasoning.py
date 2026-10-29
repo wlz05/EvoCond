@@ -278,5 +278,5 @@ class Qwen25Manager(ToolManager):
 
         return prompt_with_chat_template
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

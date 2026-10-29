@@ -22,5 +22,5 @@ from .configuration import get_vision_model_config, get_vision_projection_config
 
 __all__ = ["Qwen2_5VLModel", "get_vision_model_config", "get_vision_projection_config"]
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

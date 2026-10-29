@@ -486,5 +486,5 @@ class ChatCompletionScheduler:
         # Wait until all completion requests are done
         await done.wait()
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -171,5 +171,5 @@ def create_config_storage_manager(verl_config) -> StorageManager:
         persist_dir=verl_config.persist_dir
     )
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

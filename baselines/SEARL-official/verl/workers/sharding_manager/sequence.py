@@ -63,5 +63,5 @@ class FSDPUlyssesShardingManager(BaseShardingManager):
             data = data.chunk(chunks=sp_size)[sp_rank]
         return data
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

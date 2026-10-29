@@ -302,5 +302,5 @@ class FSDPCheckpointManager(BaseCheckpointManager):
 
         self.previous_saved_paths.append(local_path)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

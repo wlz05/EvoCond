@@ -555,5 +555,5 @@ def compute_score_EED(solution_str, ground_truth, extra_info):
 
     return result["score"]
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

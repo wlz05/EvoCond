@@ -533,5 +533,5 @@ def distributed_masked_mean(local_tensor, local_mask):
     global_mean = local_sum / local_num
     return global_mean
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

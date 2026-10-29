@@ -470,5 +470,5 @@ class MegatronModelMerger(BaseModelMerger):
     def cleanup(self):
         torch.distributed.destroy_process_group()
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

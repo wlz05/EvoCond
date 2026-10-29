@@ -11,5 +11,5 @@ def official_root():
         raise RuntimeError("Set SEARL_OFFICIAL_ROOT to the pinned, overlay-installed official checkout before testing")
     return root.resolve()
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

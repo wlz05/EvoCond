@@ -135,5 +135,5 @@ def compute_reward_async(data: DataProto, config=None, tokenizer=None, reward_fn
 
     return compute_reward(data, reward_fn)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

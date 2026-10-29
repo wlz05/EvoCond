@@ -515,5 +515,5 @@ def enable_activation_offloading(model, strategy, enable_ckpt=False):
             module = module._fsdp_wrapped_module
         handler.wrap_module_forward_method(module)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

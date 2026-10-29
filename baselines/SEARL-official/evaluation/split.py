@@ -62,5 +62,5 @@ if __name__ == "__main__":
 
     split_log_into_chunks(args.log_path, args.output_dir, args.pattern)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

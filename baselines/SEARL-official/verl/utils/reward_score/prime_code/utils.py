@@ -58,5 +58,5 @@ def check_correctness(in_outs: Optional[dict], generation, timeout=10, debug=Tru
             print("global timeout")
     return result[0], metadata_list
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

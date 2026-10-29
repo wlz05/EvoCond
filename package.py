@@ -80,5 +80,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
     print(json.dumps(build(args.workspace.resolve(), args.output.resolve()), indent=2))
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

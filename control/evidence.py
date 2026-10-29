@@ -146,5 +146,5 @@ def reference_parameters(parameters):
                             for name, schema in result.get("properties", {}).items()}
     return result
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

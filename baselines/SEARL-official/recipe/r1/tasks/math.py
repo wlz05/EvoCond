@@ -36,5 +36,5 @@ def compute_score(model_output: str, ground_truth: str) -> bool:
 
     return ret_score
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

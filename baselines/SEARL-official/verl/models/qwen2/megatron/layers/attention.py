@@ -383,5 +383,5 @@ class ParallelQwen2AttentionRmPad(ParallelQwen2Attention):
         attn_output_unpad = self.o_proj(attn_output_unpad)[0]
         return attn_output_unpad
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

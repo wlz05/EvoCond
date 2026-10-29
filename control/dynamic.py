@@ -305,5 +305,5 @@ def update_edge(registry: dict, *, source_name: str, target_name: str, task_id: 
     validate(updated)
     return updated
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

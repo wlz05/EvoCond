@@ -41,5 +41,5 @@ def install(root=None):
     sys.meta_path.insert(0, finder)
     return finder
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

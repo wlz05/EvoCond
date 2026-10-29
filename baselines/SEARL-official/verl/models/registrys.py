@@ -56,5 +56,5 @@ def get_weight_saver(arch: str):
         f"{_MODEL_WEIGHT_MEGATRON_SAVER_REGISTRY.keys()}"
     )
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

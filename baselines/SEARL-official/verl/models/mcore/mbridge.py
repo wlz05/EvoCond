@@ -25,5 +25,5 @@ except ImportError:
 
 __all__ = ["AutoBridge", "make_value_model", "freeze_moe_router"]
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

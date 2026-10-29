@@ -19,5 +19,5 @@ from .utils import reduce_metrics
 
 __all__ = ["reduce_metrics"]
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -474,5 +474,5 @@ def merge_megatron_ckpt_gptmodel_mixtral(
 ):
     raise NotImplementedError("merge_megatron_ckpt_gptmodel_mixtral is not implemented")
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

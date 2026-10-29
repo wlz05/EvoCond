@@ -93,5 +93,5 @@ class HermesToolParser(ToolParser):
 
         return content, function_calls
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

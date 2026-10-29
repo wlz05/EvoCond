@@ -61,5 +61,5 @@ def compute_score(solution_str, ground_truth, method="strict", format_score=0.0,
         else:
             return format_score
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

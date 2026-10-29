@@ -429,5 +429,5 @@ def merge_megatron_ckpt_qwen2(wrapped_models, config, dtype, is_value_model=Fals
     print_rank_0(f"merge megatron ckpt done, time elapsed {time.time() - start_time}s")
     return state_dict
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -38,5 +38,5 @@ class Attractions:
         results = results.reset_index(drop=True)
         return results
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

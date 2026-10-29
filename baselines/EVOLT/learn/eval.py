@@ -39,5 +39,5 @@ def aurc(scores: list[float], labels: list[int]) -> float:
 def report(scores: list[float], labels: list[int], bins: int = 10) -> dict:
     return {"brier": brier(scores, labels), "ece": ece(scores, labels, bins), "aurc": aurc(scores, labels)}
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

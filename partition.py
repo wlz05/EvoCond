@@ -133,5 +133,5 @@ def arguments():
 if __name__ == "__main__":
     print(json.dumps(prepare(arguments()), ensure_ascii=True, indent=2))
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

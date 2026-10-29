@@ -20,5 +20,5 @@ from .group import ClassWithInitArgs, ResourcePool, WorkerGroup
 
 __all__ = ["Worker", "WorkerGroup", "ClassWithInitArgs", "ResourcePool"]
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -170,5 +170,5 @@ class FSDPActorConfig(ActorConfig):
                     "When using sequence parallelism for actor/ref policy, you must enable `use_remove_padding`."
                 )
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

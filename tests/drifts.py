@@ -119,5 +119,5 @@ class DriftTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 drift.validate(changed, 'a')
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

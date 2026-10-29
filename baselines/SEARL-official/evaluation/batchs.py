@@ -225,5 +225,5 @@ if __name__ == "__main__":
     success = main()
     exit(0 if success else 1)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -6,5 +6,5 @@ from .context import parse_llm_raw_response
 from .parse import PARSE_FUNC_MAP
 from .android import call_model
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

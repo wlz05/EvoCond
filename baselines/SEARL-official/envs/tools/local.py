@@ -65,5 +65,5 @@ if __name__ == "__main__":
     endpoint(LOCAL_SEARCH_URL)
     mcp.run(transport="stdio")
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

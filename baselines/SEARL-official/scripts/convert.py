@@ -229,5 +229,5 @@ if __name__ == "__main__":
     args = _init_args()
     convert_hf_to_mcore(args.hf_model_path, args.output_path, args.use_cpu_initialization, args.test)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

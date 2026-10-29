@@ -72,5 +72,5 @@ def unique(base: str, used: set[str]) -> str:
             return value
         index += 1
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

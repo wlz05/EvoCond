@@ -64,5 +64,5 @@ def identify(value: Any, choices: Mapping[str, Item]) -> Item | None:
         index[key] = item
     return index.get(target)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

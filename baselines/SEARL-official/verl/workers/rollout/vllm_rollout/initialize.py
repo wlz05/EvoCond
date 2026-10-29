@@ -42,5 +42,5 @@ if "ROCM_PATH" in os.environ:
     else:
         raise ValueError(f"Warning: Could not parse version format: {vllm_package_version}")
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

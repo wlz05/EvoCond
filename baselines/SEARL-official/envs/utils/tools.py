@@ -232,5 +232,5 @@ class ToolUtils:
         final_output = DataProto(batch=final_batch)
         return final_output
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

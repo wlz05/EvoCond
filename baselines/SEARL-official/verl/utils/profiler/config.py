@@ -53,5 +53,5 @@ class ProfilerConfig(BaseConfig):
             f"Profiler ranks must be of type list, got {type(self.ranks)}"
         )
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

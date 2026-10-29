@@ -159,5 +159,5 @@ class TransferTests(unittest.TestCase):
         self.assertLess(row['actor_adoption_margins']['newactor'], 0)
         self.assertGreater(row['decision']['mean_regret'], 0)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

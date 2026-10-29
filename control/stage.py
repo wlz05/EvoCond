@@ -462,5 +462,5 @@ class Engine:
         if self.snapshot != state['snapshot']:
             raise ValueError('Inconsistent frozen contextual checkpoint')
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

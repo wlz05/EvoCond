@@ -68,5 +68,5 @@ def response_loss_mask(responses, corrected_turns):
     return [0 if i in suppressed else (i+1) % 2
             for i, segment in enumerate(responses) for _ in segment]
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -97,5 +97,5 @@ def decide(model: dict, values: list[float], *, minimum_support: float = 0.0) ->
     return {"decision": "fuse", "structure_weight": alpha,
             "predicted_delta": delta, "reason": "paired_train_reward_teacher"}
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

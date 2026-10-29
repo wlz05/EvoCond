@@ -58,5 +58,5 @@ def make_batch_generator(batches, vpp_size):
         batch_generator = iter(batches)
     return batch_generator
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

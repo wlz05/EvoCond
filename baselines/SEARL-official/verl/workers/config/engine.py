@@ -68,5 +68,5 @@ class FSDPEngineConfig(BaseConfig):
     model_dtype: str = "fp32"
     use_orig_params: bool = False
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

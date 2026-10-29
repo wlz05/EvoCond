@@ -345,5 +345,5 @@ class MegatronRewardModel(BasePPORewardModel):
                     param.data = param.data.to(get_device_id(), non_blocking=True)
             self.device = get_device_name()
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

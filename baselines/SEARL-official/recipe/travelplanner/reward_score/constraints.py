@@ -265,5 +265,5 @@ def compute_hard_constraint(final_answer: dict) -> float:
         print(f"DEBUG: Hard-constraint reward failed: {e}")
         return 0.0
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

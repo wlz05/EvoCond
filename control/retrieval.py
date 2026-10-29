@@ -129,5 +129,5 @@ def rank(registry: dict, encoder: Encoder, alignment: dict, teacher: dict | None
             "snapshot_hash": dynamic.digest(registry),
             "warning": "Legacy v1 per-candidate router; use v2 for new experiments"}
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

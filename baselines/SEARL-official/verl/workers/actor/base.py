@@ -40,5 +40,5 @@ class BasePPOActor(ABC):
         'Update the policy with an iterator of DataProto\n\n        Args:\n            data (DataProto): an iterator over the DataProto that returns by\n                ```make_minibatch_iterator```\n\n        Returns:\n            Dict: a dictionary contains anything. Typically, it contains the statistics during updating the model\n            such as ```loss```, ```grad_norm```, etc,.\n\n        '
         pass
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -491,5 +491,5 @@ class FatigueTests(unittest.TestCase):
         self.assertEqual(paired['per_seed']['42']['reference_failures'], 1)
         self.assertEqual(paired['per_seed']['52']['reference_failures'], 0)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

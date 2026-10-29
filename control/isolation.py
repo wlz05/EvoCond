@@ -262,5 +262,5 @@ def load_verified_backend(config_path, receipt_path):
     receipt = strict_json(Path(receipt_path).read_text(encoding="utf-8"))
     return VerifiedSandboxFusion(config, receipt)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

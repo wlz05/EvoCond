@@ -45,5 +45,5 @@ def is_ipv6(ip_str: str) -> bool:
     except ipaddress.AddressValueError:
         return False
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

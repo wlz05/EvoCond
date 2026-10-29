@@ -213,5 +213,5 @@ def perform_single_search_batch(
 
     return result_text, metadata
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

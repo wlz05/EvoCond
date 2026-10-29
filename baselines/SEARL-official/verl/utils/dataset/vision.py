@@ -88,5 +88,5 @@ def process_multi_modal_inputs_for_minicpmo(input_ids, attention_mask, position_
     multi_modal_inputs["position_ids"] = position_ids
     return {"data": multi_modal_inputs}
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -210,5 +210,5 @@ class SearchTool(BaseTool):
         if instance_id in self._instance_dict:
             del self._instance_dict[instance_id]
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

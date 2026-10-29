@@ -108,5 +108,5 @@ def convert_numpy_to_PIL(numpy_array: np.ndarray) -> Image.Image:
     else:
         raise ValueError(f"Unsupported number of channels: {numpy_array.shape[-1]}. Expected 3 (RGB).")
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

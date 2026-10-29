@@ -69,5 +69,5 @@ def compute_score(completion, test_cases):
 
     return success
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

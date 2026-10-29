@@ -29,5 +29,5 @@ def verified_creation_result(value):
         return False
     return False
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

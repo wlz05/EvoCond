@@ -61,5 +61,5 @@ class Trainer:
                 self.agent.resolve(proposal, True, values[best])
         return {"policy": policy, "turn": turns, "teacher": teacher, "utility": values, "committed": best}
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

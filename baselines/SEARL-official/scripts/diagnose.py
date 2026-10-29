@@ -288,5 +288,5 @@ if __name__ == "__main__":
     if args.system:
         check_system_info()
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

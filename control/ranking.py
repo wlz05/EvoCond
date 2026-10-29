@@ -276,5 +276,5 @@ def prepare_alignment(pairs: list[dict], *, encoder_id: str, train_ids: set[str]
     validate_alignment(aligned, encoder_id=encoder_id)
     return aligned
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -103,5 +103,5 @@ class ToolManager(ABC):
     def execute_actions(self, responses: List[str]):
         raise NotImplementedError
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

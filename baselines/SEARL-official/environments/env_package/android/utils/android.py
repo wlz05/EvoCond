@@ -19,5 +19,5 @@ def call_model(
     '\n    Args:\n        image_base64_list (List[str]):\n            A list of image strings encoded in base64 (without the MIME prefix).\n            Each item should be a single image in base64 format.\n        prompt_content (str):\n            A natural language instruction or question that guides the model\'s response,\n            such as "Describe the image" or "What is this UI?".\n\n    Returns:\n        str:\n            The textual output returned by the model, typically a natural language answer.\n    '
     return caller.call(images, prompt)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

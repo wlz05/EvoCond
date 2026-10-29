@@ -964,5 +964,5 @@ def get_transformer_layer_offset(pipeline_rank, vp_rank, config: TransformerConf
         offset = 0
     return offset
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

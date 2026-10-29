@@ -162,5 +162,5 @@ def reversal():
                            interpretation='prediction_only_not_causal_advantage'))
     return result
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

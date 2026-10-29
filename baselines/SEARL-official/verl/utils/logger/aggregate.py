@@ -94,5 +94,5 @@ def log_with_rank(message: str, rank, logger: logging.Logger, level=logging.INFO
     if not log_only_rank_0 or rank == 0:
         logger.log(level, f"[Rank {rank}] {message}")
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

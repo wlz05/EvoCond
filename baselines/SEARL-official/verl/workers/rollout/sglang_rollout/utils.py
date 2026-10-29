@@ -87,5 +87,5 @@ def get_named_tensor_buckets(
     if current_bucket:
         yield current_bucket
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

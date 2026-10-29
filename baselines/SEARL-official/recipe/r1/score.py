@@ -31,5 +31,5 @@ def reward_func(data_source, solution_str, ground_truth, extra_info=None):
     else:
         raise NotImplementedError
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

@@ -38,5 +38,5 @@ def measured(context, *, episode, arm, actor, bank, elapsed, variant=None):
         success=success, metrics=metrics, collection_branch=context.get('collection_branch', False),
         scope='observed_task_outcome_not_causal_edge_credit_or_SOTA')
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

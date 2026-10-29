@@ -503,5 +503,5 @@ def distill(previous, rows, *, steps=100):
         adoption_protocol=PROTOCOL, target_reference=REFERENCE,
         target_kind='compressed_previous_policy', scope='new_window_required_no_old_bound')
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

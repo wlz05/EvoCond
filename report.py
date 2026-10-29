@@ -52,5 +52,5 @@ def paired_summary(arms, *, seed=42, resamples=2000):
             "binary_paired_gain_loss": all(count == 1 for count in sizes.values())}
     return result
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

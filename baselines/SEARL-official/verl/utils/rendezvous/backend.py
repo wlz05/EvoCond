@@ -72,5 +72,5 @@ def create_nccl_communicator_in_ray(
             logging.info("failed to get nccl_id for %d time, sleep for %d seconds", i + 1, interval_s)
             time.sleep(interval_s)
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

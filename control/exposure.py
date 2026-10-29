@@ -71,5 +71,5 @@ def summarize(selections):
         selected_payload_bytes=sum(row['selected']['bytes'] for row in rows),
         semantic_payload_bytes=sum(row['semantic']['bytes'] for row in rows))
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

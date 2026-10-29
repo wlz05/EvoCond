@@ -26,5 +26,5 @@ def compute_score(solution_str, ground_truth) -> float:
     score = 1.0 if extracted_answer == ground_truth else 0.0
     return score
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

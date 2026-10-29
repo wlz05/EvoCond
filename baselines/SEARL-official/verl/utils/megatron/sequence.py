@@ -43,5 +43,5 @@ def pad_to_sequence_parallel(unpad_tokens: torch.Tensor):
 
     return unpad_tokens
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

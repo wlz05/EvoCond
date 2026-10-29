@@ -38,5 +38,5 @@ def get_reward_manager_cls(name):
         raise ValueError(f"Unknown reward manager: {name}")
     return REWARD_MANAGER_REGISTRY[name]
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

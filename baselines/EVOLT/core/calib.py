@@ -76,5 +76,5 @@ class Calib:
             raise ValueError("calibration state is invalid")
         return model
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

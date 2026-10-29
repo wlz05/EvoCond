@@ -283,5 +283,5 @@ def forward_with_triton_backend(
         rope_deltas=rope_deltas,
     )
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

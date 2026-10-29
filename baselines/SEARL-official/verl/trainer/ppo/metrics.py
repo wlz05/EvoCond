@@ -411,5 +411,5 @@ def compute_gigpo_metrics() -> dict[str, Any]:
         print(f"Warning: Failed to compute GiGPO metrics: {e}")
         return {}
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

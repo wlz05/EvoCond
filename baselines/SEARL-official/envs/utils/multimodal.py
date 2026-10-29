@@ -316,5 +316,5 @@ class MMToolUtils(ToolUtils):
             merged_inputs.append([merged_dict])
         return merged_inputs
 
-# Author: Weiliang Zhu
+# Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com
