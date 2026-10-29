@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
 # EvoCond: Preserving Conditional Tool Relations for Co-Evolving Language Agents
 
-# Original Authors: Tim Henderson and Steve Johnson
+# Copyright (c) 2012 Tim Henderson and Stephen Johnson.
+# Copyright (c) 2015 Gustavo Sousa.
+# Copyright (c) 2017 Erick R. Fonseca.
+# SPDX-License-Identifier: BSD-3-Clause
+# License: https://github.com/timtadh/zhang-shasha/blob/master/LICENSE
 
 #For licensing see the LICENSE file in the top level directory.
 

@@ -2,7 +2,7 @@
 
 **EvoCond** learns the current influence of accumulated tool relations. Shared capabilities retain condition-feedback events; each query reconstructs a directed combination proposal, and randomized presentation estimates its terminal benefit relative to the current actor's semantic execution. Adoption is re-evaluated when the actor and public inventory change. Historical support determines the proposal; current execution benefit determines its influence.
 
-We study **structural memory fatigue**: relation evidence keeps growing while its incremental execution benefit declines. Historical support and current benefit answer different questions. Conditions determine which past combinations support a proposal; the current actor's execution determines whether that proposal helps. EvoCond keeps these decisions distinct and learns adoption from their actual outcomes.
+We study **structural memory fatigue**: relation evidence keeps growing while its incremental execution benefit declines. Actor learning changes that benefit from both sides: fewer remaining errors can be rescued, while more successful decisions can be disrupted. Historical support establishes a combination proposal; current execution determines its influence. EvoCond retains conditional evidence and learns adoption relative to the same actor's semantic execution.
 
 EvoCond achieves state-of-the-art pass@1 performance in mathematical and multi-hop reasoning. Experiments use **8 NVIDIA GeForce RTX 4090 GPUs**, with random seeds **42, 52, 3047, and 3407**.
 
@@ -460,6 +460,10 @@ The four-seed output retains absolute success, cost, clipped cost, and utility f
 | Success | Success | `both_succeeded` |
 
 `rescue_share` and `harm_share` divide their counts by all scheduled questions; their difference is the success-rate lift. `rescue_rate` divides by semantic failures, while `harm_rate` divides by semantic successes. A stronger semantic execution reduces the available errors and expands the initially successful group. Even unchanged conditional rescue and harm rates can therefore produce a reversal in net success lift. Compare these counts and rates across the frozen actor-by-bank cells before attributing a smaller gain to memory quality.
+
+The panel adds `opportunity_changes` for `actor_at_old_bank`, `actor_at_new_bank`, and `total_change`. Each comparison splits the observed utility change into `opportunity_mix`, `rescue_rate`, `harm_rate`, and `cost`; these sum to `total`. The opportunity term changes the proportions of semantic failures and successes, while the two response terms change guidance outcomes within those groups. Symmetric midpoint weights make every term reverse sign when the comparison is reversed. The cost contribution is the negative change in the clipped cost penalty.
+
+This accounting locates a decline that comes from fewer rescue opportunities, changed guidance responses, or greater cost. It describes observed groups, whose membership can change with the actor. An empty opportunity group leaves the three opportunity/response terms undefined; observed total and cost changes remain available. Four-seed summaries retain `per_seed` values and `defined_seeds`, and publish a complete mean only when all four seeds define the term. The teacher continues to learn current relative utility from randomized presentation.
 
 Each cell's `benefit_components` accounts for the same full task set: `net_utility_lift = rescue_share - harm_share - cost_penalty`. The signed `cost_penalty` is the frozen reward coefficient times the alternative-minus-reference clipped cost; cost savings make it negative. Full costs remain in the outcome summaries. Optional adopted outcomes receive the same accounting against both semantic and structural execution. Four-seed summaries retain each component's per-seed mean and between-run variation. This separates fewer rescue opportunities, more guidance damage, and greater cost without changing the adoption target.
 

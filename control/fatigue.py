@@ -218,6 +218,49 @@ def components(rows, penalty, alternative='structural', reference='semantic'):
     return dict(rescue_share=moments(rescued), harm_share=moments(harmed),
         cost_penalty=moments(costs), net_utility_lift=moments(utility))
 
+def opportunity(previous, current):
+    # Separate opportunity composition from within-group response changes.
+    key = 'structural_vs_semantic'
+    left, right = [cell['paired_success'][key] for cell in (previous, current)]
+    if any(type(row['n']) is not int or row['n'] < 1 for row in (left, right)) or right['n'] != left['n']:
+        raise ValueError('Opportunity changes require the same positive task denominator')
+    costs = [cell['benefit_components'][key]['cost_penalty']['mean'] for cell in (previous, current)]
+    values = [cell['net_utility_lift']['mean'] for cell in (previous, current)]
+    if any(type(value) not in (int, float) or not math.isfinite(value) for value in costs+values):
+        raise ValueError('Opportunity changes require finite complete-cell estimates')
+    terms = dict(opportunity_mix=None, rescue_rate=None, harm_rate=None,
+        cost=costs[0]-costs[1], total=values[1]-values[0])
+    if not math.isfinite(terms['cost']) or not math.isfinite(terms['total']):
+        raise ValueError('Opportunity changes overflowed')
+    rates = dict(previous=left['rates'], current=right['rates'])
+    required = ('reference_failure_rate', 'rescue_rate', 'harm_rate')
+    if any(value is not None and (type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 1)
+            for row in rates.values() for value in (row[name] for name in required)):
+        raise ValueError('Opportunity and conditional response rates must be probabilities')
+    missing = [side+':'+name for side, row in rates.items() for name in required if row[name] is None]
+    if not missing:
+        q0, r0, h0 = [left['rates'][name] for name in required]
+        q1, r1, h1 = [right['rates'][name] for name in required]
+        qbar = (q0+q1)/2
+        terms.update(opportunity_mix=(q1-q0)*(r0+r1+h0+h1)/2,
+            rescue_rate=qbar*(r1-r0), harm_rate=-(1-qbar)*(h1-h0))
+        if not math.isclose(sum(terms[name] for name in terms if name != 'total'), terms['total'],
+                rel_tol=1e-10, abs_tol=1e-12):
+            raise ValueError('Opportunity accounting differs from the observed utility change')
+    return dict(n=left['n'], defined=not missing, undefined=missing, terms=terms, rates=rates,
+        scope='symmetric_descriptive_change_in_observed_cells')
+
+def summarize_changes(entries):
+    result = dict(per_seed={str(seed): row for seed, row in entries}, terms={}, defined_seeds={})
+    for name in entries[0][1]['terms']:
+        values = [(seed, row['terms'][name]) for seed, row in entries if row['terms'][name] is not None]
+        result['defined_seeds'][name] = [seed for seed, _ in values]
+        metric = moments(value for _, value in values)
+        if len(values) != len(entries):
+            metric.update(mean=None, sample_std=None, standard_error=None)
+        result['terms'][name] = metric
+    return result
+
 def summarize_pairs(entries):
     result = dict(per_seed={str(seed): row for seed, row in entries}, rates={}, defined_seeds={})
     for name in entries[0][1]['rates']:
@@ -329,9 +372,14 @@ def panel(path):
         bank_at_old_actor=[a-b for a, b in zip(bank, first)],
         interaction=[d-c-b+a for a, b, c, d in zip(first, bank, actor, last)],
         total_change=[d-a for a, d in zip(first, last)])
+    comparisons = dict(actor_at_old_bank=('actor0_bank0', 'actor1_bank0'),
+        actor_at_new_bank=('actor0_bank1', 'actor1_bank1'), total_change=('actor0_bank0', 'actor1_bank1'))
+    changes = {name: dict(source=before, target=after, **opportunity(summaries[before], summaries[after]))
+        for name, (before, after) in comparisons.items()}
     return dict(format='evocond_fatigue_panel_report_v1', seed=manifest['seed'], protocol=protocol,
         task_count=len(order), paired_ids_sha256=dynamic.digest(order), cells=summaries,
         decomposition={name: moments(values) for name, values in terms.items()},
+        opportunity_changes=changes,
         source_sha256=sha256(manifest_bytes).hexdigest(), inference_unit='paired_base_question_within_one_training_seed',
         scope='fixed_structure_marginal_value_not_raw_accuracy_or_automatic_mechanism_proof', deployment_decision=False)
 
@@ -347,6 +395,9 @@ def aggregate(paths):
         sources={str(row['seed']): row['source_sha256'] for row in reports})
     result['decomposition'] = {name: moments(row['decomposition'][name]['mean'] for row in reports)
         for name in reports[0]['decomposition']}
+    result['opportunity_changes'] = {name: summarize_changes(sorted(
+        (row['seed'], row['opportunity_changes'][name]) for row in reports))
+        for name in reports[0]['opportunity_changes']}
     optional = {'adopted_vs_semantic', 'adopted_vs_structural'}
     fields = {'net_utility_lift', 'success_lift', 'cost_lift', 'clipped_cost_lift'}
     for row in reports:

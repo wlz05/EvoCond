@@ -289,6 +289,59 @@ class FatigueTests(unittest.TestCase):
         self.assertEqual(previous['rates']['reference_failure_rate'], .75)
         self.assertEqual(current['rates']['reference_failure_rate'], .25)
 
+    def transition_cell(self, pairs, extra_cost=0.):
+        rows = [dict(semantic=dict(success=float(a), clipped_cost=0., utility=float(a)),
+            structural=dict(success=float(b), clipped_cost=extra_cost, utility=b-.1*extra_cost)) for a, b in pairs]
+        parts = fatigue.components(rows, .1)
+        return dict(paired_success=dict(structural_vs_semantic=fatigue.success_pairs(rows)),
+            benefit_components=dict(structural_vs_semantic=parts), net_utility_lift=parts['net_utility_lift'])
+
+    def test_opportunity_composition_alone_explains_constant_rate_value_reversal(self):
+        old = self.transition_cell([(0, 1)]*3+[(0, 0)]*3+[(1, 0), (1, 1)])
+        new = self.transition_cell([(0, 1), (0, 0)]+[(1, 0)]*3+[(1, 1)]*3)
+        change = fatigue.opportunity(old, new)
+        self.assertTrue(change['defined'])
+        self.assertEqual(change['terms'], dict(opportunity_mix=-.5, rescue_rate=0., harm_rate=0., cost=0., total=-.5))
+
+    def test_opportunity_accounting_separates_response_and_cost_with_symmetric_signs(self):
+        old = self.transition_cell([(0, 1)]*3+[(0, 0)]*3+[(1, 0), (1, 1)])
+        new = self.transition_cell([(0, 1)]*2+[(1, 1)]*6, extra_cost=.2)
+        forward, reverse = fatigue.opportunity(old, new), fatigue.opportunity(new, old)
+        expected = dict(opportunity_mix=-.5, rescue_rate=.25, harm_rate=.25, cost=-.02, total=-.02)
+        for name, value in expected.items():
+            self.assertAlmostEqual(forward['terms'][name], value)
+            self.assertAlmostEqual(reverse['terms'][name], -value)
+        self.assertAlmostEqual(sum(value for name, value in forward['terms'].items() if name != 'total'),
+            forward['terms']['total'])
+
+    def test_opportunity_accounting_preserves_empty_groups_without_zero_imputation(self):
+        report = fatigue.panel(self.save(self.fixture()))
+        change = report['opportunity_changes']['actor_at_old_bank']
+        self.assertFalse(change['defined'])
+        self.assertIn('previous:harm_rate', change['undefined'])
+        self.assertIn('current:rescue_rate', change['undefined'])
+        for name in ('opportunity_mix', 'rescue_rate', 'harm_rate'):
+            self.assertIsNone(change['terms'][name])
+        self.assertEqual(change['terms']['total'], -1.)
+        self.assertEqual(change['terms']['cost'], 0.)
+        bad = deepcopy(report['cells']['actor1_bank0'])
+        bad['paired_success']['structural_vs_semantic']['n'] = 1
+        with self.assertRaises(ValueError):
+            fatigue.opportunity(report['cells']['actor0_bank0'], bad)
+
+    def test_partial_opportunity_support_cannot_supply_a_four_seed_mean(self):
+        old = self.transition_cell([(0, 1)]*3+[(0, 0)]*3+[(1, 0), (1, 1)])
+        new = self.transition_cell([(0, 1), (0, 0)]+[(1, 0)]*3+[(1, 1)]*3)
+        defined = fatigue.opportunity(old, new)
+        missing = fatigue.opportunity(self.transition_cell([(0, 1)]*8), self.transition_cell([(1, 1)]*8))
+        result = fatigue.summarize_changes([(42, defined), (52, missing), (3047, missing), (3407, missing)])
+        self.assertEqual(result['defined_seeds']['opportunity_mix'], [42])
+        self.assertEqual(result['terms']['opportunity_mix']['n'], 1)
+        self.assertIsNone(result['terms']['opportunity_mix']['mean'])
+        self.assertIsNone(result['terms']['opportunity_mix']['standard_error'])
+        self.assertEqual(result['terms']['total']['n'], 4)
+        self.assertEqual(result['terms']['cost']['n'], 4)
+
     def test_empty_transition_groups_stay_undefined_and_nonbinary_outcomes_fail(self):
         report = fatigue.success_pairs([])
         self.assertEqual(report['n'], 0)
@@ -457,6 +510,11 @@ class FatigueTests(unittest.TestCase):
         self.assertEqual(report['decomposition']['total_change']['n'], 4)
         self.assertEqual(report['decomposition']['total_change']['mean'], -1)
         self.assertEqual(report['decomposition']['total_change']['sample_std'], 0)
+        changes = report['opportunity_changes']['actor_at_old_bank']
+        self.assertEqual(changes['terms']['total']['mean'], -1)
+        self.assertEqual(changes['terms']['total']['n'], 4)
+        self.assertEqual(changes['terms']['opportunity_mix']['n'], 0)
+        self.assertIsNone(changes['terms']['opportunity_mix']['mean'])
         outcomes = report['cells']['actor1_bank1']['outcomes']
         self.assertEqual(outcomes['structural']['success']['n'], 4)
         self.assertEqual(outcomes['structural']['success']['mean'], 1)
