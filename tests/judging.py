@@ -159,6 +159,31 @@ class JudgeTests(unittest.TestCase):
         self.output.mkdir()
         with self.assertRaisesRegex(ValueError, "no overwrite"):
             judge.run(self.manifest_path, self.author, self.model, self.output, execute=True)
+
+    def test_json_reader_accepts_bom_but_rejects_duplicate_and_overflow_numbers(self):
+        path = self.root/'input.json'
+        path.write_text('{"value":0.5}', encoding='utf-8-sig')
+        self.assertEqual(judge._json_file(path), {'value': .5})
+        for text in ('{"value":1,"value":2}', '{"value":1e999}', '{"value":NaN}'):
+            path.write_text(text, encoding='utf-8')
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                judge._json_file(path)
+
+    def test_report_publication_preserves_prior_output_and_rejects_partial_json(self):
+        path = self.root/'report.json'
+        with self.assertRaises(ValueError):
+            judge._write(path, {'value': float('nan')})
+        self.assertFalse(path.exists())
+        with patch('control.contracts.os.link', side_effect=OSError('Interrupted publication')):
+            with self.assertRaises(OSError):
+                judge._write(path, {'complete': True})
+        self.assertFalse(path.exists())
+        self.assertEqual(list(self.root.glob('.evocond-*.tmp')), [])
+        judge._write(path, {'complete': True})
+        payload = path.read_bytes()
+        with self.assertRaises(FileExistsError):
+            judge._write(path, {'complete': False})
+        self.assertEqual(path.read_bytes(), payload)
     def test_transport_preserves_author_prompt_and_binary_results(self):
         backend = Backend()
         wrapped = judge.StrictAuthorJudge(backend)

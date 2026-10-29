@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 # EvoCond: Preserving Conditional Tool Relations for Co-Evolving Language Agents
 
+# Original Authors: Tim Henderson and Steve Johnson
+
 #For licensing see the LICENSE file in the top level directory.
 
 # This is a modified version of zss package.

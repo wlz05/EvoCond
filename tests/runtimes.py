@@ -10,6 +10,7 @@ from pathlib import Path
 import tempfile
 import time
 import unittest
+from unittest.mock import Mock
 from types import SimpleNamespace
 from control import dynamic, edges
 from control.runtime import Runtime, load_config, plan_from_searl, recovery, reward_outcomes, schemas, task_identity
@@ -294,6 +295,37 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(json.loads(result)["result"], 9)
         result = asyncio.run(execute(actor, {"name": "add", "args": {"x": "bad", "y": 5}, "_runtime_context": episode}))
         self.assertTrue(json.loads(result)['audit']['blocked'])
+
+    def test_retrieval_service_errors_never_become_successful_runtime_evidence(self):
+        from control.isolation import SandboxInfrastructureError
+        execute = actor_method('_execute_runtime_tool')
+        self.runtime.config['value_contracts'] = False
+        for text in ('Search error: retrieval HTTP status 503', 'An error occurred', '', None):
+            call = Mock(return_value=text)
+            actor = SimpleNamespace(method_runtime=self.runtime,
+                tool_manager=SimpleNamespace(functions=[], _call_tool=call), graphrag_engine=None, mcps={})
+            episode = self.runtime.begin('sum', PLAN, split='train')
+            with self.subTest(text=text), self.assertRaises(SandboxInfrastructureError):
+                asyncio.run(execute(actor, {'name': 'search', 'args': {'query': 'question'},
+                    '_runtime_context': episode}))
+            self.assertEqual(self.runtime.context(episode)['invocations'], [])
+            call.assert_called_once()
+
+    def test_search_input_errors_are_recoverable_and_empty_results_are_valid(self):
+        execute = actor_method('_execute_runtime_tool')
+        self.runtime.config['value_contracts'] = False
+        call = Mock(return_value='No relevant documents found')
+        actor = SimpleNamespace(method_runtime=self.runtime,
+            tool_manager=SimpleNamespace(functions=[], _call_tool=call), graphrag_engine=None, mcps={})
+        for arguments in ({'query': ''}, {'query': 'question', 'topk': True}, {'query': 'q', 'unexpected': 1}):
+            episode = self.runtime.begin('sum', PLAN, split='train')
+            result = json.loads(asyncio.run(execute(actor, {'name': 'search', 'args': arguments,
+                '_runtime_context': episode})))
+            self.assertEqual(result['error'], 'invalid_tool_input')
+        call.assert_not_called()
+        episode = self.runtime.begin('sum', PLAN, split='train')
+        asyncio.run(execute(actor, {'name': 'search', 'args': {'query': 'question'}, '_runtime_context': episode}))
+        self.assertTrue(self.runtime.context(episode)['invocations'][-1]['success'])
     def test_quarantined_tool_is_not_recorded_as_observed_version(self):
         actor = SimpleNamespace(method_runtime=self.runtime, tool_manager=SimpleNamespace(functions=[{
             'name': 'create_and_execute_mcp', 'parameters': {'type': 'object', 'properties': {}}}]),

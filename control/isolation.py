@@ -210,7 +210,10 @@ class VerifiedSandboxFusion:
         finally:
             connection.close()
     def run_source(self, source, timeout=15.0):
-        validate_deployment(self.config, self.receipt)
+        try:
+            validate_deployment(self.config, self.receipt)
+        except (ValueError, TypeError, OverflowError):
+            raise SandboxInfrastructureError('Sandbox deployment receipt is invalid or expired') from None
         if not isinstance(source, str) or not 0 < len(source.encode()) <= 131072:
             raise ModelToolInputError("Invalid sandbox source size")
         timeout = validate_timeout(timeout, self.config["max_run_seconds"])
@@ -222,6 +225,9 @@ class VerifiedSandboxFusion:
             if not isinstance(data, dict) or not isinstance(data.get("run_result"), dict):
                 raise ValueError("Malformed SandboxFusion response")
             result = data["run_result"]
+            if (not isinstance(data.get('status'), str) or not isinstance(result.get('status'), str)
+                    or result['status'] == 'Finished' and type(result.get('return_code')) is not int):
+                raise ValueError('Malformed sandbox execution status')
             stdout, stderr = result.get("stdout", ""), result.get("stderr", "")
             if not isinstance(stdout, str) or not isinstance(stderr, str):
                 raise ValueError("Malformed sandbox output")
@@ -258,8 +264,8 @@ class VerifiedSandboxFusion:
         return {**result, "result": value,
                 "stdout": "\n".join(line for line in result["stdout"].splitlines() if not line.startswith(marker))}
 def load_verified_backend(config_path, receipt_path):
-    config = strict_json(Path(config_path).read_text(encoding="utf-8"))
-    receipt = strict_json(Path(receipt_path).read_text(encoding="utf-8"))
+    config = strict_json(Path(config_path).read_text(encoding="utf-8-sig"))
+    receipt = strict_json(Path(receipt_path).read_text(encoding="utf-8-sig"))
     return VerifiedSandboxFusion(config, receipt)
 
 # Author: Weiliang Zhu; Other main author: Yaming Lv

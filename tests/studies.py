@@ -140,6 +140,28 @@ class StudyTests(unittest.TestCase):
             self.assertIn('--workspace', command)
             launch.assert_not_called()
 
+    def test_suite_checks_later_runtime_and_resume_before_starting_any_worker(self):
+        config = self.config()
+        values = study.matrix(config, 'main', [42], ['searl', 'pace'])
+        for failure in ('runtime', 'resume'):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                (root/'configs').mkdir()
+                (root/'configs/contextual.json').write_text(json.dumps(config), encoding='utf-8')
+                for name in values:
+                    protocol = root/'runs/reproduction/main'/name/'protocol.json'
+                    protocol.parent.mkdir(parents=True)
+                    protocol.write_text('{}', encoding='utf-8')
+                preparation = [{'prepared': True}, {'prepared': failure != 'runtime'}]
+                launches = [([], {})] if failure == 'runtime' else [([], {}), ValueError('Existing checkpoints')]
+                with patch.object(run, 'HERE', root), patch.object(study, 'prepared'), \
+                        patch.object(experiment, 'prepare', side_effect=preparation), \
+                        patch.object(experiment, 'launch_spec', side_effect=launches), \
+                        patch.object(run.subprocess, 'run') as launch, redirect_stdout(io.StringIO()), \
+                        self.assertRaises(ValueError):
+                    run.main(['train', '--conditions', 'searl', 'pace', '--seeds', '42', '--run'])
+                launch.assert_not_called()
+
     def test_initial_actor_architecture_is_not_inferred_from_folder_name(self):
         config = dict(model_type='qwen3', hidden_size=2560, intermediate_size=9728,
             num_hidden_layers=36, num_attention_heads=32, num_key_value_heads=8, vocab_size=151936)

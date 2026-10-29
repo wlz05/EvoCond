@@ -205,6 +205,8 @@ This entry uses GPU FAISS and loads the encoder; provision its resources separat
 
 Provision the isolated executor before training. Use `configs/searl_isolation.example.json` as the configuration schema and record the real deployment in `assets/deployment/isolation.json`. The deployment operator supplies `assets/deployment/inspection.json` following [the receipt schema](control/isolation.py): its configuration hash, endpoint, deployment identity, inspector, validity interval, and checks describe the inspected running service. `prepare` validates this receipt; it does not start or inspect the service. The native launcher connects to the configured retrieval and execution services, while final scoring is a separate command.
 
+An expired execution receipt, a broken retrieval service, or a malformed executor response stops collection. Invalid model-supplied tool arguments remain recoverable tool observations. A completed search with no matching documents is a valid empty result. Restore the inspected service before resuming from the last complete paired checkpoint; service outages do not supply tool-success evidence.
+
 ## Reproducibility
 
 `configs/contextual.json` specifies the eight-GPU experiment. `run.py` generates configurations for seeds **42, 52, 3047, 3407**, holding dataset partitions fixed. Every condition starts from the same initial Qwen3-4B checkpoint with an empty generated-tool inventory and the same built-in Python and search tools. Source, weights, data, deployment receipt, initialization stage, and execution settings are frozen before training.
@@ -393,7 +395,7 @@ The statistical suite compares full EvoCond, `simple` (raw geometry and untraine
 
 ### Epoch Tails and Checkpoints
 
-Before a suite starts, the runner checks every selected job against its frozen configuration, including normalized paths, sampling settings, and training budget. A mismatch stops the suite before the first worker starts. Checkpoint preflight requires the actor directory and all paired state files to have the expected file types.
+Before a suite starts, the runner checks every selected job against its frozen configuration, including normalized paths, sampling settings, training budget, runtime configurations, and the explicit recovery checkpoint. A missing runtime configuration or an existing checkpoint without a recovery selection stops the suite before the first worker starts. Checkpoint preflight requires the actor directory and all paired state files to have the expected file types.
 
 Configuration and launch-lock files are published only after a complete write. If matrix generation is interrupted, repeat the same command: complete matching files are retained and missing files are generated. A failed native batch concatenation restores the original batch references for a clean retry.
 

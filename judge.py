@@ -8,12 +8,14 @@ import ast
 from hashlib import sha256
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import re
 import warnings
 from report import paired_summary
 from assets import CATALOGUE, verify
+from control.contracts import publish
 from convert import file_hash, pointer, question_hash, read_rows
 FORMAT = "searl_judge_manifest_v1"
 STUDY_FORMAT = 'evocond_judge_manifest_v2'
@@ -35,9 +37,15 @@ def _json_file(path: Path):
                 raise ValueError("Duplicate JSON key")
             result[key] = value
         return result
-    with path.open(encoding="utf-8") as stream:
+    def number(value):
+        parsed = float(value)
+        if not math.isfinite(parsed):
+            raise ValueError('Non-finite JSON number')
+        return parsed
+    with path.open(encoding="utf-8-sig") as stream:
         return json.load(stream, object_pairs_hook=pairs,
-                         parse_constant=lambda _: (_ for _ in ()).throw(ValueError("Non-finite JSON")))
+                         parse_constant=lambda _: (_ for _ in ()).throw(ValueError("Non-finite JSON")),
+                         parse_float=number)
 def _source(base: Path, spec: dict) -> Path:
     if not isinstance(spec, dict) or not {"path", "sha256"} <= set(spec):
         raise ValueError("Every input needs path and sha256")
@@ -323,8 +331,7 @@ def preflight(manifest_path: Path, official_root: Path, model: Path, *, full_wei
                 "paper_exact_reproduction_verified": False}
     return protocol, prepared
 def _write(path: Path, payload):
-    with path.open("x", encoding="utf-8") as stream:
-        json.dump(payload, stream, ensure_ascii=False, indent=2, allow_nan=False)
+    publish(path, json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False))
 def run(manifest_path: Path, official_root: Path, model: Path, output: Path | None = None, *, execute=False,
         batch_size=64, max_new_tokens=8, tensor_parallel=1, gpu_memory_utilization=0.85) -> dict:
     if output is not None and output.exists():

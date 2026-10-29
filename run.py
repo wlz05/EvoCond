@@ -79,21 +79,22 @@ def main(argv=None):
     if args.stage == 'evaluate' and not (args.resume or selected):
         parser.error('Evaluation requires --resume or --checkpoints; select on validation only')
     if args.run and args.stage in ('train', 'evaluate'):
-        # Check every job before starting the first GPU process.
+        from experiment import launch_spec, prepare as prepared_experiment
+        # Validate every launch before starting the first GPU process.
         for name, value in values.items():
             protocol = HERE/folder/name/'protocol.json'
-            study.prepared(value, strict_json(protocol.read_text(encoding='utf-8-sig'), max_text=64*1024*1024), HERE)
+            frozen = strict_json(protocol.read_text(encoding='utf-8-sig'), max_text=64*1024*1024)
+            study.prepared(value, frozen, HERE)
+            if not prepared_experiment(protocol.parent, frozen)['prepared']:
+                raise ValueError('Incomplete runtime preparation; repeat prepare for '+name)
+            resume = args.resume.as_posix() if args.resume else selected.get(name)
+            launch_spec(frozen, protocol.parent, value['design']['arm'], stage=args.stage,
+                split=args.split, resume=HERE/resume if resume else None)
     if args.run and args.stage == 'prepare':
         for name, value in values.items():
             setting = HERE/folder/(name+'.json')
             if strict_json(setting.read_text(encoding='utf-8-sig')) != value:
                 raise ValueError('Generated configuration differs from the requested study: '+name)
-    if args.run and args.stage in ('train', 'evaluate'):
-        from experiment import checkpoint
-        for name, value in values.items():
-            resume = args.resume.as_posix() if args.resume else selected.get(name)
-            if resume:
-                checkpoint((HERE/folder/name).resolve(), value['design']['arm'], HERE/resume)
     for name, value in values.items():
         root = folder/name
         setting = folder/(name+'.json')

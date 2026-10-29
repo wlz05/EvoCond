@@ -2461,7 +2461,7 @@ class CentralizedToolActor:
         context = runtime.context(identity)
         dispatcher = context['dispatcher']
         name = tool['name']
-        from control.isolation import ModelToolInputError, prepare_python_source, validate_timeout
+        from control.isolation import ModelToolInputError, SandboxInfrastructureError, prepare_python_source, validate_timeout
         def invalid(error):
             result = json.dumps({'error': 'invalid_tool_input', 'message': str(error)[:500]}, ensure_ascii=False)
             runtime.observe(identity, name, result, success=False, executed=False)
@@ -2533,8 +2533,15 @@ class CentralizedToolActor:
             result = json.dumps(receipt, ensure_ascii=False, allow_nan=False)
         elif name in ('search', 'search-search'):
             # Search is fixed infrastructure, not generated source.
+            query, topk = resolved.get('query'), resolved.get('topk', 3)
+            if (set(resolved)-{'query', 'topk'} or not isinstance(query, str) or not query.strip()
+                    or len(query) > 16000 or type(topk) is not int or not 1 <= topk <= 10):
+                return invalid('Search requires a bounded query and integer topk between 1 and 10')
             result = await asyncio.to_thread(self.tool_manager._call_tool, name, json.dumps(resolved))
-            success = bool(result) and not str(result).startswith(('# Tool execution failed', '# Failed', 'Error'))
+            if not isinstance(result, str) or not (result == 'No relevant documents found'
+                    or result.startswith('Following are the search results given by the wiki search engine:')):
+                raise SandboxInfrastructureError('Retrieval service failed or returned an invalid response')
+            success = True
         else:
             result = f"# Unknown or unadmitted isolated tool: {name}"
         observed_name = args.get('name', name) if name.startswith('create_and_execute_mcp') else name

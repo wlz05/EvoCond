@@ -5,13 +5,15 @@
 from copy import deepcopy
 from datetime import datetime, timezone
 import json
+from pathlib import Path
 import re
+from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 from control.dynamic import SandboxFusionBackend
 from control.isolation import (CHECKS, VerifiedSandboxFusion, canonical_hash,
                                      finite_inputs, function_schema, strict_json,
-                                     validate_arguments, validate_deployment)
+                                     load_verified_backend, validate_arguments, validate_deployment)
 def deployment():
     config = {"format": "searl_isolation_config_v1", "endpoint": "http://sandbox:8080",
               "deployment_id": "CPU_MOCK_NOT_A_DEPLOYMENT", "isolation": "container",
@@ -72,10 +74,34 @@ class IsolationTests(unittest.TestCase):
             post.assert_not_called()
     def test_success_requires_outer_status_and_zero_return_code(self):
         backend = VerifiedSandboxFusion(*deployment())
-        for data in (response(return_code=1), response(outer="Failed"), response(status="TimeLimitExceeded"),
-                     response(return_code=None), response(return_code=False)):
+        for data in (response(return_code=1), response(outer="Failed"), response(status="TimeLimitExceeded")):
             with patch.object(backend, "_post", return_value=data), self.subTest(data=data):
                 self.assertFalse(backend.run_source("pass", 3)["run_success"])
+
+    def test_finished_response_requires_an_integer_return_code(self):
+        from control.isolation import SandboxInfrastructureError
+        backend = VerifiedSandboxFusion(*deployment())
+        for code in (None, False, '0', 0.0):
+            with patch.object(backend, '_post', return_value=response(return_code=code)), \
+                    self.subTest(code=code), self.assertRaises(SandboxInfrastructureError):
+                backend.run_source('pass', 3)
+
+    def test_runtime_receipt_expiry_aborts_before_network(self):
+        from control.isolation import SandboxInfrastructureError
+        backend = VerifiedSandboxFusion(*deployment())
+        backend.receipt['valid_until'] = '2020-01-02T00:00:00Z'
+        with patch.object(backend, '_post') as post, self.assertRaises(SandboxInfrastructureError):
+            backend.run_source('pass', 3)
+        post.assert_not_called()
+
+    def test_deployment_files_accept_utf8_bom(self):
+        config, receipt = deployment()
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root/'config.json').write_text(json.dumps(config), encoding='utf-8-sig')
+            (root/'receipt.json').write_text(json.dumps(receipt), encoding='utf-8-sig')
+            backend = load_verified_backend(root/'config.json', root/'receipt.json')
+            self.assertEqual(backend.receipt_sha256, canonical_hash(receipt))
     def test_warning_stderr_is_not_automatically_a_failure(self):
         backend = VerifiedSandboxFusion(*deployment())
         with patch.object(backend, "_post", return_value=response(stderr="A warning\n")):
