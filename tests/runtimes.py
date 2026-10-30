@@ -10,7 +10,7 @@ from pathlib import Path
 import tempfile
 import time
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from types import SimpleNamespace
 from control import dynamic, edges
 from control.runtime import Runtime, load_config, plan_from_searl, recovery, reward_outcomes, schemas, task_identity
@@ -47,6 +47,140 @@ class RuntimeTests(unittest.TestCase):
         self.runtime = Runtime(self.config, self.dispatcher)
     def tearDown(self):
         self.temp.cleanup()
+
+    def ledgers(self, episode):
+        context = self.runtime.context(episode)
+        fields = ('history', 'invocations', 'calls', 'plan', 'recovery', 'binding_audits',
+            'assistant_turn', 'last_subtask', 'completed', 'execution_complete', 'terminal_success')
+        return deepcopy({key: context[key] for key in fields if key in context})
+
+    def prepared_call(self):
+        created = self.dispatcher.create(self.tool(), {'x': 1, 'y': 2}, task_id='train')
+        episode = self.runtime.begin('sum', PLAN, split='train')
+        self.runtime.select(episode)
+        self.runtime.assistant(episode, '<subtask>ST1: Compute sum</subtask>')
+        _, audit = self.runtime.prepare_arguments(episode, 'add', {'x': 1, 'y': 2}, schemas(self.dispatcher))
+        return episode, created['tool_version'], audit
+
+    def test_rejected_observations_preserve_history_ledger_plan_and_binding_audit(self):
+        episode, version, audit = self.prepared_call()
+        before = self.ledgers(episode)
+        for change in ({'version': 'invalid'}, {'arguments': []}, {'arguments': 0}, {'arguments': False},
+                       {'execution_result': float('nan')}):
+            settings = dict(success=True, version=version, arguments={'x': 1, 'y': 2}, binding_audit=audit)
+            settings.update(change)
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                self.runtime.observe(episode, 'add', '3', **settings)
+            self.assertEqual(self.ledgers(episode), before)
+        result = self.runtime.observe(episode, 'add', '3', success=True, version=version,
+            arguments={'x': 1, 'y': 2}, binding_audit=audit)
+        self.assertEqual(len(self.runtime.context(episode)['calls']), 1)
+        self.assertEqual(result['tool_version'], version)
+        self.assertEqual(self.runtime.context(episode)['plan']['tasks']['ST1']['status'], 'completed')
+
+    def test_late_recovery_rejection_leaves_the_entire_observation_uncommitted(self):
+        episode, version, audit = self.prepared_call()
+        before = self.ledgers(episode)
+        with patch('control.recovery.record_call', side_effect=ValueError('Late recovery rejection')):
+            with self.assertRaisesRegex(ValueError, 'Late recovery'):
+                self.runtime.observe(episode, 'add', '3', success=True, version=version,
+                    arguments={'x': 1, 'y': 2}, binding_audit=audit)
+        self.assertEqual(self.ledgers(episode), before)
+        self.runtime.observe(episode, 'add', '3', success=True, version=version,
+            arguments={'x': 1, 'y': 2}, binding_audit=audit)
+        self.assertEqual(len(self.runtime.context(episode)['calls']), 1)
+
+    def test_binding_audit_is_consumed_once_even_when_execution_was_blocked(self):
+        episode, _, audit = self.prepared_call()
+        for identity in (True, -1, '0', 99):
+            with self.subTest(identity=identity), self.assertRaises(ValueError):
+                self.runtime.observe(episode, 'add', 'blocked', success=False, executed=False,
+                    binding_audit={**audit, 'audit_id': identity})
+        self.runtime.observe(episode, 'add', 'blocked', success=False, executed=False, binding_audit=audit)
+        before = self.ledgers(episode)
+        stored = deepcopy(self.runtime.context(episode)['binding_audits'][0])
+        for repeated in (audit, stored):
+            with self.assertRaises(ValueError):
+                self.runtime.observe(episode, 'add', 'blocked', success=False, executed=False, binding_audit=repeated)
+            self.assertEqual(self.ledgers(episode), before)
+        self.assertEqual(self.runtime.context(episode)['calls'], [])
+
+    def test_execution_flags_are_not_coerced_into_successful_evidence(self):
+        episode = self.runtime.begin('sum', PLAN, split='validation')
+        before = self.ledgers(episode)
+        for success, executed in ((1, True), ('false', True), (None, True), (False, 0), (True, False)):
+            with self.subTest(success=success, executed=executed), self.assertRaises(ValueError):
+                self.runtime.observe(episode, 'add', '3', success=success, executed=executed)
+            self.assertEqual(self.ledgers(episode), before)
+
+    def test_returned_invocation_record_cannot_mutate_the_trusted_ledger(self):
+        episode = self.runtime.begin('sum', PLAN, split='validation')
+        record = self.runtime.observe(episode, 'add', {'value': 3}, success=True, arguments={'x': 1})
+        original = deepcopy(self.runtime.context(episode)['calls'][0])
+        record['arguments']['x'] = 999
+        record['result']['value'] = 0
+        record['bindings'].append({'untrusted': True})
+        self.assertEqual(self.runtime.context(episode)['calls'][0], original)
+
+    def test_completed_episode_rejects_mutating_runtime_interfaces(self):
+        episode = self.runtime.begin('sum', PLAN, split='validation')
+        self.runtime.finish(episode, task_success=False)
+        before = self.ledgers(episode)
+        actions = dict(assistant=lambda: self.runtime.assistant(episode, 'late'),
+            revise=lambda: self.runtime.revise(episode, 'new goal'), select=lambda: self.runtime.select(episode),
+            arguments=lambda: self.runtime.prepare_arguments(episode, 'add', {}, []),
+            check=lambda: self.runtime.check(episode, 'add', {}, []),
+            plan=lambda: self.runtime.submit_revised_plan(episode, {}),
+            observe=lambda: self.runtime.observe(episode, 'add', 'late', success=True),
+            charge=lambda: self.runtime.charge(episode, 'actor', dict(input_tokens=1, output_tokens=1)))
+        for name, action in actions.items():
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, 'read-only'):
+                action()
+            self.assertEqual(self.ledgers(episode), before)
+
+    def test_repeated_terminal_outcome_is_idempotent_but_conflicting_outcome_is_rejected(self):
+        episode = self.runtime.begin('sum', PLAN, split='validation')
+        self.runtime.finish(episode, task_success=False)
+        path = self.runtime.root/'outcomes.jsonl'
+        original, before = path.read_bytes(), self.ledgers(episode)
+        self.runtime.finish(episode, task_success=False)
+        for changed in (True, None, 0, 'false'):
+            with self.subTest(changed=changed), self.assertRaises(ValueError):
+                self.runtime.finish(episode, task_success=changed)
+        self.assertEqual(path.read_bytes(), original)
+        self.assertEqual(self.ledgers(episode), before)
+
+    def test_invalid_assistant_observation_cannot_advance_the_sampled_turn(self):
+        episode = self.runtime.begin('sum', PLAN, split='validation')
+        before = self.ledgers(episode)
+        for response in (None, 7, {'content': 'text'}):
+            with self.subTest(response=response), self.assertRaises(ValueError):
+                self.runtime.assistant(episode, response)
+            self.assertEqual(self.ledgers(episode), before)
+        self.runtime.assistant(episode, '<subtask>ST1: Compute sum</subtask>')
+        self.assertEqual(self.runtime.context(episode)['assistant_turn'], 1)
+
+    def test_partial_episode_finalization_stops_retries_publication_and_checkpointing(self):
+        saved = self.runtime.snapshot()
+        episode = self.runtime.begin('sum', PLAN, split='validation')
+        original_open = Path.open
+        def interrupted(path, *args, **kwargs):
+            if path.name == 'binding_events.jsonl':
+                raise OSError('Binding event publication failed')
+            return original_open(path, *args, **kwargs)
+        with patch.object(Path, 'open', interrupted), self.assertRaises(OSError):
+            self.runtime.finish(episode, task_success=False)
+        outcome = (self.runtime.root/'outcomes.jsonl').read_bytes()
+        self.assertFalse(self.runtime.context(episode)['completed'])
+        actions = (lambda: self.runtime.finish(episode, task_success=False),
+            lambda: self.runtime.begin('other', PLAN, split='validation'),
+            lambda: self.runtime.discard([episode]), lambda: self.runtime.release_completed(),
+            lambda: self.runtime.snapshot(), lambda: self.runtime.restore(saved),
+            lambda: self.runtime.set_policy_step(1))
+        for action in actions:
+            with self.assertRaisesRegex(ValueError, 'fresh runtime'):
+                action()
+        self.assertEqual((self.runtime.root/'outcomes.jsonl').read_bytes(), outcome)
 
     def test_runtime_config_accepts_bom_and_rejects_ambiguous_json(self):
         path = self.root/'runtime.json'

@@ -209,6 +209,10 @@ Provision the isolated executor before training. Use `configs/searl_isolation.ex
 
 An expired execution receipt, a broken retrieval service, or a malformed executor response stops collection. Invalid model-supplied tool arguments remain recoverable tool observations. A completed search with no matching documents is a valid empty result. Restore the inspected service before resuming from the last complete paired checkpoint; service outages do not supply tool-success evidence.
 
+Runtime observations commit the invocation ledger, plan progress, recovery state, and proposal audit after all their checks succeed. A rejected receipt leaves those records unchanged. Each proposal audit is consumed once; a new attempt receives a new audit. Completed episodes retain their recorded outcome and reject further state updates. Cost receipts require actual token counts or measured elapsed seconds, with finite category totals and a finite whole-episode total. Teacher labels require the measured actor usage for their full episode, including trajectories that never reach the marked retrieval point.
+
+An error while finalizing an episode, or an I/O failure while publishing a phase, stops further runtime updates, publication, and checkpoint creation. Preserve and inspect the failed attempt's partial records before replaying the affected window, then restore the last paired checkpoint in a fresh runtime. Existing phase reports are retained and require reconciliation before that phase can be published again. Validation failures detected before episode finalization leave its tentative learning records uncommitted and allow the receipt to be corrected.
+
 ## Reproducibility
 
 `configs/contextual.json` specifies the eight-GPU experiment. `run.py` generates configurations for seeds **42, 52, 3047, 3407**, holding dataset partitions fixed. Every condition starts from the same initial Qwen3-4B checkpoint with an empty generated-tool inventory and the same built-in Python and search tools. Source, weights, data, deployment receipt, initialization stage, and execution settings are frozen before training.

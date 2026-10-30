@@ -193,6 +193,95 @@ class StageTests(unittest.TestCase):
         episode = self.runtime.begin('new', PLAN, split='validation')
         with self.assertRaises(ValueError):
             self.runtime.charge(episode, 'actor', {'estimated_tokens': 5})
+
+    def accounting(self, episode):
+        context = self.runtime.context(episode)
+        return deepcopy({key: context[key] for key in ('costs', 'cost_receipts', 'actor_metered', 'pending_relations',
+            'terminal_success', 'completed') if key in context})
+
+    def test_invalid_cost_receipts_do_not_change_metering_state(self):
+        episode = self.runtime.begin('new', PLAN, split='validation')
+        before = self.accounting(episode)
+        for kind, quantities in (('tools', {'seconds': True}), ('retrieval', {'seconds': False}),
+                                ('tools', {'seconds': 10**1000}), ('actor', None), ('tools', []),
+                                ('actor', dict(input_tokens=True, output_tokens=0))):
+            with self.subTest(kind=kind, quantities=quantities), self.assertRaises(ValueError):
+                self.runtime.charge(episode, kind, quantities)
+            self.assertEqual(self.accounting(episode), before)
+
+    def test_actor_cost_overflow_does_not_mark_the_episode_as_metered(self):
+        episode = self.runtime.begin('new', PLAN, split='validation')
+        before = self.accounting(episode)
+        for counts, price in ((1, 1e308), (10**1000, .001)):
+            self.runtime.engine.options.update(actor_input_price=price, actor_output_price=price)
+            with self.subTest(price=price), self.assertRaises(ValueError):
+                self.runtime.charge(episode, 'actor', dict(input_tokens=counts, output_tokens=counts))
+            self.assertEqual(self.accounting(episode), before)
+
+    def test_cost_overflow_within_and_across_categories_preserves_prior_receipts(self):
+        episode = self.runtime.begin('new', PLAN, split='validation')
+        self.runtime.engine.options.update(tool_price=1., retrieval_price=1.)
+        self.runtime.charge(episode, 'tools', dict(seconds=1e308))
+        before = self.accounting(episode)
+        for kind in ('tools', 'retrieval'):
+            with self.subTest(kind=kind), self.assertRaises(ValueError):
+                self.runtime.charge(episode, kind, dict(seconds=1e308))
+            self.assertEqual(self.accounting(episode), before)
+
+    def test_absorbing_label_requires_measured_actor_usage_and_can_retry_after_validation(self):
+        episodes = self.episodes()
+        episode = next(value for value in episodes if self.runtime.context(value)['ordinal'] ==
+            self.runtime.context(value)['exploration_rollout'])
+        before = self.accounting(episode)
+        with self.assertRaisesRegex(ValueError, 'measured whole-episode'):
+            self.runtime.finish(episode, task_success=False)
+        self.assertEqual(self.accounting(episode), before)
+        self.assertEqual(self.runtime.engine.logs, [])
+        self.assertFalse((self.runtime.root/'outcomes.jsonl').exists())
+        self.runtime.charge(episode, 'actor', dict(input_tokens=0, output_tokens=0))
+        self.runtime.finish(episode, task_success=False)
+        self.assertEqual(len(self.runtime.engine.logs), 1)
+        self.runtime.finish(episode, task_success=False)
+        self.assertEqual(len(self.runtime.engine.logs), 1)
+
+    def test_late_teacher_label_validation_leaves_pending_relations_uncommitted(self):
+        episodes = self.episodes()
+        episode = next(value for value in episodes if self.runtime.context(value)['ordinal'] ==
+            self.runtime.context(value)['exploration_rollout'])
+        self.runtime.charge(episode, 'actor', dict(input_tokens=100, output_tokens=10))
+        before = self.accounting(episode)
+        with patch('control.bandit.validate', side_effect=ValueError('Invalid teacher label')):
+            with self.assertRaisesRegex(ValueError, 'Invalid teacher label'):
+                self.runtime.finish(episode, task_success=False)
+        self.assertEqual(self.accounting(episode), before)
+        self.assertEqual(self.runtime.engine.logs, [])
+        self.runtime.finish(episode, task_success=False)
+        self.assertEqual(len(self.runtime.engine.logs), 1)
+
+    def test_completed_contextual_episode_cannot_accept_costs_or_new_visible_fields(self):
+        episode = self.runtime.begin('new', PLAN, split='validation')
+        self.execute(episode, success=False)
+        before = self.accounting(episode)
+        with self.assertRaisesRegex(ValueError, 'read-only'):
+            self.runtime.visible_fields(episode, {'budget': 1})
+        with self.assertRaises(ValueError):
+            self.runtime.engine.charge(self.runtime.context(episode), 'tools', {'seconds': 1.})
+        self.assertEqual(self.accounting(episode), before)
+
+    def test_phase_io_failure_cannot_retry_or_advance_the_actor_in_place(self):
+        for episode in self.episodes():
+            self.execute(episode)
+        registry = dynamic.digest(self.dispatcher.registry)
+        phase = self.runtime.engine.phase
+        with patch.object(self.runtime.engine, 'publish', side_effect=OSError('Phase publication failed')):
+            with self.assertRaises(OSError):
+                self.runtime.release_completed()
+        for action in (self.runtime.release_completed, self.runtime.snapshot, lambda: self.runtime.set_policy_step(1)):
+            with self.assertRaisesRegex(ValueError, 'fresh runtime'):
+                action()
+        self.assertEqual(self.runtime.engine.phase, phase)
+        self.assertEqual(dynamic.digest(self.dispatcher.registry), registry)
+
     def test_visible_availability_comes_from_real_observed_results(self):
         episode = self.runtime.begin('new', PLAN, split='validation')
         context = self.runtime.context(episode)

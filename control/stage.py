@@ -136,20 +136,36 @@ class Engine:
             marked_point=bandit.marked_point(self.options['seed'], self.phase, base, self.options['horizon_steps']),
             retrieval_index=0, selection_cache={}, actor_metered=False, mark_status='unreached')
     def charge(self, context, kind, quantities):
+        if context['completed'] or not isinstance(quantities, dict):
+            raise ValueError('Cost receipts require an active episode and explicit quantities')
         if kind == 'actor':
             if set(quantities) != {'input_tokens', 'output_tokens'} or any(type(x) is not int or x < 0 for x in quantities.values()):
                 raise ValueError('Actor accounting requires actual token counts')
-            value = quantities['input_tokens']*self.options['actor_input_price']+quantities['output_tokens']*self.options['actor_output_price']
-            context['actor_metered'] = True
+            try:
+                value = quantities['input_tokens']*self.options['actor_input_price']+quantities['output_tokens']*self.options['actor_output_price']
+            except OverflowError as error:
+                raise ValueError('Measured actor cost exceeds the finite accounting range') from error
         elif kind in ('tools', 'retrieval'):
             seconds = quantities.get('seconds')
-            if set(quantities) != {'seconds'} or not isinstance(seconds, (int, float)) or not math.isfinite(seconds) or seconds < 0:
+            if set(quantities) != {'seconds'} or not bandit.finite(seconds) or seconds < 0:
                 raise ValueError('Execution accounting requires measured elapsed seconds')
             value = seconds*self.options['tool_price' if kind == 'tools' else 'retrieval_price']
         else:
             raise ValueError('Unknown cost category')
-        context['costs'][kind] += value
-        context['cost_receipts'].append(dict(kind=kind, quantities=deepcopy(quantities), cost=value))
+        total = context['costs'][kind]+value
+        if not bandit.finite(value) or not bandit.finite(total) or value < 0 or total < 0:
+            raise ValueError('Measured costs and accumulated totals must remain finite and nonnegative')
+        try:
+            combined = math.fsum(total if key == kind else cost for key, cost in context['costs'].items())
+        except OverflowError as error:
+            raise ValueError('Combined episode cost exceeds the finite accounting range') from error
+        if not bandit.finite(combined):
+            raise ValueError('Combined episode cost must remain finite')
+        receipt = dict(kind=kind, quantities=deepcopy(quantities), cost=value)
+        context['costs'][kind] = total
+        context['cost_receipts'].append(receipt)
+        if kind == 'actor':
+            context['actor_metered'] = True
     def view(self, context):
         ready = subtasks.ready(context['plan']) if context['plan'] else []
         plan = (context['plan'] or {}).get('tasks', {})
@@ -257,7 +273,8 @@ class Engine:
     def finish(self, context, success):
         if context['split'] != 'train':
             return
-        context['terminal_success'] = success
+        if type(success) is not bool:
+            raise ValueError('Training publication requires actual terminal correctness')
         store = identity.catalogue(context['dispatcher'].registry)
         events = []
         for left, right in zip(context['invocations'], context['invocations'][1:]):
@@ -265,14 +282,10 @@ class Engine:
             if source not in store['versions'] or target not in store['versions'] or not right.get('relation_context'):
                 continue
             feedback = context.get('subtask_feedback', {}).get(right.get('subtask'))
-            if feedback is None and type(success) is not bool:
-                continue
             events.append(dict(source=store['versions'][source], target=store['versions'][target], source_version=source,
                 target_version=target, **right['relation_context'], feedback=feedback['value'] if feedback else 2*int(success)-1,
                 granularity='subtask' if feedback else 'terminal', scorer=feedback['source'] if feedback else 'terminal_correctness'))
-        context['pending_relations'] = events
-        if type(success) is not bool:
-            raise ValueError('Training publication requires actual terminal correctness')
+        label = None
         if 'intervention' in context:
             row = deepcopy(context['intervention'])
             if not context['actor_metered']:
@@ -280,8 +293,10 @@ class Engine:
             row.update(success=success, costs=deepcopy(context['costs']), cost_receipts=deepcopy(context['cost_receipts']))
             row['reward'] = bandit.reward(success, row['costs'], penalty=row['penalty'], reference=row['reference'])
             bandit.validate(row)
-            self.logs.append(row)
+            label = row
         elif context['ordinal'] == context['exploration_rollout'] and self.options['variant'] in fusion.LEARNED and self.options['fixed_alpha'] is None:
+            if not context['actor_metered']:
+                raise ValueError('Refuse teacher labels without measured whole-episode actor tokens')
             row = dict(format=bandit.FORMAT, split='train', base_id=context['task_id'], snapshot=self.snapshot,
                 bottom=self.bottom, phase=self.phase, actor=self.actor, bank=dynamic.digest(self.registry), features=[], actions=[],
                 encoder=self.encoder_id, alignment=dynamic.digest(self.alignment), metric=dynamic.digest(self.metric),
@@ -293,7 +308,10 @@ class Engine:
                 cost_receipts=deepcopy(context['cost_receipts']), reward=bandit.reward(success, context['costs'],
                     penalty=self.options['penalty'], reference=self.options['reference']))
             bandit.validate(row)
-            self.logs.append(row)
+            label = row
+        context.update(terminal_success=success, pending_relations=events)
+        if label is not None:
+            self.logs.append(label)
     def publish(self, contexts):
         training = [row for row in contexts if row['split'] == 'train']
         if not training:

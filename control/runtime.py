@@ -177,6 +177,7 @@ class Runtime:
         self.dispatcher, self.encoder = dispatcher, encoder
         self.lock = threading.RLock()
         self.contexts = {}
+        self.finalization_error = None
         self.policy_step = 0
         self.native_batches = 0
         self.policy_hash = config["policy_hash"]
@@ -234,6 +235,7 @@ class Runtime:
         return self.config['policy_hash'] if step == 0 else dynamic.digest(
             {'initial_weights': self.config['policy_hash'], 'run_id': self.config['run_id'], 'optimizer_step': step})
     def set_policy_step(self, step, policy_drift=None, *, restoring=False):
+        self.healthy()
         identity = self.policy_identity(step)
         if self.engine and self.contexts:
             raise ValueError('Actor updates require the completed-rollout barrier')
@@ -246,6 +248,7 @@ class Runtime:
         if self.engine and not restoring:
             return self.engine.actor_changed(self.policy_hash, policy_drift)
     def begin(self, question, plan_text, *, split, episode_id=None):
+        self.healthy()
         if split not in ("train", "validation", "test") or not isinstance(question, str) or not question.strip():
             raise ValueError("Rollout needs visible question and explicit split")
         identity = episode_id or uuid.uuid4().hex
@@ -275,8 +278,17 @@ class Runtime:
         if identity not in self.contexts:
             raise ValueError("Unknown runtime episode; context cannot be inferred across trajectories")
         return self.contexts[identity]
-    def revise(self, identity, question, plan_text=None):
+    def healthy(self):
+        if self.finalization_error is not None:
+            raise ValueError('Runtime finalization failed; restore the last paired checkpoint in a fresh runtime')
+    def active_context(self, identity):
+        self.healthy()
         context = self.context(identity)
+        if context['completed']:
+            raise ValueError('Completed runtime episodes are read-only')
+        return context
+    def revise(self, identity, question, plan_text=None):
+        context = self.active_context(identity)
         if 'recovery' in context:
             from control.recovery import revise_goal, submit_plan
             state = revise_goal(context['recovery'], question)
@@ -296,16 +308,17 @@ class Runtime:
             context['selection_cache'] = {}
             context.pop('relation_context', None)
     def assistant(self, identity, response):
-        context = self.context(identity)
-        context['assistant_turn'] = context.get('assistant_turn', 0)+1
-        context["history"].append({"role": "assistant", "content": response})
+        context = self.active_context(identity)
+        if not isinstance(response, str):
+            raise ValueError('Assistant observations must contain actual response text')
         match = re.search(r"<subtask>\s*([^<\n]+)", response)
         label = match[1].strip().replace('ST_', 'ST') if match else ''
         identities = sorted((context['plan'] or {}).get('tasks', {}), key=len, reverse=True)
-        context['last_subtask'] = next((identity for identity in identities
-                                       if label == identity or label.startswith(identity+':')), None)
+        subtask = next((identity for identity in identities if label == identity or label.startswith(identity+':')), None)
+        context.update(assistant_turn=context.get('assistant_turn', 0)+1,
+            history=context['history']+[dict(role='assistant', content=response)], last_subtask=subtask)
     def select(self, identity, *, top_k=3):
-        context = self.context(identity)
+        context = self.active_context(identity)
         dispatcher = context["dispatcher"]
         dispatcher.reload()
         tools = schemas(dispatcher)
@@ -381,7 +394,7 @@ class Runtime:
                 "collection_branch": context.get('collection_branch', False),
                 "teacher_bootstrap": bool(self.config.get('collection'))}
     def capture_continuation(self, identity):
-        context = self.context(identity)
+        context = self.active_context(identity)
         if not self.config.get('collection') or context['split'] != 'train' or not context['private'] or self.policy_step != 0:
             raise ValueError('Collect only private training prefixes under one unchanged Qwen policy')
         ready = subtasks.ready(context['plan']) if context['plan'] else []
@@ -400,6 +413,7 @@ class Runtime:
                 'policy_hash': self.policy_hash, 'config_hash': dynamic.digest(self.config),
                 'execution_context_hash': execution_context_fingerprint(self.config)}
     def resume_continuation(self, snapshot, alpha, seed):
+        self.healthy()
         if not self.config.get('collection') or self.policy_step != 0 or snapshot.get('policy_hash') != self.policy_hash:
             raise ValueError('Continuation policy differs from captured Qwen')
         if snapshot.get('config_hash') != dynamic.digest(self.config) or snapshot.get('format') != 'searl_runtime_continuation_v1':
@@ -417,6 +431,7 @@ class Runtime:
         self.contexts[identity] = context
         return identity
     def discard(self, identities):
+        self.healthy()
         for identity in identities:
             if not self.context(identity)['private']:
                 raise ValueError('Only private branch contexts may be discarded without final training feedback')
@@ -424,7 +439,7 @@ class Runtime:
             del self.contexts[identity]
     def prepare_arguments(self, identity, name, arguments, schemas):
         from control.binding import prepare
-        context = self.context(identity)
+        context = self.active_context(identity)
         if self.config.get('value_contracts', False):
             effective, audit = prepare(context['history'], schemas, name, arguments,
                 strategy=self.config.get('binding_strategy', 'reject'),
@@ -448,7 +463,7 @@ class Runtime:
         return sorted({2*row['assistant_turn'] for row in self.context(identity)['binding_audits']
                        if row['changed'] and row['executed']})
     def check(self, identity, name, arguments, schemas):
-        context = self.context(identity)
+        context = self.active_context(identity)
         if 'recovery' in context:
             from control.recovery import check_call
             checked = check_call(context['recovery'], name, arguments, subtask=context['last_subtask'],
@@ -462,7 +477,7 @@ class Runtime:
                           trusted_alias_tools=self.config.get("trusted_alias_tools", ()))
     def submit_revised_plan(self, identity, payload):
         from control.recovery import submit_plan
-        context = self.context(identity)
+        context = self.active_context(identity)
         if 'recovery' not in context:
             raise ValueError('Plan recovery is not enabled for this arm')
         state = submit_plan(context['recovery'], payload)
@@ -472,38 +487,52 @@ class Runtime:
     def observe(self, identity, name, result, *, success, version=None, arguments=None, execution_result=None, bindings=(),
                 executed=True, recovery_name=None, recovery_arguments=None, binding_audit=None):
         from control.evidence import call_record
-        context = self.context(identity)
+        context = self.active_context(identity)
+        if type(success) is not bool or type(executed) is not bool or (not executed and success):
+            raise ValueError('Execution receipts need explicit boolean outcomes and execution status')
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError('Execution receipts need an identified tool name')
+        recorded = None
         if binding_audit is not None:
-            recorded = context['binding_audits'][binding_audit['audit_id']]
-            if recorded != binding_audit:
+            audit_id = binding_audit.get('audit_id') if isinstance(binding_audit, dict) else None
+            if type(audit_id) is not int or not 0 <= audit_id < len(context['binding_audits']):
                 raise ValueError('Binding audit does not belong to this proposed call')
-            recorded.update(executed=bool(executed), success=bool(success) if executed else None)
+            recorded = context['binding_audits'][audit_id]
+            if recorded != binding_audit or recorded.get('observation_recorded'):
+                raise ValueError('Binding audit does not belong to this proposed call')
         text = result if isinstance(result, str) else json.dumps(result, ensure_ascii=False, allow_nan=False)
-        context["history"].append({"role": "tool", "name": name, "content": text,
-                                   "execution_success": success if executed else None, "tool_version": version})
-        if not executed:
-            return None
-        context["invocations"].append({"name": name, "tool_version": version, "success": success, 'subtask': context['last_subtask'],
-                                       'relation_context': deepcopy(context.get('relation_context'))})
-        ledger_result = result if execution_result is None else execution_result
-        available = len(json.dumps(ledger_result, ensure_ascii=False, allow_nan=False).encode()) <= 60000
-        record = call_record(uuid.uuid4().hex, name, version, bool(success), arguments or {},
-                             ledger_result if available else None, bindings, result_available=available)
-        context['calls'].append(record)
-        subtask = context["last_subtask"]
-        if success and version and context["plan"] and subtask in {t["id"] for t in subtasks.ready(context["plan"])}:
-            context["plan"] = subtasks.complete(context["plan"], subtask, observed_tool_version=version,
-                evidence=text, epoch=context["plan"]["epoch"])
-        if 'recovery' in context and executed:
-            from control.recovery import record_call
-            context['recovery'] = record_call(context['recovery'], recovery_name or name,
-                recovery_arguments if recovery_arguments is not None else arguments or {}, success=bool(success),
-                subtask=subtask, tool_version=version, plan=context['plan'])
-            context['plan'] = context['recovery']['plan']
-        return record
+        updates = dict(history=context['history']+[dict(role='tool', name=name, content=text,
+            execution_success=success if executed else None, tool_version=version)])
+        record = None
+        if executed:
+            ledger_result = result if execution_result is None else execution_result
+            available = len(json.dumps(ledger_result, ensure_ascii=False, allow_nan=False).encode()) <= 60000
+            actual_arguments = arguments if arguments is not None else {}
+            record = call_record(uuid.uuid4().hex, name, version, success, actual_arguments,
+                ledger_result if available else None, bindings, result_available=available)
+            subtask, plan = context['last_subtask'], context['plan']
+            if success and version and plan and subtask in {task['id'] for task in subtasks.ready(plan)}:
+                plan = subtasks.complete(plan, subtask, observed_tool_version=version, evidence=text, epoch=plan['epoch'])
+            if 'recovery' in context:
+                from control.recovery import record_call
+                recovered = record_call(context['recovery'], recovery_name or name,
+                    recovery_arguments if recovery_arguments is not None else actual_arguments, success=success,
+                    subtask=subtask, tool_version=version, plan=plan)
+                updates['recovery'], plan = recovered, recovered['plan']
+            invocation = dict(name=name, tool_version=version, success=success, subtask=subtask,
+                relation_context=deepcopy(context.get('relation_context')))
+            updates.update(plan=plan, invocations=context['invocations']+[invocation], calls=context['calls']+[record])
+        if recorded is not None:
+            audits = list(context['binding_audits'])
+            audits[audit_id] = dict(recorded, executed=executed, success=success if executed else None, observation_recorded=True)
+            updates['binding_audits'] = audits
+        response = deepcopy(record)
+        # Commit only after ledger, plan, recovery and audit validation succeeds.
+        context.update(updates)
+        return response
     def subtask_feedback(self, identity, subtask, value, *, source):
         'Accept explicit scorer feedback, never execution success or tool prose.'
-        context = self.context(identity)
+        context = self.active_context(identity)
         if context['split'] != 'train' or context['completed'] or subtask not in (context['plan'] or {}).get('tasks', {}):
             raise ValueError('Subtask correctness requires an active training plan')
         if type(value) not in (int, float) or not math.isfinite(value) or not -1 <= value <= 1:
@@ -517,11 +546,22 @@ class Runtime:
         receipts[subtask] = receipt
     def finish(self, identity, *, task_success=None):
         'Only direct transition failures are attributed; unknown stays unknown.'
+        self.healthy()
         context = self.context(identity)
+        if task_success is not None and type(task_success) is not bool:
+            raise ValueError('Terminal correctness must be boolean or unknown')
         if context["completed"]:
+            if context.get('terminal_success') is not task_success:
+                raise ValueError('Conflicting terminal outcome for a completed episode')
             return
         if self.engine:
             self.engine.finish(context, task_success)
+        try:
+            self._finish(identity, context, task_success)
+        except Exception as error:
+            self.finalization_error = type(error).__name__
+            raise
+    def _finish(self, identity, context, task_success):
         context['terminal_success'] = task_success
         from control.outcomes import measured
         outcome = measured(context, episode=identity, arm=self.arm, actor=self.policy_hash,
@@ -575,10 +615,15 @@ class Runtime:
         context["execution_complete"] = True
     def release_completed(self):
         'Call only at a coordinator barrier after all rollout workers return.'
+        self.healthy()
         if any(not row["completed"] for row in self.contexts.values()):
             raise ValueError("Cannot release contexts while rollouts remain in flight")
         if self.engine:
-            self.engine.publish(list(self.contexts.values()))
+            try:
+                self.engine.publish(list(self.contexts.values()))
+            except OSError as error:
+                self.finalization_error = type(error).__name__
+                raise
         elif self.config.get('design', {}).get('native') and any(row['split'] == 'train' for row in self.contexts.values()):
             self.native_batches += 1
         self.contexts.clear()
@@ -595,16 +640,18 @@ class Runtime:
             actor=self.policy_hash, actor_drift=drift.options({}))
     def charge(self, identity, kind, quantities):
         'Record measured costs without changing the native actor reward objective.'
+        context = self.active_context(identity)
         if self.engine:
-            self.engine.charge(self.context(identity), kind, quantities)
+            self.engine.charge(context, kind, quantities)
     def visible_fields(self, identity, fields):
         'Supply explicit visible constraints; unknown fields stay missing.'
         if not self.engine or not isinstance(fields, dict) or set(fields)-{'constraints', 'available', 'requirements', 'slots', 'budget'}:
             raise ValueError('Invalid contextual visible-field update')
-        context = self.context(identity)
+        context = self.active_context(identity)
         context['visible_fields'] = deepcopy(fields)
         context['selection_cache'] = {}
     def checkpoint_barrier(self):
+        self.healthy()
         if any(not row["completed"] for row in self.contexts.values()):
             raise ValueError("Finish in-flight rollout contexts before checkpoint")
         if self.contexts and (self.engine or self.config.get('design', {}).get('native')):
