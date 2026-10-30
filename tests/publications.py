@@ -371,6 +371,8 @@ class AuditTests(unittest.TestCase):
             checkpoint = fixture.checkpoint()
             target = checkpoint/name
             if target.is_dir():
+                for shard in target.iterdir():
+                    shard.unlink()
                 target.rmdir()
                 target.write_bytes(b'not a directory')
             else:

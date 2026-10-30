@@ -37,13 +37,21 @@ class ExperimentTests(unittest.TestCase):
             "datasets": {s: str(self.root / (s+".parquet")) for s in ("train", "validation", "test")},
             "budget": experiment.settings({})},
             "fingerprints": {"model": {"sha256": "a" * 64}, "official_source": {"sha256": "b" * 64}}}
-    def checkpoint(self, arm="evocond"):
+    def checkpoint(self, arm="evocond", world_size=8):
         folder = self.root / arm / "checkpoints" / "global_step_5"
         (folder / "actor").mkdir(parents=True)
+        (folder/'actor/fsdp_config.json').write_text(json.dumps(dict(FSDP_version=1, world_size=world_size)), encoding='utf-8')
+        for prefix in ('model', 'optim', 'extra_state'):
+            for rank in range(world_size):
+                (folder/f'actor/{prefix}_world_size_{world_size}_rank_{rank}.pt').write_bytes(b'CPU_SHARD_FIXTURE')
         for name in ("data.pt", "method_runtime/runtime.json", "method_runtime/graphrag.json", "method_runtime/subtasks.graphml"):
             target = folder / name
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text("CPU_FIXTURE", encoding="utf-8")
+        runtime = experiment.runtimes(self.frozen(), self.root)[arm]
+        state = dict(format=experiment.RUNTIME_FORMAT, arm=arm, run_id=runtime['run_id'],
+            policy_step=5, config_hash=experiment.canonical_hash(runtime))
+        (folder/'method_runtime/runtime.json').write_text(json.dumps(state), encoding='utf-8')
         return folder
     def test_weight_fingerprint_changes_with_weight_bytes(self):
         model = self.model()
@@ -183,6 +191,85 @@ class ExperimentTests(unittest.TestCase):
         folder.mkdir(parents=True)
         with self.assertRaises(ValueError):
             experiment.checkpoint(self.root, "evocond", folder)
+    def test_checkpoint_requires_every_rank_and_all_three_state_families(self):
+        folder = self.checkpoint()
+        for prefix in ('model', 'optim', 'extra_state'):
+            path = folder/f'actor/{prefix}_world_size_8_rank_7.pt'
+            original = path.read_bytes()
+            with self.subTest(prefix=prefix):
+                path.unlink()
+                with self.assertRaisesRegex(ValueError, 'shards'):
+                    experiment.checkpoint(self.root, 'evocond', folder)
+                path.write_bytes(b'')
+                with self.assertRaisesRegex(ValueError, 'shards'):
+                    experiment.checkpoint(self.root, 'evocond', folder)
+                path.write_bytes(original)
+        extra = folder/'actor/model_world_size_4_rank_0.pt'
+        extra.write_bytes(b'OTHER_WORLD_SIZE')
+        with self.assertRaisesRegex(ValueError, 'mixed'):
+            experiment.checkpoint(self.root, 'evocond', folder)
+        self.assertEqual(extra.read_bytes(), b'OTHER_WORLD_SIZE')
+    def test_checkpoint_metadata_and_empty_paired_files_fail_before_launch(self):
+        folder = self.checkpoint()
+        metadata = folder/'actor/fsdp_config.json'
+        original = metadata.read_bytes()
+        for value in ({}, [], {'FSDP_version': True, 'world_size': 8},
+                      {'FSDP_version': 1, 'world_size': True}, {'FSDP_version': 1, 'world_size': 0}):
+            metadata.write_text(json.dumps(value), encoding='utf-8')
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'metadata'):
+                experiment.checkpoint(self.root, 'evocond', folder)
+        metadata.write_bytes(original)
+        for name in ('data.pt', 'method_runtime/graphrag.json', 'method_runtime/subtasks.graphml'):
+            target = folder/name
+            payload = target.read_bytes()
+            target.write_bytes(b'')
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, 'missing or invalid'):
+                experiment.launch_spec(self.frozen(), self.root, 'evocond', resume=folder)
+            target.write_bytes(payload)
+    def test_checkpoint_world_size_must_match_the_frozen_allocation(self):
+        folder = self.checkpoint(world_size=4)
+        self.assertEqual(experiment.checkpoint(self.root, 'evocond', folder), str(folder))
+        with self.assertRaisesRegex(ValueError, 'GPU allocation'):
+            experiment.launch_spec(self.frozen(), self.root, 'evocond', resume=folder)
+    def test_runtime_checkpoint_step_and_configuration_cannot_be_relabelled(self):
+        folder = self.checkpoint()
+        target = folder/'method_runtime/runtime.json'
+        state = json.loads(target.read_text(encoding='utf-8'))
+        for change in ({'policy_step': 4}, {'policy_step': True}, {'arm': 'teacher'},
+                       {'run_id': 'other'}, {'config_hash': 'f'*64}):
+            target.write_text(json.dumps({**state, **change}), encoding='utf-8')
+            with self.subTest(change=change), self.assertRaisesRegex(ValueError, 'Runtime checkpoint'):
+                experiment.launch_spec(self.frozen(), self.root, 'evocond', resume=folder)
+        target.write_text(json.dumps(state), encoding='utf-8')
+        self.assertEqual(experiment.checkpoint(self.root, 'evocond', folder), str(folder))
+    def test_older_training_resume_preserves_later_checkpoints_but_evaluation_is_allowed(self):
+        folder = self.checkpoint()
+        later = folder.parent/'global_step_10'
+        later.mkdir()
+        sentinel = later/'incomplete.pt'
+        sentinel.write_bytes(b'PRESERVE_EXISTING_BRANCH')
+        with self.assertRaisesRegex(ValueError, 'Later checkpoints'):
+            experiment.launch_spec(self.frozen(), self.root, 'evocond', resume=folder)
+        command, _ = experiment.launch_spec(self.frozen(), self.root, 'evocond', stage='evaluate', resume=folder)
+        self.assertIn('++trainer.val_only=true', command)
+        self.assertEqual(sentinel.read_bytes(), b'PRESERVE_EXISTING_BRANCH')
+    def test_nested_checkpoint_and_unknown_launch_stages_are_rejected(self):
+        folder = self.root/'evocond/checkpoints/archive/global_step_5'
+        folder.mkdir(parents=True)
+        with self.assertRaisesRegex(ValueError, 'belong'):
+            experiment.checkpoint(self.root, 'evocond', folder)
+        for stage, split in (('typo', 'validation'), ('train', 'unknown')):
+            with self.subTest(stage=stage, split=split), self.assertRaisesRegex(ValueError, 'stage'):
+                experiment.launch_spec(self.frozen(), self.root, 'evocond', stage=stage, split=split)
+    def test_status_does_not_offer_incomplete_checkpoints_as_recovery_candidates(self):
+        complete = self.checkpoint()
+        partial = complete.parent/'global_step_10'
+        (partial/'actor').mkdir(parents=True)
+        inventory = experiment.checkpoint_inventory(self.frozen(), self.root, 'evocond')
+        self.assertEqual(inventory['checkpoints'], ['global_step_5'])
+        self.assertEqual(set(inventory['incomplete_checkpoints']), {'global_step_10'})
+        self.assertIn('missing or invalid', inventory['incomplete_checkpoints']['global_step_10'])
+        self.assertTrue((partial/'actor').is_dir())
     def test_existing_checkpoint_requires_explicit_resume(self):
         self.checkpoint()
         with self.assertRaises(ValueError):

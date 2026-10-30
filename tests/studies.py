@@ -215,7 +215,8 @@ class StudyTests(unittest.TestCase):
             folder = root/str(seed)
             folder.mkdir()
             protocol = dict(split='test', training_seed=seed, samples_per_question=1,
-                dataset_name='fixture', dataset={'sha256': 'a'*64}, reference_count=2,
+                dataset_name='fixture', dataset={'sha256': 'a'*64, 'format': 'jsonl',
+                    'question_pointer': '/question', 'answer_pointer': '/answer'}, reference_count=2,
                 judge_model={'identity': 'fixed'}, parser='fixed', generation={'temperature': 0.},
                 arms={'searl': {}, 'evocond': {}})
             (folder/'judge_protocol.json').write_text(json.dumps(protocol), encoding='utf-8')
@@ -239,6 +240,62 @@ class StudyTests(unittest.TestCase):
             path.write_text(json.dumps(value), encoding='utf-8')
             with self.assertRaisesRegex(ValueError, 'Missing'):
                 summary.aggregate(path)
+
+    def test_summary_rejects_changed_field_mappings_even_with_identical_source_bytes(self):
+        for changes in ({'question_pointer': '/other_question'}, {'answer_pointer': '/other_answer'},
+                        {'format': 'parquet'}):
+            with self.subTest(changes=changes), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                path, value = self.result_manifest(root)
+                item = value['reports'][-1]
+                report_path = root/item['path']
+                protocol_path = report_path.parent/'judge_protocol.json'
+                protocol = json.loads(protocol_path.read_text(encoding='utf-8'))
+                protocol['dataset'].update(changes)
+                protocol_path.write_text(json.dumps(protocol), encoding='utf-8')
+                report = json.loads(report_path.read_text(encoding='utf-8'))
+                report['protocol_sha256'] = judge.digest(protocol)
+                report_path.write_text(json.dumps(report), encoding='utf-8')
+                item['sha256'] = judge.file_hash(report_path)
+                path.write_text(json.dumps(value), encoding='utf-8')
+                with self.assertRaisesRegex(ValueError, 'field mappings'):
+                    summary.aggregate(path)
+
+    def test_summary_keeps_dataset_location_out_of_its_content_identity(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            path, value = self.result_manifest(root)
+            for seed, item in zip(study.SEEDS, value['reports']):
+                report_path = root/item['path']
+                protocol_path = report_path.parent/'judge_protocol.json'
+                protocol = json.loads(protocol_path.read_text(encoding='utf-8'))
+                protocol['dataset']['path'] = f'data/replica{seed}.jsonl'
+                protocol_path.write_text(json.dumps(protocol), encoding='utf-8')
+                report = json.loads(report_path.read_text(encoding='utf-8'))
+                report['protocol_sha256'] = judge.digest(protocol)
+                report_path.write_text(json.dumps(report), encoding='utf-8')
+                item['sha256'] = judge.file_hash(report_path)
+            path.write_text(json.dumps(value), encoding='utf-8')
+            self.assertEqual(summary.aggregate(path)['conditions']['evocond']['macro']['mean'], 1.)
+
+    def test_summary_requires_valid_dataset_mapping_metadata(self):
+        for changes in ({'question_pointer': None}, {'answer_pointer': '/bad~2field'}, {'format': 'json'}):
+            with self.subTest(changes=changes), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                path, value = self.result_manifest(root)
+                item = value['reports'][0]
+                report_path = root/item['path']
+                protocol_path = report_path.parent/'judge_protocol.json'
+                protocol = json.loads(protocol_path.read_text(encoding='utf-8'))
+                protocol['dataset'].update(changes)
+                protocol_path.write_text(json.dumps(protocol), encoding='utf-8')
+                report = json.loads(report_path.read_text(encoding='utf-8'))
+                report['protocol_sha256'] = judge.digest(protocol)
+                report_path.write_text(json.dumps(report), encoding='utf-8')
+                item['sha256'] = judge.file_hash(report_path)
+                path.write_text(json.dumps(value), encoding='utf-8')
+                with self.assertRaisesRegex(ValueError, 'explicit field mappings'):
+                    summary.aggregate(path)
 
     def test_summary_computes_crossed_effects_from_complete_seed_reports(self):
         with tempfile.TemporaryDirectory() as folder:

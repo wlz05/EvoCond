@@ -20,6 +20,7 @@ from urllib.parse import urlsplit
 from control.isolation import canonical_hash, validate_deployment
 from control.runtime import validate_config as validate_runtime
 from control.runtime import execution_context_fingerprint
+from control.runtime import FORMAT as RUNTIME_FORMAT
 from splits import audit, file_digest, rows
 from convert import prepared, validate_official_row, question_hash
 from control.contracts import publish, strict_json
@@ -294,29 +295,76 @@ def runtimes(frozen, root):
             value["value_contracts"] = bool(config["teacher"].get("value_contracts", True))
         output[arm] = value
     return output
-def checkpoint(root, arm, value):
+def checkpoint(root, arm, value, *, world_size=None, runtime=None):
     root = Path(root).resolve(strict=True)
     path = Path(value).resolve(strict=True)
-    if not path.is_relative_to(root / arm / "checkpoints") or not re.fullmatch(r"global_step_[1-9][0-9]*", path.name):
+    if path.parent != root / arm / "checkpoints" or not re.fullmatch(r"global_step_[1-9][0-9]*", path.name):
         raise ValueError("Resume checkpoint must belong to this arm and experiment")
-    if not (path/'actor').is_dir():
+    actor = path/'actor'
+    if not actor.is_dir():
         raise ValueError('Incomplete paired checkpoint: missing actor directory')
-    for item in ("data.pt", "method_runtime/runtime.json", "method_runtime/graphrag.json", "method_runtime/subtasks.graphml"):
-        if not (path / item).is_file():
+    for item in ("actor/fsdp_config.json", "data.pt", "method_runtime/runtime.json",
+                 "method_runtime/graphrag.json", "method_runtime/subtasks.graphml"):
+        if not (path / item).is_file() or not (path / item).stat().st_size:
             raise ValueError(f"Incomplete paired checkpoint: missing or invalid {item}")
+    metadata = read(actor/'fsdp_config.json')
+    if (not isinstance(metadata, dict) or type(metadata.get('FSDP_version')) is not int
+            or metadata['FSDP_version'] not in (1, 2) or type(metadata.get('world_size')) is not int
+            or metadata['world_size'] < 1):
+        raise ValueError('Invalid actor FSDP checkpoint metadata')
+    if world_size is not None and (type(world_size) is not int or world_size != metadata['world_size']):
+        raise ValueError('Actor checkpoint world size differs from the frozen GPU allocation')
+    size = metadata['world_size']
+    prefixes = ('model', 'optim', 'extra_state')
+    shards = {item.name for item in actor.iterdir()
+        if any(item.name.startswith(prefix+'_world_size_') for prefix in prefixes)}
+    if len(shards) != 3*size:
+        raise ValueError('Incomplete or mixed actor checkpoint shards')
+    expected = {f'{prefix}_world_size_{size}_rank_{rank}.pt'
+        for prefix in prefixes for rank in range(size)}
+    if shards != expected or any(not (actor/name).is_file() or not (actor/name).stat().st_size for name in expected):
+        raise ValueError('Incomplete or mixed actor checkpoint shards')
+    state = read(path/'method_runtime/runtime.json')
+    if (not isinstance(state, dict) or state.get('format') != RUNTIME_FORMAT or state.get('arm') != arm
+            or type(state.get('policy_step')) is not int or state['policy_step'] != int(path.name[12:])
+            or not isinstance(state.get('run_id'), str) or not state['run_id']
+            or not isinstance(state.get('config_hash'), str) or not re.fullmatch('[a-f0-9]{64}', state['config_hash'])):
+        raise ValueError('Runtime checkpoint identity or step differs from its actor checkpoint')
+    if runtime is not None and (state['run_id'] != runtime['run_id'] or state['config_hash'] != canonical_hash(runtime)):
+        raise ValueError('Runtime checkpoint differs from the frozen experiment configuration')
     return str(path)
+def checkpoint_inventory(frozen, root, arm):
+    valid, incomplete = [], {}
+    runtime = runtimes(frozen, root)[arm]
+    candidates = (root/arm/'checkpoints').glob('global_step_*')
+    for path in sorted(candidates, key=lambda item: (len(item.name), item.name)):
+        try:
+            checkpoint(root, arm, path, world_size=frozen['config']['budget']['gpus'], runtime=runtime)
+        except (OSError, ValueError) as error:
+            incomplete[path.name] = str(error)
+        else:
+            valid.append(path.name)
+    return dict(checkpoints=valid, incomplete_checkpoints=incomplete)
+
 def launch_spec(frozen, root, arm, *, stage="train", split="validation", resume=None, attempt="attempt"):
+    if stage not in ('train', 'evaluate') or split not in ('validation', 'test'):
+        raise ValueError('Declare a training or evaluation stage and its dataset split')
     if arm not in arms(frozen['config']):
         raise ValueError('Arm does not belong to this frozen study condition')
     if stage == "train" and split != "validation":
         raise ValueError("Training can monitor validation only; test is reserved for explicit final evaluation")
     config, budget = frozen["config"], frozen["config"]["budget"]
     arm_root = root / arm
-    ckpt = checkpoint(root, arm, resume) if resume else None
+    ckpt = checkpoint(root, arm, resume, world_size=budget['gpus'], runtime=runtimes(frozen, root)[arm]) if resume else None
     if stage == "evaluate" and not ckpt:
         raise ValueError("Evaluation requires an explicit paired checkpoint")
     if stage == "train" and not ckpt and (arm_root / "checkpoints").exists() and any((arm_root / "checkpoints").iterdir()):
         raise ValueError("Existing checkpoints: specify --resume, never restart in-place")
+    if stage == 'train' and ckpt:
+        step = int(Path(ckpt).name[12:])
+        if any(re.fullmatch(r'global_step_[1-9][0-9]*', item.name) and int(item.name[12:]) > step
+                for item in (arm_root/'checkpoints').iterdir()):
+            raise ValueError('Later checkpoints exist; preserve or relocate that branch before resuming an older step')
     env = dict(os.environ)
     env.update(MODEL_PATH=config["model"], TRAIN_FILES=json.dumps(config["datasets"]["train"]),
                VAL_FILES=json.dumps(config["datasets"][split if stage == "evaluate" else "validation"]),
@@ -453,7 +501,7 @@ def main():
     frozen = read(protocol)
     if args.stage == "status":
         print(json.dumps({"root": str(root), "claim": frozen["claim"], "arms": {arm: {
-            "checkpoints": sorted(p.name for p in (root / arm / "checkpoints").glob("global_step_*")),
+            **checkpoint_inventory(frozen, root, arm),
             "active_lock": (root / ".launch.lock").exists()} for arm in arms(frozen['config'])}}))
         return
     if args.arm is None:

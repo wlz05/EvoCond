@@ -86,8 +86,11 @@ def aggregate(path):
             raise ValueError('Judge protocol and result condition labels differ')
         dataset = protocol.get('dataset')
         if (not isinstance(dataset, dict) or not isinstance(dataset.get('sha256'), str)
-                or not re.fullmatch(r'[a-f0-9]{64}', dataset['sha256'])):
-            raise ValueError('Dataset protocol needs a valid content SHA256')
+                or not re.fullmatch(r'[a-f0-9]{64}', dataset['sha256'])
+                or dataset.get('format') not in ('jsonl', 'parquet')
+                or any(not isinstance(dataset.get(name), str) or not dataset[name].startswith('/')
+                    or re.search(r'~(?![01])', dataset[name]) for name in ('question_pointer', 'answer_pointer'))):
+            raise ValueError('Dataset protocol needs its content SHA256, format and explicit field mappings')
         generation = protocol.get('generation')
         if (not isinstance(protocol.get('judge_model'), dict) or not protocol['judge_model']
                 or not isinstance(protocol.get('parser'), str) or not protocol['parser'].strip()
@@ -101,9 +104,10 @@ def aggregate(path):
         judge_identity = current_judge
         if type(protocol.get('reference_count')) is not int or protocol['reference_count'] < 1:
             raise ValueError('Reference denominators must be positive integers')
-        dataset = (dataset['sha256'], protocol['reference_count'])
+        dataset = (digest({name: dataset[name] for name in
+            ('sha256', 'format', 'question_pointer', 'answer_pointer')}), protocol['reference_count'])
         if key[0] in identities and identities[key[0]] != dataset:
-            raise ValueError('Test questions or denominators differ across seeds')
+            raise ValueError('Test inputs, field mappings or denominators differ across seeds')
         identities[key[0]] = dataset
         if not isinstance(report.get('arms'), dict) or set(report['arms']) != set(value['conditions']):
             raise ValueError('Result conditions do not match the declared comparison')

@@ -324,7 +324,7 @@ python run.py train --suite main --conditions evocond --seeds 42 \
   --resume runs/reproduction/main/evocond/seed42/teacher/checkpoints/global_step_20 --run
 ```
 
-Replace the example step with the completed paired checkpoint reported by `status`. Checkpoints bind actor weights, optimizer and data position, tool graph, registry, and adoption state. Existing frozen runs retain their original configuration; a changed source or protocol uses a new study root. Judge, summary, and fatigue commands preserve existing output paths; choose a new output name for another report. The judge output's parent directory must exist.
+Replace the example step with a paired checkpoint in the `status` output's `checkpoints` list. `incomplete_checkpoints` lists rejected candidates and their reasons. Checkpoints bind actor weights, optimizer and data position, tool graph, registry, and adoption state. Training cannot resume an older step while later checkpoint paths remain in the same branch. Preserve and move those later artifacts outside that branch before replaying an interrupted window; evaluation can use an earlier validation-selected checkpoint without changing later checkpoints. Existing frozen runs retain their original configuration; a changed source or protocol uses a new study root. Judge, summary, and fatigue commands preserve existing output paths; choose a new output name for another report. The judge output's parent directory must exist.
 
 ## Experimental Protocol
 
@@ -395,7 +395,7 @@ The statistical suite compares full EvoCond, `simple` (raw geometry and untraine
 
 ### Epoch Tails and Checkpoints
 
-Before a suite starts, the runner checks every selected job against its frozen configuration, including normalized paths, sampling settings, training budget, runtime configurations, and the explicit recovery checkpoint. A missing runtime configuration or an existing checkpoint without a recovery selection stops the suite before the first worker starts. Checkpoint preflight requires the actor directory and all paired state files to have the expected file types.
+Before a suite starts, the runner checks every selected job against its frozen configuration, including normalized paths, sampling settings, training budget, runtime configurations, and the explicit recovery checkpoint. A missing runtime configuration or an existing checkpoint without a recovery selection stops the suite before the first worker starts. Checkpoint preflight checks the FSDP world size against the GPU allocation, every rank's nonempty model, optimizer and scheduler/RNG shard, and nonempty paired state files. The runtime's experiment identity, configuration hash, and recorded step must match that actor checkpoint. These file and metadata checks precede native deserialization.
 
 Configuration and launch-lock files are published only after a complete write. If matrix generation is interrupted, repeat the same command: complete matching files are retained and missing files are generated. A failed native batch concatenation restores the original batch references for a clean retry.
 
@@ -413,7 +413,7 @@ Native batch assembly validates sequence lengths, response masks, metadata, and 
 
 Use one greedy answer per scheduled base question, `do_sample=false`, temperature 0, top-p 1, and identical execution limits across conditions. Select checkpoints using validation before test evaluation. A checkpoint map explicitly names every condition/seed checkpoint; test access requires `--allow-test`.
 
-Evaluate each benchmark separately. Shared memory is frozen on test, while newly created tools remain private to their current task. The v2 judge uses the declared reference set as the denominator: missing or failed predictions become empty answers and score zero; duplicate predictions and identity mismatches raise errors. Corrupt judge responses do not become model failures. The same Qwen3-32B snapshot, parser, and judge generation settings score all conditions.
+Evaluate each benchmark separately. Shared memory is frozen on test, while newly created tools remain private to their current task. The v2 judge uses the declared reference set as the denominator: missing or failed predictions become empty answers and score zero; duplicate predictions and identity mismatches raise errors. Corrupt judge responses do not become model failures. The same Qwen3-32B snapshot, parser, and judge generation settings score all conditions. Four-seed aggregation matches the dataset content hash, input format, question mapping, answer mapping, and reference count. Moving identical input files keeps their identity; changing their interpreted fields creates a different evaluation.
 
 Four training seeds produce four accuracy values per condition and benchmark. Report their mean and sample standard deviation; repeated training rollouts are not extra test questions. Report per-benchmark values first, then explicitly distinguish benchmark macro-average from question-weighted average. `summary.py` requires the complete benchmark-by-seed grid, matching test fingerprints and denominators, and the same judge settings. Question-paired intervals remain separate from between-seed variation.
 
