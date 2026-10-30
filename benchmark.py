@@ -11,6 +11,7 @@ import json
 import logging
 import math
 from control.isolation import SandboxInfrastructureError
+from control.contracts import publish, publish_chunks, strict_json
 from catalogue import benchmark, pinned_revision, relative_path
 from convert import file_hash, normalized_question, read_rows
 class NativeEvaluator(ABC):
@@ -37,12 +38,19 @@ def checked(cases):
             raise ValueError("Every case needs an independent group identity")
         if not isinstance(case["group_keys"], list) or not case["group_keys"] or any(not isinstance(key, str) or len(key) != 64 or any(char not in "0123456789abcdef" for char in key) for key in case["group_keys"]):
             raise ValueError("Every case needs explicit group-key fingerprints")
-    if not cases:
-        raise ValueError("No evaluation cases")
+        try:
+            # Match the streaming JSONL reader's row budget, including its newline.
+            restored = strict_json(json.dumps(case, ensure_ascii=True, allow_nan=False)+'\n')
+        except (TypeError, ValueError, RecursionError, OverflowError) as error:
+            raise ValueError('Evaluation cases must contain finite, bounded JSON values') from error
+        if restored != case:
+            raise ValueError('Evaluation cases must preserve their exact JSON representation')
     return cases
 def public_case(case):
     return deepcopy({key: case[key] for key in ("id", "prompt", "context")})
 def make_protocol(name, data_sha256, source_revision, evaluator_revision, model_id, arm, seed):
+    if not isinstance(name, str):
+        raise ValueError('Benchmark identity must be text')
     spec = benchmark(name)
     pinned_revision(source_revision)
     pinned_revision(evaluator_revision)
@@ -55,16 +63,30 @@ def make_protocol(name, data_sha256, source_revision, evaluator_revision, model_
     protocol = {"benchmark": name, "data_sha256": data_sha256, "source_revision": source_revision, "evaluator": spec.evaluation, "evaluator_revision": evaluator_revision, "model_id": model_id, "arm": arm, "seed": seed, "samples_per_task": 1}
     protocol["sha256"] = sha256(json.dumps(protocol, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     return protocol
+def validated_protocol(protocol):
+    fields = {'benchmark', 'data_sha256', 'source_revision', 'evaluator', 'evaluator_revision',
+        'model_id', 'arm', 'seed', 'samples_per_task', 'sha256'}
+    if not isinstance(protocol, dict) or set(protocol) != fields:
+        raise ValueError('Declare a complete native evaluation protocol')
+    expected = make_protocol(protocol['benchmark'], protocol['data_sha256'], protocol['source_revision'],
+        protocol['evaluator_revision'], protocol['model_id'], protocol['arm'], protocol['seed'])
+    if type(protocol['samples_per_task']) is not int or protocol != expected:
+        raise ValueError('Native evaluation protocol contents or SHA256 changed')
+    return expected
+
 def receipt(case_id, result, protocol):
+    protocol = validated_protocol(protocol)
+    if not isinstance(case_id, str) or not case_id.strip():
+        raise ValueError('Native receipts need a nonempty string case ID')
     continuous = benchmark(protocol["benchmark"]).score_kind == "continuous"
     value_key = "score" if continuous else "passed"
     if not isinstance(result, dict) or set(result) != {"status", value_key}:
         raise ValueError(f"Native grade must explicitly contain status and {value_key}")
     value = result[value_key]
-    if result["status"] not in {"ok", "error", "timeout"}:
+    if not isinstance(result['status'], str) or result["status"] not in {"ok", "error", "timeout"}:
         raise ValueError("Invalid native grade")
     if continuous:
-        if type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 1:
+        if type(value) not in (int, float) or not 0 <= value <= 1 or not math.isfinite(value):
             raise ValueError("Native similarity must be finite and within zero and one")
     elif type(value) is not bool:
         raise ValueError("Binary native grades require boolean passed")
@@ -72,7 +94,10 @@ def receipt(case_id, result, protocol):
         raise ValueError("Errors and timeouts must have zero score")
     return {"id": case_id, "protocol_sha256": protocol["sha256"], "evaluator": protocol["evaluator"], "evaluator_revision": protocol["evaluator_revision"], "status": result["status"], "score": float(value), "passed": None if continuous else value}
 def evaluate(cases, evaluator: NativeEvaluator, protocol):
-    for case in checked(cases):
+    protocol = validated_protocol(protocol)
+    # Snapshot the scheduled cases before calling external adapters.
+    cases = deepcopy(checked(cases))
+    for case in cases:
         try:
             trajectory = evaluator.run(public_case(case), deepcopy(protocol))
         except SandboxInfrastructureError:
@@ -84,15 +109,17 @@ def evaluate(cases, evaluator: NativeEvaluator, protocol):
             yield receipt(case['id'], {'status': status, key: 0. if key == 'score' else False}, protocol)
             continue
         # Grading failures abort evaluation instead of becoming false task labels.
-        yield receipt(case["id"], evaluator.grade(case["reference"], trajectory, dict(protocol)), protocol)
+        yield receipt(case["id"], evaluator.grade(deepcopy(case["reference"]), trajectory, deepcopy(protocol)), protocol)
 def summarize(cases, receipts, protocol):
+    protocol = validated_protocol(protocol)
     checked(cases)
     expected, observed = {case["id"] for case in cases}, {}
+    group_count = len({case['group'] for case in cases})
     continuous = benchmark(protocol["benchmark"]).score_kind == "continuous"
     for row in receipts:
         if not isinstance(row, dict) or set(row) != {"id", "protocol_sha256", "evaluator", "evaluator_revision", "status", "passed", "score"}:
             raise ValueError("Unexpected native receipt schema")
-        if row["id"] not in expected or row["id"] in observed:
+        if not isinstance(row['id'], str) or row["id"] not in expected or row["id"] in observed:
             raise ValueError("Unknown or repeated receipt ID")
         if any(row[key] != protocol[key] for key in ("evaluator", "evaluator_revision")) or row["protocol_sha256"] != protocol["sha256"]:
             raise ValueError("Receipt does not match this frozen evaluation protocol")
@@ -100,11 +127,11 @@ def summarize(cases, receipts, protocol):
         verified = receipt(row["id"], {key: row[key] for key in ("status", value_key)}, protocol)
         if type(row["score"]) not in (int, float) or row["score"] != verified["score"] or row["passed"] != verified["passed"]:
             raise ValueError("Receipt score does not match its native grade")
-        observed[row["id"]] = row
+        observed[row["id"]] = verified
     if not expected or set(observed) != expected:
         raise ValueError("Incomplete receipts; missing cases must not disappear from the denominator")
     passed = None if continuous else sum(row["passed"] for row in observed.values())
-    return {"protocol": protocol, "metric": benchmark(protocol["benchmark"]).metric, "n": len(cases), "groups": len({case['group'] for case in cases}), "passed": passed, "score": sum(row["score"] for row in observed.values()) / len(cases), "errors": sum(row["status"] == "error" for row in observed.values()), "timeouts": sum(row["status"] == "timeout" for row in observed.values()), "notice": "Native adapter receipts are trusted inputs, not proof of official reproduction. One sample per task; no inferred pass@k or significance."}
+    return {"protocol": protocol, "metric": benchmark(protocol["benchmark"]).metric, "n": len(expected), "groups": group_count, "passed": passed, "score": sum(row["score"] for row in observed.values()) / len(expected), "errors": sum(row["status"] == "error" for row in observed.values()), "timeouts": sum(row["status"] == "timeout" for row in observed.values()), "notice": "Native adapter receipts are trusted inputs, not proof of official reproduction. One sample per task; no inferred pass@k or significance."}
 def main():
     parser = argparse.ArgumentParser(description="Export public requests or summarize native receipts. No GPU, code execution or grader fallback.")
     parser.add_argument("stage", choices=("plan", "summarize"))
@@ -137,15 +164,14 @@ def main():
             raise ValueError("Plan stage does not consume receipts")
         report = {"protocol": protocol, "cases": len(cases), "native_adapter_required": True, "training_started": False}
     if args.run:
+        protocol_bytes = json.dumps(protocol, indent=2, allow_nan=False).encode('utf-8')
+        report_bytes = json.dumps(report, indent=2, allow_nan=False).encode('utf-8')
         output.mkdir(parents=True, exist_ok=False)
-        with (output / "protocol.json").open("x", encoding="utf-8") as stream:
-            json.dump(protocol, stream, indent=2)
-        if args.stage == "plan":
-            with (output / "requests.jsonl").open("x", encoding="utf-8", newline="\n") as stream:
-                for case in cases:
-                    stream.write(json.dumps(public_case(case), ensure_ascii=True, allow_nan=False) + "\n")
-        with (output / "report.json").open("x", encoding="utf-8") as stream:
-            json.dump(report, stream, indent=2)
+        publish(output/'protocol.json', protocol_bytes)
+        if args.stage == 'plan':
+            publish_chunks(output/'requests.jsonl', ((json.dumps(public_case(case), ensure_ascii=True, allow_nan=False)+'\n').encode('utf-8')
+                for case in cases))
+        publish(output/'report.json', report_bytes)
     print(json.dumps(report, indent=2))
 if __name__ == "__main__":
     main()

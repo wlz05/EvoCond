@@ -2,10 +2,13 @@
 # EvoCond: Preserving Conditional Tool Relations for Co-Evolving Language Agents
 
 from copy import deepcopy
+from hashlib import sha256
 import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 from control.contracts import (Contract, check_call, compile_contract, contract_report,
-    current_frame, extraction_request, memory_applicability, parse_proposals)
+    current_frame, extraction_request, memory_applicability, parse_proposals, publish, publish_chunks)
 def tool(name="Paint", field="color", values=None, aliases=None):
     rule = {"type": "string", "enum": values or ["red", "blue"]}
     if aliases is not None:
@@ -254,6 +257,53 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(check_call(messages, tools, "Paint", {"color": "blue"}, contract=contract)["reason"], "stale_contract")
         self.assertTrue(check_call(messages, tools, "Paint", {"color": "blue"}, contract=contract,
                                    trusted_alias_tools=("Paint",))["blocked"])
+    def test_stream_publication_hashes_exact_bytes_and_preserves_text_api(self):
+        with TemporaryDirectory() as folder:
+            target = Path(folder)/'stream.jsonl'
+            def chunks():
+                yield b'{"row":1}\n'
+                self.assertFalse(target.exists())
+                yield b'{"row":2}\n'
+            digest = publish_chunks(target, chunks())
+            expected = b'{"row":1}\n{"row":2}\n'
+            self.assertEqual(target.read_bytes(), expected)
+            self.assertEqual(digest, sha256(expected).hexdigest())
+            text = Path(folder)/'text.json'
+            self.assertIsNone(publish(text, '{}'))
+            self.assertEqual(text.read_bytes(), b'{}\n')
+
+    def test_stream_failures_leave_no_partial_publication_or_temporary_file(self):
+        with TemporaryDirectory() as folder:
+            target = Path(folder)/'stream.jsonl'
+            def interrupted():
+                yield b'complete first chunk\n'
+                raise OSError('Interrupted source iterator')
+            with self.assertRaises(OSError):
+                publish_chunks(target, interrupted())
+            self.assertFalse(target.exists())
+            with self.assertRaises(ValueError):
+                publish_chunks(target, iter([b'first', 'not bytes']))
+            self.assertFalse(target.exists())
+            self.assertEqual(list(Path(folder).glob('.evocond-*.tmp')), [])
+
+    def test_stream_publication_never_overwrites_a_prior_artifact(self):
+        with TemporaryDirectory() as folder:
+            target = Path(folder)/'prior.jsonl'
+            target.write_bytes(b'keep original\n')
+            consumed = []
+            def replacement():
+                consumed.append(True)
+                yield b'replacement\n'
+            with self.assertRaises(FileExistsError):
+                publish_chunks(target, replacement())
+            self.assertFalse(consumed)
+            self.assertEqual(target.read_bytes(), b'keep original\n')
+            for chunks in (None, 7, 'text', b'bytes'):
+                with self.subTest(kind=type(chunks).__name__), self.assertRaises(ValueError):
+                    publish_chunks(Path(folder)/'invalid.jsonl', chunks)
+            self.assertFalse((Path(folder)/'invalid.jsonl').exists())
+            self.assertEqual(list(Path(folder).glob('.evocond-*.tmp')), [])
+
 if __name__ == "__main__":
     unittest.main()
 

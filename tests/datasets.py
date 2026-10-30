@@ -3,12 +3,19 @@
 
 # Check split isolation and native evaluation contracts without model execution.
 from argparse import Namespace
+from contextlib import redirect_stdout
 from copy import deepcopy
+from hashlib import sha256
+import io
 import json
+import os
 from pathlib import Path
+import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+import benchmark as native
+import partition as partitions
 from catalogue import benchmark, relative_path
 from partition import normalize, partition, prepare
 from leakage import audit
@@ -21,6 +28,13 @@ class DatasetInterfacesTests(unittest.TestCase):
         return normalize(rows or self.rows(), "/id", "/question", ["/task"], "/answer", "/tools")
     def protocol(self):
         return make_protocol("toolhop", "a" * 64, "source-v1", "evaluator-v1", "qwen3-4b/checkpoint-1", "evocond", 42)
+    def preparation(self, root):
+        source = root/'source.jsonl'
+        source.write_text(''.join(json.dumps(row)+'\n' for row in self.rows()), encoding='utf-8')
+        return Namespace(benchmark='toolhop', input=source.as_posix(), output=(root/'output').as_posix(),
+            sha256=file_hash(source), revision='v1', source_uri='https://example.test/toolhop', source_split='test',
+            format='jsonl', policy='preserve', fractions='0.8,0.1,0.1', seed=42, id_field='/id',
+            prompt_field='/question', group_fields='/task', reference_field='/answer', context_field='/tools', run=False)
     def test_registry_and_relative_paths(self):
         for name in ("toolhop", "toolsandbox", "bigcodebench"):
             self.assertTrue(benchmark(name).evaluation_only)
@@ -45,6 +59,19 @@ class DatasetInterfacesTests(unittest.TestCase):
                 partition(self.normalized(), fractions, 42)
         with self.assertRaises(ValueError):
             partition(self.normalized(self.rows(2)), (0.8, 0.1, 0.1), 42)
+    def test_numeric_text_and_compatibility_group_ids_share_one_partition(self):
+        rows = self.rows()
+        rows[0]['task'], rows[1]['task'], rows[2]['task'] = 7, '7', ' \uff17 '
+        records = self.normalized(rows)
+        self.assertEqual(len({row['group'] for row in records[:3]}), 1)
+        destinations = {row['id']: split for split, values in partition(records, (.6, .2, .2), 42).items()
+            for row in values}
+        self.assertEqual(len({destinations[row['id']] for row in records[:3]}), 1)
+        with tempfile.TemporaryDirectory() as folder:
+            paths = {'train': Path(folder)/'train.jsonl', 'test': Path(folder)/'test.jsonl'}
+            for split, row in zip(paths, rows[:2]):
+                paths[split].write_text(json.dumps(self.normalized([row])[0])+'\n', encoding='utf-8')
+            self.assertFalse(audit(paths)['disjoint'])
     def test_public_requests_hide_and_do_not_mutate_references(self):
         case = self.normalized()[0]
         public = public_case(case)
@@ -118,6 +145,144 @@ class DatasetInterfacesTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             summarize(cases+cases, rows, protocol)
 
+    def test_all_cases_are_validated_before_the_first_actor_call(self):
+        for value in (float('nan'), float('inf'), b'bytes', ('tuple',), {1: 'numeric key'}, 'x'*1_000_000):
+            cases = self.normalized(self.rows(2))
+            cases[-1]['reference'] = value
+            adapter = Mock(spec=NativeEvaluator)
+            with self.subTest(kind=type(value).__name__), self.assertRaises(ValueError):
+                list(evaluate(cases, adapter, self.protocol()))
+            adapter.run.assert_not_called()
+            adapter.grade.assert_not_called()
+
+    def test_protocol_changes_stop_evaluation_before_execution(self):
+        for change in ({'model_id': 'other'}, {'seed': 52}, {'data_sha256': 'b'*64},
+                       {'samples_per_task': True}, {'evaluator': 'wrong'}, {'sha256': 'f'*64}):
+            protocol = {**self.protocol(), **change}
+            adapter = Mock(spec=NativeEvaluator)
+            with self.subTest(change=change), self.assertRaisesRegex(ValueError, 'protocol'):
+                list(evaluate(self.normalized(), adapter, protocol))
+            adapter.run.assert_not_called()
+            adapter.grade.assert_not_called()
+
+    def test_rehashed_wrong_evaluator_and_sample_count_are_not_valid_protocols(self):
+        cases, protocol = self.normalized(self.rows(1)), self.protocol()
+        rows = [receipt(cases[0]['id'], {'status': 'ok', 'passed': True}, protocol)]
+        for change in ({'evaluator': 'wrong'}, {'samples_per_task': 8}):
+            changed = {**protocol, **change}
+            payload = {key: value for key, value in changed.items() if key != 'sha256'}
+            changed['sha256'] = sha256(json.dumps(payload, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+            with self.subTest(change=change), self.assertRaisesRegex(ValueError, 'protocol'):
+                summarize(cases, rows, changed)
+
+    def test_grading_receives_independent_reference_and_protocol_copies(self):
+        class Mutating(NativeEvaluator):
+            def run(self, case, protocol):
+                case['context'].clear()
+                protocol['model_id'] = 'actor local change'
+                return {}
+            def grade(self, reference, trajectory, protocol):
+                passed = reference['answers'].pop() == 'Secret'
+                protocol['model_id'] = 'grader local change'
+                return {'status': 'ok', 'passed': passed}
+        cases, protocol = self.normalized(self.rows(1)), self.protocol()
+        cases[0]['reference'] = {'answers': ['Secret']}
+        before, declared = deepcopy(cases), deepcopy(protocol)
+        for _ in range(2):
+            rows = list(evaluate(cases, Mutating(), protocol))
+            self.assertTrue(rows[0]['passed'])
+        self.assertEqual(cases, before)
+        self.assertEqual(protocol, declared)
+
+    def test_malformed_receipt_identity_and_status_raise_value_errors(self):
+        protocol, cases = self.protocol(), self.normalized(self.rows(1))
+        for identity in (None, [], '', True):
+            with self.subTest(identity=identity), self.assertRaises(ValueError):
+                receipt(identity, {'status': 'ok', 'passed': True}, protocol)
+        with self.assertRaises(ValueError):
+            receipt('x', {'status': [], 'passed': False}, protocol)
+        row = receipt(cases[0]['id'], {'status': 'ok', 'passed': True}, protocol)
+        row['id'] = []
+        with self.assertRaisesRegex(ValueError, 'receipt ID'):
+            summarize(cases, [row], protocol)
+
+    def test_receipt_stream_cannot_rewrite_validated_rows_or_the_scheduled_denominator(self):
+        cases, protocol = self.normalized(self.rows(2)), self.protocol()
+        ids = [case['id'] for case in cases]
+        def stream():
+            row = receipt(ids[0], {'status': 'ok', 'passed': True}, protocol)
+            yield row
+            row.update(receipt(ids[1], {'status': 'ok', 'passed': False}, protocol))
+            yield row
+            row.update(passed=True, score=999.)
+            cases.clear()
+        report = summarize(cases, stream(), protocol)
+        self.assertEqual((report['n'], report['groups'], report['passed'], report['score']), (2, 2, 1, .5))
+
+    def test_preparation_rejects_unexportable_parquet_values_before_creating_output(self):
+        with tempfile.TemporaryDirectory(dir='.') as folder:
+            root = Path(folder).resolve().relative_to(Path.cwd())
+            args = self.preparation(root)
+            args.run, args.format = True, 'parquet'
+            for value in (float('nan'), 'x'*1_000_000):
+                bad = self.rows()
+                bad[-1]['tools']['value'] = value
+                with self.subTest(kind=type(value).__name__), patch.object(partitions, 'read_rows', return_value=bad), \
+                        self.assertRaisesRegex(ValueError, 'JSON values'):
+                    prepare(args)
+            self.assertFalse(Path(args.output).exists())
+
+    def test_preparation_api_rejects_unknown_policy_and_invalid_preserve_seed(self):
+        with tempfile.TemporaryDirectory(dir='.') as folder:
+            root = Path(folder).resolve().relative_to(Path.cwd())
+            args = self.preparation(root)
+            args.run, args.policy, args.fractions = True, 'typo', '0,.3,.7'
+            with self.assertRaisesRegex(ValueError, 'split policy'):
+                prepare(args)
+            args.policy, args.seed = 'preserve', True
+            with self.assertRaisesRegex(ValueError, 'seeds'):
+                prepare(args)
+            self.assertFalse(Path(args.output).exists())
+
+    def test_interrupted_split_publication_keeps_complete_files_without_final_manifest(self):
+        with tempfile.TemporaryDirectory(dir='.') as folder:
+            root = Path(folder).resolve().relative_to(Path.cwd())
+            args = self.preparation(root)
+            args.run, args.policy, args.fractions = True, 'development-holdout', '0,.3,.7'
+            link = os.link
+            def interrupted(source, target):
+                if Path(target).name == 'test.jsonl':
+                    raise OSError('Interrupted split publication')
+                return link(source, target)
+            with patch('control.contracts.os.link', side_effect=interrupted), self.assertRaises(OSError):
+                prepare(args)
+            output = Path(args.output)
+            self.assertTrue(load_cases(output/'validation.jsonl'))
+            self.assertFalse((output/'test.jsonl').exists())
+            self.assertFalse((output/'split_manifest.json').exists())
+            self.assertEqual(list(output.glob('.evocond-*.tmp')), [])
+
+    def test_native_plan_publication_does_not_leave_partial_requests_or_success_report(self):
+        with tempfile.TemporaryDirectory(dir='.') as folder:
+            root = Path(folder).resolve().relative_to(Path.cwd())
+            source, output = root/'cases.jsonl', root/'plan'
+            source.write_text(''.join(json.dumps(row)+'\n' for row in self.normalized()), encoding='utf-8')
+            argv = ['benchmark.py', 'plan', '--benchmark', 'toolhop', '--data', source.as_posix(),
+                '--sha256', file_hash(source), '--source-revision', 'v1', '--evaluator-revision', 'v1',
+                '--model-id', 'qwen/checkpoint', '--arm', 'evocond', '--output', output.as_posix(), '--run']
+            link = os.link
+            def interrupted(source, target):
+                if Path(target).name == 'requests.jsonl':
+                    raise OSError('Interrupted request publication')
+                return link(source, target)
+            with patch.object(sys, 'argv', argv), patch('control.contracts.os.link', side_effect=interrupted), \
+                    redirect_stdout(io.StringIO()), self.assertRaises(OSError):
+                native.main()
+            self.assertTrue((output/'protocol.json').is_file())
+            self.assertFalse((output/'requests.jsonl').exists())
+            self.assertFalse((output/'report.json').exists())
+            self.assertEqual(list(output.glob('.evocond-*.tmp')), [])
+
     def test_split_ratios_and_revision_labels_are_not_coerced(self):
         for seed in (True, -1, '42'):
             with self.subTest(seed=seed), self.assertRaises(ValueError):
@@ -172,7 +337,7 @@ class DatasetInterfacesTests(unittest.TestCase):
         self.assertEqual(report["metric"], "milestone_similarity")
         self.assertAlmostEqual(report["score"], 0.735)
         self.assertIsNone(report["passed"])
-        for value in (float("nan"), float("inf"), True, -1, 1.1):
+        for value in (float("nan"), float("inf"), True, -1, 1.1, 10**1000):
             with self.assertRaises(ValueError):
                 receipt("x", {"status": "ok", "score": value}, protocol)
         with self.assertRaises(ValueError):

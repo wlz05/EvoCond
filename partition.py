@@ -8,6 +8,9 @@ from hashlib import sha256
 import json
 import math
 from pathlib import Path
+import unicodedata
+from benchmark import checked
+from control.contracts import publish, publish_chunks
 from catalogue import benchmark, pinned_revision, relative_path
 from convert import file_hash, normalized_question, pointer, read_rows
 SPLITS = ("train", "validation", "test")
@@ -15,7 +18,7 @@ FORMAT = "evocond_benchmark_splits_v1"
 def identity(value):
     if isinstance(value, bool) or not isinstance(value, (str, int)) or not str(value).strip():
         raise ValueError("Task and group identities must be nonempty strings or integers")
-    return json.dumps(value, ensure_ascii=True)
+    return json.dumps(unicodedata.normalize('NFKC', str(value)).strip(), ensure_ascii=True)
 def normalize(rows, id_field, prompt_field, group_fields, reference_field, context_field=None):
     if not group_fields or len(group_fields) != len(set(group_fields)):
         raise ValueError("Declare unique group fields; prompt views must share a task group")
@@ -52,7 +55,7 @@ def normalize(rows, id_field, prompt_field, group_fields, reference_field, conte
         components.setdefault(find(index), []).append(record["id"])
     for index, record in enumerate(records):
         record["group"] = sha256(json.dumps(sorted(components[find(index)]), ensure_ascii=True).encode()).hexdigest()
-    return records
+    return checked(records)
 def partition(records, fractions, seed):
     if type(seed) is not int or seed < 0:
         raise ValueError('Partition seeds must be nonnegative integers')
@@ -72,6 +75,10 @@ def partition(records, fractions, seed):
         start += count
     return {split: [row for row in records if assignment[row["group"]] == split] for split in SPLITS}
 def prepare(args):
+    if args.policy not in ('preserve', 'partition-train', 'development-holdout') or args.source_split not in SPLITS:
+        raise ValueError('Declare a supported split policy and source split')
+    if type(args.seed) is not int or args.seed < 0:
+        raise ValueError('Partition seeds must be nonnegative integers')
     spec = benchmark(args.benchmark)
     pinned_revision(args.revision)
     if not isinstance(args.source_uri, str) or not args.source_uri.strip():
@@ -97,18 +104,21 @@ def prepare(args):
             raise ValueError("Development holdout must use zero training fraction")
         splits = partition(records, fractions, args.seed)
     report = {"format": FORMAT, "benchmark": spec.name, "source": {"path": source.as_posix(), "sha256": before, "uri": args.source_uri, "revision": args.revision, "split": args.source_split}, "policy": args.policy, "official_partition_preserved": args.policy == "preserve", "seed": args.seed, "mapping": {"id": args.id_field, "prompt": args.prompt_field, "groups": args.group_fields.split(","), "reference": args.reference_field, "context": args.context_field}, "splits": {split: {"path": f"{split}.jsonl", "rows": len(rows), "groups": len({row['group'] for row in rows})} for split, rows in splits.items() if rows}, "notice": "Generated partitions are custom research splits, not author splits. Context must contain only information visible to the actor. Native evaluation is required."}
+    report['group_identity'] = 'NFKC-normalized trimmed text; numeric and textual forms share identity'
     if args.run:
+        json.dumps(report, ensure_ascii=True, allow_nan=False)
+        if file_hash(source) != before:
+            raise ValueError('Source changed before publishing split files')
         output.mkdir(parents=True, exist_ok=False)
         for split, rows in splits.items():
-            if not rows:
-                continue
-            path = output / f"{split}.jsonl"
-            with path.open("x", encoding="utf-8", newline="\n") as stream:
-                for row in sorted(rows, key=lambda item: item["id"]):
-                    stream.write(json.dumps(row, ensure_ascii=True, allow_nan=False) + "\n")
-            report["splits"][split]["sha256"] = file_hash(path)
-        with (output / "split_manifest.json").open("x", encoding="utf-8") as stream:
-            json.dump(report, stream, ensure_ascii=True, allow_nan=False, indent=2)
+            if rows:
+                report['splits'][split]['sha256'] = publish_chunks(output/f'{split}.jsonl', (
+                    (json.dumps(row, ensure_ascii=True, allow_nan=False)+'\n').encode('utf-8')
+                    for row in sorted(rows, key=lambda item: item['id'])))
+        if file_hash(source) != before or any(file_hash(output/f'{split}.jsonl') != report['splits'][split]['sha256']
+                for split in report['splits']):
+            raise ValueError('Source or published splits changed before completion')
+        publish(output/'split_manifest.json', json.dumps(report, ensure_ascii=True, allow_nan=False, indent=2).encode('utf-8'))
     return report
 def arguments():
     parser = argparse.ArgumentParser(description="Normalize local data and preserve or explicitly group its splits. Dry-run by default.")

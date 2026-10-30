@@ -479,17 +479,33 @@ def relative(root, name):
 def publish(path, text):
     if not isinstance(text, (str, bytes)):
         raise ValueError('Published content must be text or bytes')
+    payload = text if isinstance(text, bytes) else (text+'\n').encode('utf-8')
+    publish_chunks(path, (payload,))
+
+def publish_chunks(path, chunks):
+    try:
+        chunks = iter(chunks)
+    except TypeError as error:
+        raise ValueError('Published chunks must be an iterable of bytes') from error
     path = Path(path)
+    if path.exists() or path.is_symlink():
+        raise FileExistsError('Published artifact already exists: '+str(path))
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, name = tempfile.mkstemp(prefix='.evocond-', suffix='.tmp', dir=path.parent)
     temporary = Path(name)
+    checksum = sha256()
     try:
         with os.fdopen(descriptor, 'wb') as stream:
-            stream.write(text if isinstance(text, bytes) else (text+'\n').encode('utf-8'))
+            for chunk in chunks:
+                if not isinstance(chunk, bytes):
+                    raise ValueError('Published chunks must contain bytes only')
+                stream.write(chunk)
+                checksum.update(chunk)
             stream.flush()
             os.fsync(stream.fileno())
         # Linking publishes the complete artifact without replacing a prior result.
         os.link(temporary, path)
+        return checksum.hexdigest()
     finally:
         temporary.unlink(missing_ok=True)
 
