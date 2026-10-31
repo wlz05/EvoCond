@@ -342,6 +342,67 @@ class FatigueTests(unittest.TestCase):
         self.assertEqual(result['terms']['total']['n'], 4)
         self.assertEqual(result['terms']['cost']['n'], 4)
 
+    def test_receiver_credit_reverses_while_both_absolute_scores_improve(self):
+        old, new = (.4, .6), (.9, .8)
+        self.assertTrue(all(right > left for left, right in zip(old, new)))
+        report = fatigue.transport([old[1]-old[0]], [new[1]-new[0]])
+        metric = report['metrics']
+        self.assertAlmostEqual(metric['advantage_change']['mean'], -.3)
+        self.assertAlmostEqual(metric['carried_preference_loss']['mean'], .1)
+        self.assertAlmostEqual(metric['receiver_blind_loss']['mean'], .05)
+        self.assertEqual(metric['positive_to_negative_share']['mean'], 1.)
+        self.assertFalse(report['deployment_decision'])
+        self.assertIn('hindsight', report['scope'])
+
+    def test_receiver_conflicts_can_exist_without_a_mean_advantage_change(self):
+        values = fatigue.transport([1., -1.], [-1., 1.])['metrics']
+        self.assertEqual(values['advantage_change']['mean'], 0.)
+        self.assertEqual(values['carried_preference_loss']['mean'], 1.)
+        self.assertEqual(values['receiver_blind_loss']['mean'], .5)
+        self.assertEqual(values['positive_to_negative_share']['mean'], .5)
+        self.assertEqual(values['negative_to_positive_share']['mean'], .5)
+
+    def test_receiver_ties_use_semantic_without_becoming_strict_sign_flips(self):
+        values = fatigue.transport([0., 1., -1., 0.], [1., 0., 0., 0.])['metrics']
+        self.assertEqual(values['source_tie_share']['mean'], .5)
+        self.assertEqual(values['target_tie_share']['mean'], .75)
+        self.assertEqual(values['carried_preference_loss']['mean'], .25)
+        self.assertEqual(values['receiver_blind_loss']['mean'], 0.)
+        self.assertEqual(values['negative_to_positive_share']['mean'], 0.)
+
+    def test_receiver_blind_loss_is_symmetric_but_carry_loss_is_directional(self):
+        forward = fatigue.transport([.8], [-.2])['metrics']
+        reverse = fatigue.transport([-.2], [.8])['metrics']
+        self.assertEqual(forward['receiver_blind_loss']['mean'], reverse['receiver_blind_loss']['mean'])
+        self.assertEqual(forward['carried_preference_loss']['mean'], .2)
+        self.assertEqual(reverse['carried_preference_loss']['mean'], .8)
+        for row in (forward, reverse):
+            self.assertAlmostEqual(row['current_preference_gain']['mean']-row['carried_preference_gain']['mean'],
+                row['carried_preference_loss']['mean'])
+
+    def test_receiver_decline_without_preference_conflict_has_no_selection_loss(self):
+        values = fatigue.transport([.8, -.2], [.1, -.9])['metrics']
+        self.assertLess(values['advantage_change']['mean'], 0.)
+        self.assertEqual(values['carried_preference_loss']['mean'], 0.)
+        self.assertEqual(values['receiver_blind_loss']['mean'], 0.)
+
+    def test_receiver_comparisons_reject_missing_or_nonfinite_advantages(self):
+        for left, right in (([], []), ([0.], []), ([True], [0.]), (['1'], [0.]),
+                ([float('inf')], [0.]), ([10**1000], [0.]), ([1e308], [-1e308])):
+            with self.assertRaises(ValueError):
+                fatigue.transport(left, right)
+
+    def test_receiver_comparison_retains_task_denominators_and_panel_direction(self):
+        report = fatigue.panel(self.save(self.fixture()))
+        transfer = report['receiver_transfer']['bank0']
+        self.assertEqual(transfer['n'], 2)
+        self.assertEqual(transfer['source_actor'], 'a'*64)
+        self.assertEqual(transfer['target_actor'], 'b'*64)
+        self.assertEqual(transfer['bank'], 'c'*64)
+        self.assertEqual(transfer['metrics']['previous_advantage']['mean'], 1.)
+        self.assertEqual(transfer['metrics']['current_advantage']['mean'], 0.)
+        self.assertTrue(all(row['n'] == 2 for row in transfer['metrics'].values()))
+
     def test_empty_transition_groups_stay_undefined_and_nonbinary_outcomes_fail(self):
         report = fatigue.success_pairs([])
         self.assertEqual(report['n'], 0)
@@ -525,6 +586,11 @@ class FatigueTests(unittest.TestCase):
             self.assertEqual(set(values['per_seed']), {'42', '52', '3047', '3407'})
         self.assertAlmostEqual(components['rescue_share']['mean']-components['harm_share']['mean']-
             components['cost_penalty']['mean'], components['net_utility_lift']['mean'])
+        transfers = report['receiver_transfer']['bank0']
+        self.assertFalse(transfers['deployment_decision'])
+        for values in transfers['metrics'].values():
+            self.assertEqual(values['n'], 4)
+            self.assertEqual(set(values['per_seed']), {'42', '52', '3047', '3407'})
         with self.assertRaises(ValueError):
             fatigue.aggregate(paths[:3])
         with self.assertRaises(ValueError):

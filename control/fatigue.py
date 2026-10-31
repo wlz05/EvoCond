@@ -250,6 +250,37 @@ def opportunity(previous, current):
     return dict(n=left['n'], defined=not missing, undefined=missing, terms=terms, rates=rates,
         scope='symmetric_descriptive_change_in_observed_cells')
 
+def transport(previous, current):
+    # Compare observed preferences on the same ordered tasks, never fit a selector.
+    if not isinstance(previous, (list, tuple)) or not isinstance(current, (list, tuple)) or not previous or len(previous) != len(current):
+        raise ValueError('Receiver comparisons require matching nonempty task sequences')
+    if any(not bandit.finite(value) for value in (*previous, *current)):
+        raise ValueError('Receiver advantages must be finite numbers')
+    metrics = {name: [] for name in ('previous_advantage', 'current_advantage', 'advantage_change',
+        'positive_to_negative_share', 'negative_to_positive_share', 'source_tie_share', 'target_tie_share',
+        'current_preference_gain', 'carried_preference_gain', 'carried_preference_loss', 'receiver_blind_loss')}
+    for source, target in zip(previous, current):
+        source, target = float(source), float(target)
+        positive_flip, negative_flip = source > 0 > target, source < 0 < target
+        carried = target if source > 0 else 0.
+        best = max(target, 0.)
+        # Semantic presentation wins source ties by the declared rule.
+        loss = -target if source > 0 > target else target if source <= 0 < target else 0.
+        blind = min(abs(source), abs(target))/2 if positive_flip or negative_flip else 0.
+        values = dict(previous_advantage=source, current_advantage=target, advantage_change=target-source,
+            positive_to_negative_share=float(positive_flip), negative_to_positive_share=float(negative_flip),
+            source_tie_share=float(source == 0), target_tie_share=float(target == 0),
+            current_preference_gain=best, carried_preference_gain=carried,
+            carried_preference_loss=loss, receiver_blind_loss=blind)
+        if any(not bandit.finite(value) for value in values.values()):
+            raise ValueError('Receiver comparison arithmetic overflowed')
+        for name, value in values.items():
+            metrics[name].append(value)
+    return dict(n=len(previous), metrics={name: moments(values) for name, values in metrics.items()},
+        tie_rule='semantic_on_zero_source_advantage', receiver_weights=[.5, .5],
+        scope='hindsight_observed_task_preferences_not_expected_oracle_or_deployment_evidence',
+        deployment_decision=False)
+
 def summarize_changes(entries):
     result = dict(per_seed={str(seed): row for seed, row in entries}, terms={}, defined_seeds={})
     for name in entries[0][1]['terms']:
@@ -376,10 +407,12 @@ def panel(path):
         actor_at_new_bank=('actor0_bank1', 'actor1_bank1'), total_change=('actor0_bank0', 'actor1_bank1'))
     changes = {name: dict(source=before, target=after, **opportunity(summaries[before], summaries[after]))
         for name, (before, after) in comparisons.items()}
+    transfers = {f'bank{j}': dict(bank=bank, source_actor=manifest['actors'][0], target_actor=manifest['actors'][1],
+        **transport(gains[0, j], gains[1, j])) for j, bank in enumerate(manifest['banks'])}
     return dict(format='evocond_fatigue_panel_report_v1', seed=manifest['seed'], protocol=protocol,
         task_count=len(order), paired_ids_sha256=dynamic.digest(order), cells=summaries,
         decomposition={name: moments(values) for name, values in terms.items()},
-        opportunity_changes=changes,
+        opportunity_changes=changes, receiver_transfer=transfers,
         source_sha256=sha256(manifest_bytes).hexdigest(), inference_unit='paired_base_question_within_one_training_seed',
         scope='fixed_structure_marginal_value_not_raw_accuracy_or_automatic_mechanism_proof', deployment_decision=False)
 
@@ -398,6 +431,12 @@ def aggregate(paths):
     result['opportunity_changes'] = {name: summarize_changes(sorted(
         (row['seed'], row['opportunity_changes'][name]) for row in reports))
         for name in reports[0]['opportunity_changes']}
+    result['receiver_transfer'] = {bank: dict(
+        metrics={name: dict(**moments(row['receiver_transfer'][bank]['metrics'][name]['mean'] for row in reports),
+            per_seed={str(row['seed']): row['receiver_transfer'][bank]['metrics'][name]['mean'] for row in reports})
+            for name in reports[0]['receiver_transfer'][bank]['metrics']},
+        scope=reports[0]['receiver_transfer'][bank]['scope'], deployment_decision=False)
+        for bank in reports[0]['receiver_transfer']}
     optional = {'adopted_vs_semantic', 'adopted_vs_structural'}
     fields = {'net_utility_lift', 'success_lift', 'cost_lift', 'clipped_cost_lift'}
     for row in reports:

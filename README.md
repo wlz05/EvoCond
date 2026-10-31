@@ -1,8 +1,8 @@
 # EvoCond: Preserving Conditional Tool Relations for Co-Evolving Language Agents
 
-**EvoCond** learns the current influence of accumulated tool relations. Shared capabilities retain condition-feedback events; each query reconstructs a directed combination proposal, and randomized presentation estimates its terminal benefit relative to the current actor's semantic execution. Adoption is re-evaluated when the actor and public inventory change. Historical support determines the proposal; current execution benefit determines its influence.
+**EvoCond** learns which accumulated tool relations should influence the current actor. Compatible tools share capability identities; their relation events retain the conditions under which they were observed. Each task reconstructs a combination proposal, and randomized tool-list presentation estimates its terminal benefit relative to the same actor's semantic execution. Actor updates preserve the evidence and start a new adoption evaluation.
 
-We study **structural memory fatigue**: relation evidence keeps growing while its incremental execution benefit declines. Actor learning changes that benefit from both sides: fewer remaining errors can be rescued, while more successful decisions can be disrupted. Historical support establishes a combination proposal; current execution determines its influence. EvoCond retains conditional evidence and learns adoption relative to the same actor's semantic execution.
+We study **structural memory fatigue**: relation evidence keeps growing while its incremental execution benefit declines. Semantic and memory-guided execution can both improve, yet their relative advantage can reverse. A correct relation can remain reusable while its previous adoption preference becomes wrong for the improved actor. EvoCond preserves the evidence and re-estimates its influence on the current execution basis.
 
 EvoCond achieves state-of-the-art pass@1 performance in mathematical and multi-hop reasoning. Experiments use **8 NVIDIA GeForce RTX 4090 GPUs**, with random seeds **42, 52, 3047, and 3407**.
 
@@ -32,13 +32,35 @@ Qwen3-4B planning and execution -> terminal utility and full cost
 
 Capability compatibility, relation support, and adoption value answer different questions. Compatibility determines which implementations can share an identity. Conditional support generates an ordering proposal. Randomized presentation estimates whether that proposal improves the current actor's terminal utility relative to the semantic list. The teacher selects the presented list; the actor retains planning, tool-call, and argument decisions. Hard execution dependencies remain enforced for every list.
 
+Three bottlenecks shape the design:
+
+| Bottleneck | EvoCond decision | Matched evaluation |
+|---|---|---|
+| Shared capabilities can require conflicting combination preferences | Retain condition-feedback events and reconstruct the current relation | Preserve, erase, or shuffle conditions with the same events and candidates |
+| Actor learning changes the value of previously useful guidance | Bind adoption credit to the receiving actor and execution snapshot | Cross old/new actors with old/new relation banks |
+| Successful execution mixes actor competence with memory assistance | Learn incremental terminal utility against semantic presentation | Randomized actual payloads; paired rescues, harms, and full cost |
+
+### Modules
+
+| Module | Input and output | Responsibility | Implementation |
+|---|---|---|---|
+| Task condition interface | Visible task and state to subtask DAG and legal scope | Establish current dependencies before applying historical preferences | [subtasks.py](control/subtasks.py), [runtime.py](control/runtime.py) |
+| Capability identity layer | Descriptions, interfaces, and behavior checks to canonical identities and versions | Reuse compatible functions while retaining separate conditional events | [identity.py](control/identity.py) |
+| Conditional relation reconstructor | Current condition and compatible events to signed edges and directed roles | Recover the applicable combination evidence after capability merging | [relations.py](control/relations.py), [metric.py](control/metric.py), [mixing.py](control/mixing.py) |
+| Combination proposer | Shared semantic candidates and current roles to distinct tool-list payloads | Turn relation support into the actual presentation choices | [mixing.py](control/mixing.py), [bandit.py](control/bandit.py) |
+| Current-value teacher | Visible features and randomized episode receipts to an adoption distribution | Estimate terminal assistance beyond the current actor's semantic execution | [bandit.py](control/bandit.py) |
+| Co-evolution coordinator | Paired actor, inventory, geometry, and teacher state to the next frozen window | Keep estimation and deployment on the same basis and re-evaluate adoption after updates | [stage.py](control/stage.py), [runtime.py](control/runtime.py) |
+
+The encoder and low-rank metric implement conditional reconstruction; the reward head supports adoption estimation. The teacher controls tool-list presentation, while Qwen3-4B plans, creates tools, generates arguments, and executes. The coordinator maintains the version boundary between these responsibilities.
+
 Within a frozen execution window, a preselected retrieval point receives one randomized list in an existing rollout. The completed episode supplies its utility; logged action probabilities support doubly robust value estimation. An accepted teacher update is used in the next window on the same actor and public inventory. At the co-evolution boundary, memory is published and the actor is updated, starting a new basis for adoption evaluation. Test evaluation freezes public memory and learning state.
 
 ### Key Contributions
 
-- **Conditional tool-relation reuse.** Accumulated events support task-specific proposals whose influence is learned from current execution benefit.
-- **An executable adoption decision.** Actual tool-list presentation is the intervention, and terminal utility relative to the current actor's semantic execution is the learning target.
-- **A matched study of memory fatigue.** Condition-by-adoption controls test the proposal-to-benefit link; crossed actor-by-bank evaluation tests how that benefit changes during learning.
+- **Capability-relative relation adoption.** A single reuse framework preserves conditional evidence while learning its influence on the current actor.
+- **Receiver-conditioned credit analysis.** Preference-sharing loss and credit-transport conditions explain why improving actors can still require opposite adoption decisions.
+- **Learning from actual presentation.** One randomized point in an existing rollout identifies terminal assistance relative to the semantic list; frozen windows connect estimation to deployment.
+- **Matched system and mechanism evaluation.** Full-system comparisons, condition-by-adoption controls, and actor-by-bank panels connect task performance to the three bottlenecks.
 
 ## Project Structure
 
@@ -286,6 +308,8 @@ python fatigue.py --panels \
 The trace command summarizes completed training windows. The panel commands analyze exported frozen evaluations with old/new actors crossed with old/new relation banks, using common tasks, capabilities, budgets, and a fixed structural presentation rule. They separate actor, relation-bank, and interaction effects; optional adopted outcomes measure the current teacher's recovery separately. Four-seed aggregation uses independent training runs as its uncertainty unit. Prepare the measured cell files and `configs/fatigue.example.json` as specified in [the experimental protocol](#experimental-protocol). The existing DR teacher and deployment rule govern training; diagnostic outputs do not change the policy.
 
 Each panel cell reports `paired_success`: observed rescues, harms, unchanged successes, and unchanged failures. Conditional rescue and harm rates retain their opportunity counts. The panel also reports `clipped_cost_lift`, making the net-utility change traceable to success changes and the exact cost scale used by the reward.
+
+For each fixed bank, `receiver_transfer` compares the old and new actors on the same ordered tasks. It reports relative-value changes, both directions of strict preference reversal, source/target ties, the loss from carrying the old observed choice forward, and the equal-weight loss of sharing one observed choice between receivers. Source ties select semantic presentation. These are retrospective diagnostics of the measured panel; randomized held-out adoption evaluation supplies deployment evidence. Four-seed summaries keep each seed's values and use training runs as the uncertainty unit.
 
 ## Evaluation
 
