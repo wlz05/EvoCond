@@ -41,6 +41,8 @@ class PublicationTests(unittest.TestCase):
             self.assertEqual(created['created'], len(report['missing']))
             for name, payload in resources().items():
                 self.assertEqual((root/name).read_bytes(), payload, name)
+            starter = json.loads((root/'configs/contextual.json').read_text(encoding='utf-8'))
+            self.assertNotIn('maximum_windows', starter['contextual'])
             config = root/'configs/contextual.json'
             config.write_bytes(b'custom settings\r\n')
             self.assertEqual(materialize(root, run=True)['created'], 0)

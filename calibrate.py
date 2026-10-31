@@ -8,13 +8,38 @@ import json
 import math
 from pathlib import Path
 import numpy as np
-from control import bandit, stage
-def audit(config, *, size=128, phase=None):
+from control import bandit, stage, windows
+
+def configured(config, *, questions=None):
+    if not isinstance(config, dict) or 'config' in config and not isinstance(config['config'], dict):
+        raise ValueError('Calibration needs an experiment configuration or frozen protocol')
+    base = config.get('config', config)
+    options = stage.settings(base.get('contextual', {}))
+    if 'config' in config:
+        if questions is not None:
+            raise ValueError('A frozen protocol already fixes the training schedule')
+        schedule = config.get('schedule', {})
+        if not isinstance(schedule, dict):
+            raise ValueError('Frozen calibration schedule must be an object')
+        if 'total_teacher_evaluations' in schedule and windows.confidence(options, schedule) != options:
+            raise ValueError('Frozen confidence allocation differs from its scheduled evaluations')
+    elif questions is not None:
+        budget = base.get('budget', {})
+        if not isinstance(budget, dict):
+            raise ValueError('Calibration budget must be an object')
+        schedule = windows.layout(questions, budget.get('batch_size', 256), options['frozen_batches'],
+            tail=budget.get('tail_policy', 'error'), epochs=budget.get('epochs', 1))
+        options = windows.confidence(options, schedule)
+    return base, options
+
+def audit(config, *, size=128, phase=None, questions=None):
     if type(size) is not int or size < 2:
         raise ValueError('Declare at least two reference held-out base tasks')
-    options = stage.settings(config.get('contextual', {}))
+    base, options = configured(config, questions=questions)
     protocol = dict(horizon=options['horizon_steps'], penalty=options['penalty'], epsilon=options['epsilon'],
         beta=options['beta']/options['maximum_windows'], delta_max=options['delta_max'])
+    if phase is not None and not isinstance(phase, dict):
+        raise ValueError('Calibration phase must be an object')
     receipt = phase.get('teacher_update') if phase is not None else None
     if phase is not None and (not isinstance(receipt, dict) or 'heldout_advantages' not in receipt):
         raise ValueError('This phase has no recorded independent hold-out advantages')
@@ -33,7 +58,8 @@ def audit(config, *, size=128, phase=None):
     width = 1+options['penalty']
     single = bandit.confidence([0.0]*size, **{**protocol, 'beta': options['beta']}, method='bernstein')
     return dict(kind='observed_phase' if receipt is not None else 'configured_arithmetic_not_observed_training',
-        n=size, expected_holdout=config.get('budget', {}).get('batch_size', 256)*options['holdout'],
+        n=size, expected_holdout=base.get('budget', {}).get('batch_size', 256)*options['holdout'],
+        maximum_evaluations=options['maximum_windows'], total_beta=options['beta'],
         protocol=protocol, reward_width=width, global_envelope=width/(options['epsilon']/3),
         single_window_range_penalty=single['range_penalty'], allocated_window_range_penalty=strict['range_penalty'],
         sample_size_floor_for_range_below_reward_width=math.floor(14*math.log(2/protocol['beta'])/(options['epsilon']))+2,
@@ -89,6 +115,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', type=Path, default=Path('configs/contextual.json'))
     parser.add_argument('--phase', type=Path)
+    parser.add_argument('--questions', type=int)
     parser.add_argument('--size', type=int, default=128)
     parser.add_argument('--simulate', action='store_true')
     parser.add_argument('--trials', type=int, default=1000)
@@ -96,9 +123,10 @@ def main():
     args = parser.parse_args()
     config = json.loads(args.config.read_text(encoding='utf-8'))
     phase = json.loads(args.phase.read_text(encoding='utf-8')) if args.phase else None
-    result = audit(config, size=args.size, phase=phase)
+    result = audit(config, size=args.size, phase=phase, questions=args.questions)
     if args.simulate:
-        result['simulation'] = simulate(stage.settings(config.get('contextual', {})), size=args.size, trials=args.trials, seed=args.seed)
+        _, options = configured(config, questions=args.questions)
+        result['simulation'] = simulate(options, size=args.size, trials=args.trials, seed=args.seed)
     print(json.dumps(result, sort_keys=True, allow_nan=False))
 if __name__ == '__main__':
     main()

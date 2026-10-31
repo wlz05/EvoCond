@@ -20,6 +20,15 @@ def width(phase, epoch_batches, count):
     position = (max(1, phase)-1) % epoch_batches if epoch_batches else max(1, phase)-1
     return min(count, epoch_batches-position//count*count) if epoch_batches else count
 
+def evaluations(phase, epoch_batches, count):
+    # Count reserved evaluation slots before this collection position.
+    barrier(phase, epoch_batches, count)
+    if count == 1:
+        return phase
+    epochs, position = divmod(phase, epoch_batches) if epoch_batches else (0, phase)
+    per_epoch = epoch_batches-(epoch_batches+count-1)//count if epoch_batches else 0
+    return epochs*per_epoch+position-position//count
+
 def layout(questions, batch, count, *, tail='error', epochs=1):
     if any(type(value) is not int or value < 1 for value in (questions, batch, count, epochs)) or tail not in ('error', 'keep'):
         raise ValueError('Invalid training window layout')
@@ -31,8 +40,17 @@ def layout(questions, batch, count, *, tail='error', epochs=1):
     windows = [sum(sizes[index:index+count]) for index in range(0, batches, count)]
     return dict(batches_per_epoch=batches, frozen_batches=count,
         actor_updates_per_epoch=len(windows), total_actor_updates=len(windows)*epochs,
+        teacher_evaluations_per_epoch=evaluations(batches, batches, count),
+        total_teacher_evaluations=evaluations(batches*epochs, batches, count),
         dropped_training_questions=0, tail_questions=remainder,
         questions_per_epoch=questions, window_questions=windows, tail_policy=tail)
+
+def confidence(options, schedule):
+    total = schedule['total_teacher_evaluations']
+    if type(total) is not int or total < 0:
+        raise ValueError('Confidence allocation requires a nonnegative scheduled evaluation count')
+    # A schedule with no evaluation keeps an unused positive denominator.
+    return {**options, 'maximum_windows': max(1, total)}
 def tensor_pad(value, shape, fill, slices):
     result = value.new_full(shape, fill)
     result[slices] = value

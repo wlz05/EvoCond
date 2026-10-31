@@ -17,7 +17,7 @@ DEFAULTS = dict(recall=12, top_k=3, neighbors=8, horizon=128, limit=64, bandwidt
                 penalty=.1, reference=100.0, actor_input_price=.001, actor_output_price=.002,
                 tool_price=1.0, retrieval_price=1.0, alignment_steps=20, teacher_steps=100,
                 minimum_labels=6, fixed_alpha=None, identity_shrinkage=2.0, metric={}, holdout=.5,
-                beta=.05, confidence_method='normal', delta_max=.2, chain_limit=4, actor_kl_threshold=.02, actor_drift={}, maximum_windows=1000, frozen_batches=2, whole_samples=256)
+                beta=.05, confidence_method='normal', delta_max=.2, chain_limit=4, actor_kl_threshold=.02, actor_drift={}, maximum_windows=20, frozen_batches=2, whole_samples=256)
 def settings(value):
     if not isinstance(value, dict) or set(value)-set(DEFAULTS):
         raise ValueError('Unknown contextual protocol fields')
@@ -362,6 +362,9 @@ class Engine:
         report['memory_value'] = fatigue.window(labels)
         report['confidence_protocol'] = dict(horizon=self.options['horizon_steps'], penalty=self.options['penalty'],
             epsilon=self.options['epsilon'], beta=self.options['beta']/self.options['maximum_windows'], delta_max=self.options['delta_max'])
+        evaluation = windows.evaluations(self.phase, self.runtime.config.get('epoch_batches'), self.options['frozen_batches'])
+        report['confidence_allocation'] = dict(total_beta=self.options['beta'], maximum_evaluations=self.options['maximum_windows'],
+            reserved_before_phase=evaluation, allocation='frozen_schedule_equal_slots')
         receipts = [receipt for row in training for receipt in row['cost_receipts']]
         report['measured_usage'] = dict(retrieval_seconds=sum(row['quantities']['seconds'] for row in receipts if row['kind'] == 'retrieval'),
             tool_seconds=sum(row['quantities']['seconds'] for row in receipts if row['kind'] == 'tools'),
@@ -373,7 +376,7 @@ class Engine:
         next_teacher = deepcopy(self.teacher)
         next_teacher_bottom = self.teacher_bottom
         if labels and (not boundary or self.options['frozen_batches'] == 1):
-            if self.phase >= self.options['maximum_windows']:
+            if evaluation >= self.options['maximum_windows']:
                 raise ValueError('Predeclared teacher window confidence budget is exhausted')
             previous = self.deployed_teacher()
             candidate, update = bandit.conservative(labels, previous, seed=self.options['seed'],

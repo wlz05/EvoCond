@@ -241,6 +241,30 @@ An error while finalizing an episode, or an I/O failure while publishing a phase
 
 The `initialization` section declares the starting checkpoint. To follow the [released SEARL entry](https://github.com/circles-post/SEARL/blob/main/main_searl.sh), set `initialization.stage` to `coldstart`, record the supplied SFT checkpoint in `initialization.source`, and point `model` to that Qwen3-4B checkpoint in every condition. The starter configuration also supports a declared `pretrained` comparison. Model architecture and weight fingerprints identify the common starting actor.
 
+Preparation verifies the Qwen3-4B architecture and weight contents. The model directory name is a location, not its identity. The frozen protocol records the prepared training count, epoch count, tail handling, actor updates, and teacher evaluation opportunities. `main/searl`, `main/pace`, and `main/evocond` name the three system conditions; `ablation/semantic` is the semantic presentation control.
+
+### Confidence Allocation
+
+`prepare` derives `maximum_windows` from the complete training schedule before collection. With 10,000 training questions, batch size 256, one epoch, and two batches per stage, the schedule has 40 collection batches, 20 actor updates, and 20 teacher evaluation opportunities. The final stage contains 272 questions. Within each independent training run, a total beta of 0.05 gives beta 0.0025 per evaluation; the normal critical value is approximately 2.807. Actual prepared training counts determine the allocation after filtering and splitting.
+
+For stage width greater than one, each non-boundary batch reserves an evaluation slot. A short final stage ends at its epoch boundary; a single-batch tail has no teacher evaluation before that boundary. With stage width one, every batch reserves a slot. Multi-epoch schedules count all epochs. Missing support, insufficient hold-out data, or a rejected proposal does not reduce the predeclared denominator. Runtime accounting uses evaluation slots rather than collection-phase numbers, and checkpoint recovery continues the same allocation.
+
+Inspect a measured update using its exact frozen protocol and phase report:
+
+```bash
+python calibrate.py \
+  --config runs/reproduction/main/evocond/seed42/protocol.json \
+  --phase runs/reproduction/main/evocond/seed42/teacher/runtime/phases/phase0.json
+```
+
+For a raw configuration, supply the prepared training count to resolve the same schedule. Add `--simulate` for the independent synthetic scenarios:
+
+```bash
+python calibrate.py --config configs/contextual.json --questions 10000 --size 128 --simulate
+```
+
+`heldout_advantages` retains every held-out base question, including zero-contribution observations. Calibration checks the phase's recorded `confidence_protocol`, hold-out identities, and count before recomputing its bounds. A report without the original advantages cannot be reconstructed from its accepted-update summary. Historical frozen protocols retain their original allocation; preparing a new study resolves the current schedule and creates a new protocol. The normal rule reports asymptotic coverage; the Bernstein control uses its bounded-score assumptions for finite-sample coverage.
+
 ## Main Experiments
 
 | Condition | Retrieval and memory | Actor update cadence |
@@ -494,6 +518,8 @@ The four-seed output retains absolute success, cost, clipped cost, and utility f
 `rescue_share` and `harm_share` divide their counts by all scheduled questions; their difference is the success-rate lift. `rescue_rate` divides by semantic failures, while `harm_rate` divides by semantic successes. A stronger semantic execution reduces the available errors and expands the initially successful group. Even unchanged conditional rescue and harm rates can therefore produce a reversal in net success lift. Compare these counts and rates across the frozen actor-by-bank cells before attributing a smaller gain to memory quality.
 
 The panel adds `opportunity_changes` for `actor_at_old_bank`, `actor_at_new_bank`, and `total_change`. Each comparison splits the observed utility change into `opportunity_mix`, `rescue_rate`, `harm_rate`, and `cost`; these sum to `total`. The opportunity term changes the proportions of semantic failures and successes, while the two response terms change guidance outcomes within those groups. Symmetric midpoint weights make every term reverse sign when the comparison is reversed. The cost contribution is the negative change in the clipped cost penalty.
+
+`receiver_transfer` contains the retrospective preference diagnostics described above. These measured-panel choices stay separate from the teacher's randomized training observations. The cold-start fallback logs `Structural memory is in a cold-start blind zone; fully reverting to native semantic reasoning.` and presents the semantic payload while retaining capabilities and relation events.
 
 This accounting locates a decline that comes from fewer rescue opportunities, changed guidance responses, or greater cost. It describes observed groups, whose membership can change with the actor. An empty opportunity group leaves the three opportunity/response terms undefined; observed total and cost changes remain available. Four-seed summaries retain `per_seed` values and `defined_seeds`, and publish a complete mean only when all four seeds define the term. The teacher continues to learn current relative utility from randomized presentation.
 

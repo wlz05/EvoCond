@@ -229,8 +229,9 @@ def freeze(config, *, collection=False, base=None):
         options = contextual_settings(result['contextual'])
         if options['rollouts'] != result['budget']['rollouts'] or result.get('teacher'):
             raise ValueError('Use the same native G rollouts and no legacy teacher artifacts')
-        result['contextual'] = options
         schedule = window_budget(result['budget'], options, split['datasets']['train']['rows'])
+        from control.windows import confidence
+        result['contextual'] = confidence(options, schedule)
         methods = ({'teacher': result['design']['condition']} if result.get('design') is not None else
             dict(searl='semantic_control', evocond='conditional_identity_fixed_fusion', teacher=options['variant']))
         return {'config': result, 'split_audit': split, 'fingerprints': fingerprints, 'upstream_commit': PIN,

@@ -451,6 +451,8 @@ class DatasetPrepareTests(unittest.TestCase):
         frozen = experiment.freeze(config)
         self.assertEqual(set(frozen['fingerprints']['dataset_preparation']), set(datasets.SPLITS))
         self.assertEqual(frozen['split_audit']['datasets']['train']['rows'], 256)
+        self.assertEqual(frozen['schedule']['total_teacher_evaluations'], 0)
+        self.assertEqual(frozen['config']['contextual']['maximum_windows'], 1)
         self.assertTrue(frozen['split_audit']['group_metadata_complete'])
         import pyarrow as pa
         import pyarrow.parquet as pq

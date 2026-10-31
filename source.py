@@ -1388,6 +1388,10 @@ def resources():
     value = strict_json(payload, max_text=2_000_000)
     # The README carries the current experiment protocol.
     value.pop('experiments.md', None)
+    config = strict_json(value['configs/contextual.json'])
+    # The frozen training schedule supplies the confidence evaluation count.
+    config['contextual'].pop('maximum_windows', None)
+    value['configs/contextual.json'] = json.dumps(config, indent=2, ensure_ascii=True)+'\n'
     return {name: content.encode('latin1') for name, content in value.items()}
 
 def materialize(root, *, run=False):

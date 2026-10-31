@@ -39,6 +39,55 @@ class WindowTests(unittest.TestCase):
             windows.accumulate([], 1, True, 2, tuple)
         with self.assertRaises(ValueError):
             windows.accumulate([1], 2, False, 2, tuple)
+
+    def test_confidence_slots_follow_evaluations_instead_of_collection_phases(self):
+        self.assertEqual(windows.evaluations(38, 40, 2), 19)
+        self.assertEqual(windows.evaluations(40, 40, 2), 20)
+        self.assertEqual(windows.evaluations(78, 40, 2), 39)
+        self.assertEqual(windows.evaluations(80, 40, 2), 40)
+        self.assertEqual(windows.evaluations(3, 3, 2), 1)
+        self.assertEqual(windows.evaluations(5, 5, 3), 3)
+        self.assertEqual(windows.evaluations(5, None, 2), 3)
+
+    def test_declared_slots_match_all_scheduled_evaluation_positions(self):
+        for batches in (1, 2, 3, 5, 40):
+            for count in (1, 2, 3, 7):
+                expected = 0
+                for phase in range(3*batches):
+                    self.assertEqual(windows.evaluations(phase, batches, count), expected)
+                    expected += int(count == 1 or not windows.barrier(phase+1, batches, count))
+                self.assertEqual(windows.evaluations(3*batches, batches, count), expected)
+
+    def test_confidence_allocation_counts_epochs_and_short_tail_windows(self):
+        schedule = windows.layout(10000, 256, 2, tail='keep', epochs=3)
+        self.assertEqual(schedule['teacher_evaluations_per_epoch'], 20)
+        self.assertEqual(schedule['total_teacher_evaluations'], 60)
+        options = stage.settings({})
+        resolved = windows.confidence(options, schedule)
+        self.assertEqual(resolved['maximum_windows'], 60)
+        self.assertEqual(options['maximum_windows'], 20)
+        self.assertEqual(windows.layout(9, 4, 2, tail='keep')['total_teacher_evaluations'], 1)
+        self.assertEqual(windows.layout(4, 4, 2, tail='keep')['total_teacher_evaluations'], 0)
+        self.assertEqual(windows.confidence(options, {'total_teacher_evaluations': 0})['maximum_windows'], 1)
+        for value in (True, -1, 1.5):
+            with self.assertRaises(ValueError):
+                windows.confidence(options, {'total_teacher_evaluations': value})
+
+    def test_final_teacher_evaluation_uses_the_twentieth_slot(self):
+        fixture = self.runtime()
+        runtime = fixture.runtime
+        runtime.config['epoch_batches'] = 40
+        runtime.engine.phase = 38
+        runtime.engine.freeze()
+        for episode in fixture.episodes():
+            fixture.execute(episode)
+        runtime.release_completed()
+        report = json.loads((runtime.root/'phases/phase38.json').read_text())
+        self.assertIn('teacher_update', report)
+        self.assertEqual(report['confidence_allocation']['reserved_before_phase'], 19)
+        self.assertEqual(report['confidence_allocation']['maximum_evaluations'], 20)
+        self.assertAlmostEqual(report['confidence_protocol']['beta'], .0025)
+
     def test_native_ragged_sequences_keep_response_offsets_and_masks(self):
         combined = windows.join([batch([4, 5], [6]), batch([7], [8, 9, 10])], concatenate, 0)
         self.assertEqual(combined.batch['input_ids'].tolist(), [[4, 5, 6, 0, 0], [0, 7, 8, 9, 10]])

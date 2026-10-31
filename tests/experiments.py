@@ -124,6 +124,7 @@ class ExperimentTests(unittest.TestCase):
         for key in ('official_root', 'model', 'encoder', 'isolation_config', 'isolation_receipt'):
             self.assertFalse(Path(config[key]).is_absolute())
         self.assertEqual(options['frozen_batches'], 2)
+        self.assertNotIn('maximum_windows', config['contextual'])
         self.assertNotIn('teacher', config)
     def test_method_fingerprint_excludes_embedded_upstream_and_runs(self):
         (self.root/'main.py').write_text('value = 1', encoding='utf-8')

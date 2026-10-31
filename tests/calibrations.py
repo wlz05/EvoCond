@@ -9,18 +9,40 @@ import unittest
 from unittest.mock import patch
 from control import bandit, stage, metric, identity, dynamic
 from control.runtime import Runtime
-from calibrate import audit, simulate
+from calibrate import audit, configured, simulate
 from tests.bandits import records
 from tests import stages, metrics
 class CalibrationTests(unittest.TestCase):
     def test_actual_default_window_penalty_exceeds_reward_width(self):
         result = audit({'budget': {'batch_size': 256}})
         self.assertEqual(result['n'], 128)
-        self.assertAlmostEqual(result['protocol']['beta'], .00005)
+        self.assertAlmostEqual(result['protocol']['beta'], .0025)
         self.assertAlmostEqual(result['global_envelope'], 16.5)
-        self.assertGreater(result['allocated_window_range_penalty'], 6)
+        self.assertGreater(result['allocated_window_range_penalty'], 4)
         self.assertAlmostEqual(result['single_window_range_penalty'], 14*16.5*math.log(40)/(3*127))
         self.assertEqual(result['kind'], 'configured_arithmetic_not_observed_training')
+
+    def test_raw_configuration_resolves_the_actual_training_schedule(self):
+        config = dict(budget=dict(batch_size=256, tail_policy='keep', epochs=2),
+            contextual=dict(maximum_windows=1000))
+        original = deepcopy(config)
+        result = audit(config, questions=10000)
+        self.assertEqual(result['maximum_evaluations'], 40)
+        self.assertAlmostEqual(result['protocol']['beta'], .05/40)
+        self.assertEqual(config, original)
+
+    def test_frozen_calibration_keeps_its_recorded_allocation(self):
+        frozen = dict(config=dict(contextual=dict(maximum_windows=20)), schedule=dict(total_teacher_evaluations=20))
+        _, options = configured(frozen)
+        self.assertEqual(options['maximum_windows'], 20)
+        with self.assertRaises(ValueError):
+            configured(frozen, questions=10000)
+        frozen['config']['contextual']['maximum_windows'] = 1000
+        with self.assertRaisesRegex(ValueError, 'allocation'):
+            configured(frozen)
+        legacy = dict(config=dict(contextual=dict(maximum_windows=1000)), schedule={})
+        self.assertEqual(configured(legacy)[1]['maximum_windows'], 1000)
+
     def test_variance_rule_can_update_same_data_rejected_by_global_bound(self):
         values = [.05, .15]*64
         kwargs = dict(horizon=7, penalty=.1, epsilon=.2, beta=.00005)
