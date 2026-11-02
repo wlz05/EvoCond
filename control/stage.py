@@ -38,7 +38,11 @@ def settings(value):
         raise ValueError('Invalid semantic candidate pool or ablation')
     if not 0 < result['epsilon'] <= 1 or not 0 < result['holdout'] < 1 or not 0 < result['beta'] < 1 or not 0 < result['delta_max'] <= 1:
         raise ValueError('Invalid intervention sampling protocol')
-    if result['confidence_method'] not in bandit.CONFIDENCE or result['confidence_method'] == 'normal' and result['beta']/result['maximum_windows'] >= .5:
+    try:
+        allocated_beta = result['beta']/result['maximum_windows']
+    except OverflowError as error:
+        raise ValueError('Per-window confidence allocation is not numerically representable') from error
+    if not allocated_beta > 0 or result['confidence_method'] not in bandit.CONFIDENCE or result['confidence_method'] == 'normal' and allocated_beta >= .5:
         raise ValueError('Invalid predeclared teacher confidence method')
     if not math.isfinite(result['identity_shrinkage']) or result['identity_shrinkage'] <= 0:
         raise ValueError('Cold-start identity shrinkage must be positive')
@@ -53,6 +57,9 @@ def settings(value):
     for key in ('penalty', 'reference', 'actor_input_price', 'actor_output_price', 'tool_price', 'retrieval_price'):
         if not math.isfinite(result[key]) or result[key] < 0 or (key == 'reference' and result[key] == 0):
             raise ValueError('Invalid fixed accounting prices')
+    # Reject unrepresentable exploration bounds during configuration.
+    bandit.confidence([], horizon=result['horizon_steps'], penalty=result['penalty'],
+        epsilon=result['epsilon'], beta=allocated_beta, delta_max=result['delta_max'], method=result['confidence_method'])
     return result
 class Engine:
     'Publish only complete groups; evaluation never updates the shared bank.'
@@ -109,17 +116,17 @@ class Engine:
                 receipt['elapsed_seconds'] = seconds
         if diagnosis is not None and diagnosis['reset']:
             reason = 'actor_drift_rule_exceeded'
-        if reason is not None:
-            self.teacher = None
-            self.teacher_bottom = None
+        next_teacher = None if reason is not None else self.teacher
+        next_bottom = None if reason is not None else self.teacher_bottom
         report = dict(event='teacher_actor_alignment', phase=self.phase, previous_actor=previous, actor=actor,
             threshold=self.options['actor_kl_threshold'], drift=deepcopy(receipt), diagnosis=diagnosis, soft_reset=reason is not None,
-            reason=reason or 'retained_candidate_only', previous_teacher=old_teacher, teacher=dynamic.digest(self.teacher),
-            chain_depth=bandit.depth(self.teacher), guarantee_transferred=False, requires_new_actor_window=True,
+            reason=reason or 'retained_candidate_only', previous_teacher=old_teacher, teacher=dynamic.digest(next_teacher),
+            chain_depth=bandit.depth(next_teacher), guarantee_transferred=False, requires_new_actor_window=True,
             deployment_authorized=False, scope='new_bottom_requires_value_validation')
         with (self.runtime.root/'actorupdates.jsonl').open('a', encoding='utf-8') as stream:
             stream.write(json.dumps(report, sort_keys=True, allow_nan=False)+'\n')
-        self.actor_updates.append(report)
+        self.teacher, self.teacher_bottom = next_teacher, next_bottom
+        self.actor_updates.append(deepcopy(report))
         self.actor = actor
         self.freeze()
         return report
@@ -430,7 +437,7 @@ class Engine:
         if self.pending_registry is not None:
             raise ValueError('Checkpoint only at the paired actor/memory window barrier')
         return dict(format=FORMAT, phase=self.phase, snapshot=self.snapshot, actor=self.actor, encoder_id=self.encoder_id, adoption_protocol=bandit.PROTOCOL,
-            options=self.options, registry_hash=dynamic.digest(self.registry), alignment=deepcopy(self.alignment), whole=deepcopy(self.whole), metric=deepcopy(self.metric),
+            options=deepcopy(self.options), registry_hash=dynamic.digest(self.registry), alignment=deepcopy(self.alignment), whole=deepcopy(self.whole), metric=deepcopy(self.metric),
             teacher=deepcopy(self.teacher), teacher_bottom=self.teacher_bottom,
             used_holdout=deepcopy(self.used_holdout), actor_updates=deepcopy(self.actor_updates))
     def schedule(self):

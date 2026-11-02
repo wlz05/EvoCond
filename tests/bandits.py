@@ -4,6 +4,8 @@
 'Actual payload classes, one-point exploration and grouped DR checks.'
 from copy import deepcopy
 import unittest
+from unittest.mock import patch
+import numpy as np
 from control import bandit
 def records(n=9):
     result = []
@@ -44,6 +46,19 @@ class BanditTests(unittest.TestCase):
         self.assertEqual(targets[0]['predictions'], other[0]['predictions'])
         self.assertNotIn('0', targets[0]['model_fit_ids'])
         self.assertEqual(targets[0]['model_mean'], other[0]['model_mean'])
+
+    def test_crossfit_reuses_fold_heads_without_changing_question_alignment(self):
+        rows = records(12)
+        with patch.object(bandit, 'reward_model', wraps=bandit.reward_model) as fitting:
+            targets = bandit.crossfit(rows)
+        self.assertEqual(fitting.call_count, 3)
+        reversed_targets = {row['base_id']: row for row in bandit.crossfit(list(reversed(rows)))}
+        for row in targets:
+            self.assertNotIn(row['base_id'], row['model_fit_ids'])
+            other = reversed_targets[row['base_id']]
+            self.assertEqual(row['model_fit_ids'], other['model_fit_ids'])
+            np.testing.assert_allclose(row['predictions'], other['predictions'], rtol=1e-12, atol=1e-12)
+            np.testing.assert_allclose(row['values'], other['values'], rtol=1e-12, atol=1e-12)
     def test_dr_correction_is_unclipped_and_class_specific(self):
         row = records()[0]
         target = bandit.crossfit(records())[0]
@@ -72,6 +87,91 @@ class BanditTests(unittest.TestCase):
             row['base_id'] = 'heldout'+row['base_id']
         report = bandit.evaluate(independent, model)
         self.assertIn('not_end_to_end', report['scope'])
+
+    def test_finite_feature_overflow_is_rejected_before_reward_fitting(self):
+        rows = records()
+        for row in rows:
+            row['features'][1] = 1e308
+        original = deepcopy(rows)
+        for operation in (bandit.crossfit, bandit.reward_model, lambda value: bandit.fit(value, steps=1),
+                          lambda value: bandit.distill(None, value, steps=1)):
+            with self.subTest(operation=operation), self.assertRaisesRegex(ValueError, 'normalization'):
+                operation(rows)
+        self.assertEqual(rows, original)
+
+    def test_nonfinite_regression_is_not_hidden_by_prediction_clipping(self):
+        for value in (float('nan'), float('inf')):
+            with self.subTest(value=value), patch.object(bandit.np.linalg, 'solve', return_value=np.full(2, value)):
+                for operation in (bandit.crossfit, bandit.reward_model):
+                    with self.assertRaisesRegex(ValueError, 'coefficients'):
+                        operation(records())
+
+    def test_singular_reward_regression_has_an_explicit_error(self):
+        with patch.object(bandit.np.linalg, 'solve', side_effect=np.linalg.LinAlgError('singular')):
+            with self.assertRaisesRegex(ValueError, 'numerically solvable'):
+                bandit.crossfit(records())
+
+    def test_unrepresentable_propensity_corrections_do_not_return_infinity(self):
+        rows = records()
+        rows[0].update(chosen=0, probabilities=[1e-320, .5, .5])
+        with patch.object(bandit.np.linalg, 'solve', return_value=np.zeros(2)):
+            with self.assertRaisesRegex(ValueError, 'finite numeric range'):
+                bandit.crossfit(rows)
+        head = bandit.reward_model(records())
+        head['coefficients'] = [[0.0, 0.0] for _ in range(3)]
+        holding = deepcopy(rows[0])
+        holding['base_id'] = 'independent'
+        with self.assertRaisesRegex(ValueError, 'finite numeric range'):
+            bandit.heldout_targets(holding, head)
+        with self.assertRaisesRegex(ValueError, 'finite numeric range'):
+            bandit.evaluate([holding], None)
+
+    def test_heldout_head_must_match_snapshot_dimensions_and_finite_scales(self):
+        head = bandit.reward_model(records())
+        row = records(1)[0]
+        row['base_id'] = 'independent'
+        for changes in ({'fitted_snapshot': 'other'}, {'frozen': False}, {'scale': [1.0, 0.0]},
+                        {'coefficients': [[0.0]]*3}, {'mean': [0.0, float('nan')]}, {'fit_ids': None}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                bandit.heldout_targets(row, {**head, **changes})
+        changed = deepcopy(row)
+        changed['actor'] = 'different-executor'
+        with self.assertRaisesRegex(ValueError, 'frozen reward head'):
+            bandit.heldout_targets(changed, head)
+        changed = deepcopy(row)
+        changed['reference'] = 20.0
+        changed['reward'] = bandit.reward(changed['success'], changed['costs'], penalty=changed['penalty'], reference=20.0)
+        with self.assertRaisesRegex(ValueError, 'frozen reward head'):
+            bandit.heldout_targets(changed, head)
+
+    def test_nonfinite_objective_history_is_not_a_valid_checkpoint(self):
+        model, _ = bandit.fit(records(), steps=1)
+        for value in (float('nan'), float('inf'), True, '1.0'):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'objective history'):
+                bandit.validate_model({**model, 'objective': [value]})
+
+    def test_sparse_window_still_validates_all_optimizer_and_deployment_budgets(self):
+        rows = records(2)
+        for row in rows:
+            row['old_probabilities'] = [1.0, 0.0, 0.0]
+            row['probabilities'] = [1-.2+.2/3, .2/3, .2/3]
+        invalid = ({'minimum': 1}, {'minimum': True}, {'chain_limit': 1.5}, {'chain_limit': True},
+            {'steps': 0}, {'steps': True}, {'seed': -1}, {'seed': True}, {'holdout': float('nan')},
+            {'beta': 0}, {'horizon': 0}, {'delta_max': 0}, {'overhead': float('inf')})
+        with patch.object(bandit, 'fit', side_effect=AssertionError('Validate before fitting')):
+            for settings in invalid:
+                with self.subTest(settings=settings), self.assertRaises(ValueError):
+                    bandit.conservative(rows, None, **settings)
+
+    def test_policy_compression_rejects_empty_repeated_and_absorbing_inputs(self):
+        duplicate = records(2)
+        duplicate[1]['base_id'] = duplicate[0]['base_id']
+        absorbing = records(1)
+        absorbing[0].update(status='unreached', features=[], actions=[], probabilities=[], chosen=None,
+            payload_hashes=[], interventions=0)
+        for rows, steps in (([], 1), (duplicate, 1), (absorbing, 1), (records(2), 0)):
+            with self.subTest(rows=rows, steps=steps), self.assertRaises(ValueError):
+                bandit.distill(None, rows, steps=steps)
 
 # Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

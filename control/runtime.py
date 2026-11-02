@@ -237,22 +237,31 @@ class Runtime:
     def set_policy_step(self, step, policy_drift=None, *, restoring=False):
         self.healthy()
         identity = self.policy_identity(step)
-        if self.engine and self.contexts:
+        if not restoring and step < self.policy_step:
+            raise ValueError('Actor steps cannot move backwards outside checkpoint restoration')
+        if (self.engine or self.config.get('design', {}).get('native')) and self.contexts:
             raise ValueError('Actor updates require the completed-rollout barrier')
         if self.engine and self.engine.pending_registry is not None:
             raise ValueError('Actor must remain frozen until the configured window barrier')
         if not restoring and self.schedule() is not None and not self.schedule()['actor_update_ready']:
             raise ValueError('Actor must remain frozen until the configured window barrier')
+        report = None
+        if self.engine and not restoring:
+            try:
+                report = self.engine.actor_changed(identity, policy_drift)
+            except OSError as error:
+                self.finalization_error = type(error).__name__
+                raise
+        # Commit policy identity only after contextual alignment is recorded.
         self.policy_step = step
         self.policy_hash = identity
-        if self.engine and not restoring:
-            return self.engine.actor_changed(self.policy_hash, policy_drift)
+        return report
     def begin(self, question, plan_text, *, split, episode_id=None):
         self.healthy()
         if split not in ("train", "validation", "test") or not isinstance(question, str) or not question.strip():
             raise ValueError("Rollout needs visible question and explicit split")
-        identity = episode_id or uuid.uuid4().hex
-        if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", identity) or identity in self.contexts:
+        identity = uuid.uuid4().hex if episode_id is None else episode_id
+        if not isinstance(identity, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", identity) or identity in self.contexts:
             raise ValueError("Invalid or reused rollout identity")
         dispatcher = self.dispatcher
         private = split != 'train' or bool(self.config.get('collection')) or self.engine is not None
@@ -262,17 +271,18 @@ class Runtime:
             plan, error = plan_from_searl(question, plan_text), None
         except (ValueError, SyntaxError, TypeError) as exc:
             plan, error = None, str(exc)
-        self.contexts[identity] = {"split": split, "question": question, "task_id": task_identity(question),
+        context = {"split": split, "question": question, "task_id": task_identity(question),
             "history": [{"role": "user", "content": question}], "plan": plan, "plan_error": error,
             "dispatcher": dispatcher, "invocations": [], "selected_versions": {}, "last_subtask": None,
             "completed": False, "execution_complete": False, "policy_step": self.policy_step,
             "private": private, "collection_branch": False, "calls": [], "assistant_turn": 0,
             "binding_audits": [], "started": time.monotonic()}
         if self.engine:
-            self.engine.begin(self.contexts[identity])
+            self.engine.begin(context)
         elif self.arm != 'searl' or self.config.get('collection'):
             from control.recovery import new_state
-            self.contexts[identity]['recovery'] = new_state(question, plan)
+            context['recovery'] = new_state(question, plan)
+        self.contexts[identity] = context
         return identity
     def context(self, identity):
         if identity not in self.contexts:
@@ -289,6 +299,8 @@ class Runtime:
         return context
     def revise(self, identity, question, plan_text=None):
         context = self.active_context(identity)
+        if not isinstance(question, str) or not question.strip():
+            raise ValueError('Revised goals require nonempty visible question text')
         if 'recovery' in context:
             from control.recovery import revise_goal, submit_plan
             state = revise_goal(context['recovery'], question)
@@ -621,7 +633,7 @@ class Runtime:
         if self.engine:
             try:
                 self.engine.publish(list(self.contexts.values()))
-            except OSError as error:
+            except (OSError, RuntimeError) as error:
                 self.finalization_error = type(error).__name__
                 raise
         elif self.config.get('design', {}).get('native') and any(row['split'] == 'train' for row in self.contexts.values()):

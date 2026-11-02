@@ -108,6 +108,76 @@ class StageTests(unittest.TestCase):
         self.episodes()
         with self.assertRaises(ValueError):
             self.runtime.set_policy_step(1)
+
+    def test_rejected_extra_rollout_does_not_leave_a_live_context(self):
+        episodes = self.episodes()
+        groups = deepcopy(self.runtime.engine.groups)
+        with self.assertRaisesRegex(ValueError, 'more than G'):
+            self.runtime.begin('sum and format', PLAN, split='train', episode_id='extra')
+        self.assertEqual(set(self.runtime.contexts), set(episodes))
+        self.assertEqual(self.runtime.engine.groups, groups)
+        for episode in episodes:
+            self.execute(episode)
+        self.runtime.release_completed()
+        self.assertEqual(self.runtime.engine.phase, 1)
+
+    def test_snapshot_options_cannot_mutate_live_nested_configuration(self):
+        before = self.runtime.snapshot()
+        captured = self.runtime.snapshot()
+        captured['contextual']['options']['maximum_windows'] = 1
+        captured['contextual']['options']['metric']['rank'] = 1
+        self.assertEqual(self.runtime.snapshot(), before)
+
+    def test_actor_alignment_io_failure_preserves_identity_and_requires_restore(self):
+        engine = self.runtime.engine
+        engine.teacher = dict(format=stage.bandit.TEACHER, dimension=1, weights=[[0.0]]*3, mean=[0.0], scale=[1.0])
+        engine.teacher_bottom = engine.bottom
+        engine.freeze()
+        before = engine.state()
+        policy = (self.runtime.policy_step, self.runtime.policy_hash)
+        original_open = Path.open
+        def interrupted(path, *args, **kwargs):
+            if path.name == 'actorupdates.jsonl':
+                raise OSError('Interrupted actor alignment')
+            return original_open(path, *args, **kwargs)
+        with patch.object(Path, 'open', interrupted), self.assertRaisesRegex(OSError, 'actor alignment'):
+            self.runtime.set_policy_step(1)
+        self.assertEqual(engine.state(), before)
+        self.assertEqual((self.runtime.policy_step, self.runtime.policy_hash), policy)
+        for action in (self.runtime.snapshot, lambda: self.runtime.set_policy_step(1)):
+            with self.assertRaisesRegex(ValueError, 'fresh runtime'):
+                action()
+
+    def test_rejected_actor_alignment_does_not_commit_policy_step(self):
+        policy = (self.runtime.policy_step, self.runtime.policy_hash)
+        with patch.object(self.runtime.engine, 'actor_changed', side_effect=ValueError('invalid alignment')):
+            with self.assertRaisesRegex(ValueError, 'invalid alignment'):
+                self.runtime.set_policy_step(1)
+        self.assertEqual((self.runtime.policy_step, self.runtime.policy_hash), policy)
+
+    def test_returned_alignment_receipt_cannot_modify_saved_actor_history(self):
+        report = self.runtime.set_policy_step(1)
+        before = deepcopy(self.runtime.engine.actor_updates)
+        report['actor'] = 'changed'
+        report['drift']['reason'] = 'changed'
+        self.assertEqual(self.runtime.engine.actor_updates, before)
+
+    def test_unrepresentable_confidence_allocation_fails_before_collection(self):
+        for options in ({'beta': 5e-324}, {'maximum_windows': 10**400}, {'epsilon': 5e-324}):
+            with self.subTest(options=options), self.assertRaises(ValueError):
+                stage.settings(options)
+
+    def test_publication_conflict_requires_a_fresh_paired_runtime(self):
+        episodes = self.episodes()
+        for episode in episodes:
+            self.execute(episode)
+        phase = self.runtime.engine.phase
+        with patch.object(self.runtime.engine, 'publish', side_effect=RuntimeError('Registry changed')):
+            with self.assertRaisesRegex(RuntimeError, 'Registry changed'):
+                self.runtime.release_completed()
+        self.assertEqual(self.runtime.engine.phase, phase)
+        with self.assertRaisesRegex(ValueError, 'fresh runtime'):
+            self.runtime.begin('next', PLAN, split='train')
     def test_contextual_path_has_no_rebinding_or_recovery_schema(self):
         episode = self.runtime.begin('new', PLAN, split='validation')
         result = self.runtime.select(episode)

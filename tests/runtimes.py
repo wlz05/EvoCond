@@ -54,6 +54,51 @@ class RuntimeTests(unittest.TestCase):
             'assistant_turn', 'last_subtask', 'completed', 'execution_complete', 'terminal_success')
         return deepcopy({key: context[key] for key in fields if key in context})
 
+    def test_explicit_invalid_episode_ids_do_not_allocate_private_state(self):
+        with patch.object(self.dispatcher, 'fork', side_effect=AssertionError('Validate before forking')):
+            for identity in ('', False, 0, [], 'bad/name'):
+                with self.subTest(identity=identity), self.assertRaises(ValueError):
+                    self.runtime.begin('sum', PLAN, split='validation', episode_id=identity)
+        self.assertEqual(self.runtime.contexts, {})
+
+    def test_failed_context_initialization_does_not_register_an_episode(self):
+        with patch('control.recovery.new_state', side_effect=ValueError('invalid recovery state')):
+            with self.assertRaisesRegex(ValueError, 'invalid recovery state'):
+                self.runtime.begin('sum', PLAN, split='train', episode_id='failed')
+        self.assertNotIn('failed', self.runtime.contexts)
+        episode = self.runtime.begin('sum', PLAN, split='train', episode_id='failed')
+        self.assertEqual(episode, 'failed')
+
+    def test_invalid_revised_question_preserves_episode_state(self):
+        episode = self.runtime.begin('sum', PLAN, split='train')
+        before = self.ledgers(episode)
+        for question in (None, '', '  ', False, 0, []):
+            with self.subTest(question=question), self.assertRaises(ValueError):
+                self.runtime.revise(episode, question, PLAN)
+            self.assertEqual(self.ledgers(episode), before)
+
+    def test_actor_steps_only_move_backwards_through_paired_restore(self):
+        saved = self.runtime.snapshot()
+        self.runtime.set_policy_step(2)
+        identity = self.runtime.policy_hash
+        with self.assertRaisesRegex(ValueError, 'backwards'):
+            self.runtime.set_policy_step(1)
+        self.assertEqual((self.runtime.policy_step, self.runtime.policy_hash), (2, identity))
+        self.runtime.restore(saved)
+        self.assertEqual(self.runtime.policy_step, 0)
+
+    def test_native_actor_updates_require_released_rollouts(self):
+        self.runtime.config['design'] = {'native': True}
+        episode = self.runtime.begin('sum', PLAN, split='train')
+        with self.assertRaisesRegex(ValueError, 'completed-rollout barrier'):
+            self.runtime.set_policy_step(1)
+        self.runtime.finish(episode)
+        with self.assertRaisesRegex(ValueError, 'completed-rollout barrier'):
+            self.runtime.set_policy_step(1)
+        self.runtime.release_completed()
+        self.runtime.set_policy_step(1)
+        self.assertEqual(self.runtime.policy_step, 1)
+
     def prepared_call(self):
         created = self.dispatcher.create(self.tool(), {'x': 1, 'y': 2}, task_id='train')
         episode = self.runtime.begin('sum', PLAN, split='train')

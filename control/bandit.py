@@ -20,6 +20,8 @@ REFERENCE = 'semantic_actual_payload_class'
 BOUND = 'zero_sum_dr_global_envelope_v1'
 NORMAL = 'studentized_dr_normal_v1'
 CONFIDENCE = ('normal', 'bernstein')
+WINDOW_FIELDS = ('actor', 'bank', 'bottom', 'encoder', 'alignment', 'metric',
+    'continuation_teacher_sha256', 'horizon', 'penalty', 'reference')
 
 def finite(value):
     try:
@@ -174,13 +176,45 @@ def validate(row):
 def frozen_window(records):
     if not records or len({row['snapshot'] for row in records}) != 1:
         raise ValueError('Do not pool labels across changing actor/bank snapshots')
-    for field in ('actor', 'bank', 'bottom', 'encoder', 'alignment', 'metric', 'continuation_teacher_sha256', 'horizon', 'penalty', 'reference'):
+    for field in WINDOW_FIELDS:
         values = [row.get(field) for row in records]
         if any(value is not None for value in values) and (any(value is None for value in values) or len({dynamic.digest(value) for value in values}) != 1):
             raise ValueError('Adoption estimation requires one complete frozen '+field+' binding')
     dimensions = {len(row['features']) for row in records if row['interventions'] == 1}
     if len(dimensions) > 1:
         raise ValueError('A frozen window must use one visible feature dimension')
+def normalize(features):
+    features = np.asarray(features, dtype=float)
+    if features.ndim != 2 or not features.shape[0] or not features.shape[1] or not np.isfinite(features).all():
+        raise ValueError('Feature normalization requires a nonempty finite matrix')
+    try:
+        with np.errstate(over='raise', invalid='raise', divide='raise'):
+            mean, scale = features.mean(axis=0), features.std(axis=0)
+            mean[0], scale[0] = 0.0, 1.0
+            scale[scale < 1e-8] = 1.0
+            normalized = (features-mean)/scale
+    except FloatingPointError as error:
+        raise ValueError('Teacher feature normalization overflowed') from error
+    if not np.isfinite(normalized).all() or not np.isfinite(mean).all() or not np.isfinite(scale).all():
+        raise ValueError('Teacher feature normalization must remain finite')
+    return mean, scale, normalized
+
+def regression(design, target, ridge):
+    try:
+        with np.errstate(over='raise', invalid='raise', divide='raise'):
+            coefficients = np.linalg.solve(design.T @ design+ridge*np.eye(design.shape[1]), design.T @ target)
+    except (FloatingPointError, np.linalg.LinAlgError) as error:
+        raise ValueError('Reward-head regression is not numerically solvable') from error
+    if not np.isfinite(coefficients).all():
+        raise ValueError('Reward-head coefficients must remain finite')
+    return coefficients
+
+def bounded(value, low, high):
+    # Reject invalid predictions before clipping can hide them.
+    if not finite(value):
+        raise ValueError('Reward-head prediction must remain finite before clipping')
+    return max(low, min(high, value))
+
 def crossfit(records, *, folds=3, ridge=1.0):
     if type(folds) is not int or folds < 2 or not finite(ridge) or ridge <= 0:
         raise ValueError('Cross-fitting requires multiple folds and positive ridge')
@@ -193,33 +227,30 @@ def crossfit(records, *, folds=3, ridge=1.0):
     if len(ids) < 2 or len(ids) != len(records):
         raise ValueError('Require one intervention per independent base question and snapshot')
     fold_of = {identity: i % min(folds, len(ids)) for i, identity in enumerate(ids)}
+    # Fit each independent training fold once, never once per held-out row.
+    heads = {fold: reward_model([row for row in records if fold_of[row['base_id']] != fold], ridge=ridge)
+        for fold in sorted(set(fold_of.values()))}
     results = []
     for row in records:
-        pool = [other for other in records if fold_of[other['base_id']] != fold_of[row['base_id']]]
-        features = np.asarray([other['features'] for other in pool], dtype=float)
-        mean, scale = features.mean(axis=0), features.std(axis=0)
-        mean[0], scale[0] = 0.0, 1.0
-        scale[scale < 1e-8] = 1.0
+        head = heads[fold_of[row['base_id']]]
+        mean, scale = np.asarray(head['mean']), np.asarray(head['scale'])
         query = (np.asarray(row['features'])-mean)/scale
-        prior = sum(other['reward'] for other in pool)/len(pool)
+        if not np.isfinite(query).all():
+            raise ValueError('Cross-fitted query features overflowed')
         values, predictions = [], []
         low, high = -row['penalty'], 1.0
         for action, probability in zip(row['actions'], row['probabilities']):
-            observed = [other for other in pool if other['chosen'] == action]
-            if observed:
-                design = (np.asarray([other['features'] for other in observed])-mean)/scale
-                target = np.asarray([other['reward'] for other in observed])
-                coefficients = np.linalg.solve(design.T @ design+ridge*np.eye(len(query)), design.T @ target)
-                prediction = float(query @ coefficients)
-            else:
-                prediction = prior
-            prediction = max(low, min(high, prediction))
+            prediction = float(query @ np.asarray(head['coefficients'][action]))
+            prediction = bounded(prediction, low, high)
             predictions.append(prediction)
             values.append(prediction+(row['reward']-prediction)/probability if row['chosen'] == action else prediction)
+        relative = [value-values[0] for value in values]
+        if not all(finite(value) for value in values+relative):
+            raise ValueError('Doubly robust targets exceed the finite numeric range')
         results.append(dict(base_id=row['base_id'], actions=row['actions'], features=row['features'], values=values,
-                            relative_values=[value-values[0] for value in values], reference_action=0,
+                            relative_values=relative, reference_action=0,
                             reference_payload_hash=row['payload_hashes'][0], target_reference=REFERENCE,
-                            predictions=predictions, model_fit_ids=sorted(other['base_id'] for other in pool),
+                            predictions=predictions, model_fit_ids=list(head['fit_ids']),
                             model_mean=mean.tolist(), model_scale=scale.tolist(), target_kind='unclipped_doubly_robust_estimate'))
     return results
 def fit(records, *, steps=100, rate=.02, regularization=.01, folds=3, ridge=1.0):
@@ -227,16 +258,15 @@ def fit(records, *, steps=100, rate=.02, regularization=.01, folds=3, ridge=1.0)
         raise ValueError('Invalid teacher optimizer budget')
     targets = crossfit(records, folds=folds, ridge=ridge)
     features = np.asarray([row['features'] for row in targets])
-    mean, scale = features.mean(axis=0), features.std(axis=0)
-    mean[0], scale[0] = 0.0, 1.0
-    scale[scale < 1e-8] = 1.0
-    features = (features-mean)/scale
+    mean, scale, features = normalize(features)
     weights, objective = np.zeros((3, features.shape[1])), []
     for _ in range(steps):
         gradient, value = np.zeros_like(weights), 0.0
         for row, x in zip(targets, features):
             actions = row['actions']
             logits = weights[actions] @ x
+            if not np.isfinite(logits).all():
+                raise ValueError('Teacher training logits overflowed')
             probability = np.exp(logits-logits.max())
             probability /= probability.sum()
             values = np.asarray(row['relative_values'], dtype=float)
@@ -245,6 +275,8 @@ def fit(records, *, steps=100, rate=.02, regularization=.01, folds=3, ridge=1.0)
             gradient[actions] += np.outer(probability*(values-expected), x)/len(targets)
         objective.append(value-regularization*float(np.sum(weights**2)))
         weights += rate*(gradient-2*regularization*weights)
+        if not finite(objective[-1]) or not np.isfinite(weights).all():
+            raise ValueError('Teacher optimizer state overflowed')
     model = dict(format=TEACHER, dimension=features.shape[1], weights=weights.tolist(), mean=mean.tolist(), scale=scale.tolist(),
                  fit_ids=sorted(row['base_id'] for row in records), fitted_snapshot=records[0]['snapshot'], objective=objective,
                  target_kind='cross_fitted_unclipped_dr', target_reference=REFERENCE, adoption_protocol=PROTOCOL,
@@ -279,7 +311,10 @@ def evaluate(records, model):
         probability = probabilities(model, row['features'], classes)
         index = row['actions'].index(row['chosen'])
         estimates.append(probability[index]*row['reward']/row['probabilities'][index])
-    return dict(n=len(estimates), ips=sum(estimates)/len(estimates) if estimates else None,
+    if not all(finite(value) for value in estimates):
+        raise ValueError('Importance-weighted evaluation exceeded the finite numeric range')
+    estimate = math.fsum(value/len(estimates) for value in estimates)
+    return dict(n=len(estimates), ips=estimate,
                 scope='one_marked_state_only_not_end_to_end_teacher', clipped=False)
 def validate_model(model):
     dimensions, active = set(), set()
@@ -313,6 +348,8 @@ def validate_model(model):
         if 'fit_ids' in node and (not isinstance(node['fit_ids'], list) or any(not isinstance(base, str) or not base for base in node['fit_ids']) or len(set(node['fit_ids'])) != len(node['fit_ids'])):
             raise ValueError('Teacher fitting identities must be unique base questions')
         active.remove(id(node))
+        if 'objective' in node and (not isinstance(node['objective'], list) or any(not finite(value) for value in node['objective'])):
+            raise ValueError('Teacher objective history must contain finite values')
     visit(model, 0)
     if len(dimensions) > 1:
         raise ValueError('Teacher mixture branches must share one feature dimension')
@@ -327,32 +364,44 @@ def reward_model(records, ridge=1.0):
     if len({row['base_id'] for row in records}) != len(records):
         raise ValueError('Reward heads require independent base questions')
     features = np.asarray([row['features'] for row in records], dtype=float)
-    mean, scale = features.mean(axis=0), features.std(axis=0)
-    mean[0], scale[0] = 0.0, 1.0
-    scale[scale < 1e-8] = 1.0
+    mean, scale, _ = normalize(features)
     coefficients = []
-    prior = np.mean([row['reward'] for row in records])
+    prior = math.fsum(row['reward']/len(records) for row in records)
     for action in range(3):
         selected = [row for row in records if row['chosen'] == action]
         if selected:
             design = (np.asarray([row['features'] for row in selected])-mean)/scale
             target = np.asarray([row['reward'] for row in selected])
-            beta = np.linalg.solve(design.T @ design+ridge*np.eye(len(mean)), design.T @ target)
+            beta = regression(design, target, ridge)
         else:
             beta = np.zeros(len(mean))
             beta[0] = prior
+        if not np.isfinite(beta).all():
+            raise ValueError('Reward-head coefficients must remain finite')
         coefficients.append(beta.tolist())
     return dict(mean=mean.tolist(), scale=scale.tolist(), coefficients=coefficients,
-                fit_ids=sorted(row['base_id'] for row in records), frozen=True)
+                fit_ids=sorted(row['base_id'] for row in records), fitted_snapshot=records[0]['snapshot'],
+                binding={field: deepcopy(records[0].get(field)) for field in WINDOW_FIELDS}, frozen=True)
 def heldout_targets(row, head):
+    validate(row)
+    if (not isinstance(head, dict) or head.get('frozen') is not True
+            or head.get('fitted_snapshot') != row['snapshot'] or row['interventions'] != 1
+            or head.get('binding') != {field: row.get(field) for field in WINDOW_FIELDS}):
+        raise ValueError('Held-out targets require an observed row and its frozen reward head')
+    validate_model(dict(format=TEACHER, dimension=len(row['features']), weights=head.get('coefficients'),
+        mean=head.get('mean'), scale=head.get('scale'), fit_ids=head.get('fit_ids')))
     if row['base_id'] in head['fit_ids']:
         raise ValueError('Held-out reward model includes its own base question')
     query = (np.asarray(row['features'])-head['mean'])/head['scale']
+    if not np.isfinite(query).all():
+        raise ValueError('Held-out query features overflowed')
     values = []
     for action, probability in zip(row['actions'], row['probabilities']):
         prediction = float(query @ np.asarray(head['coefficients'][action]))
-        prediction = min(1.0, max(-row['penalty'], prediction))
+        prediction = bounded(prediction, -row['penalty'], 1.0)
         values.append(prediction+(row['reward']-prediction)/probability if action == row['chosen'] else prediction)
+    if not all(finite(value) for value in values):
+        raise ValueError('Held-out targets exceed the finite numeric range')
     return values
 def confidence(values, *, horizon, penalty, epsilon, beta=.05, delta_max=.2, overhead=0.0, method='bernstein'):
     parameters = (penalty, epsilon, beta, delta_max, overhead)
@@ -432,6 +481,11 @@ def conservative(records, previous, *, seed=42, holdout=.5, horizon=6, epsilon=.
                  delta_max=.2, chain_limit=4, steps=100, minimum=6, overhead=0.0, used_holdout=(), method='bernstein'):
     if method not in CONFIDENCE:
         raise ValueError('Unknown predeclared teacher confidence method')
+    if (type(seed) is not int or seed < 0 or not finite(holdout) or not 0 < holdout < 1
+            or type(chain_limit) is not int or chain_limit < 1
+            or type(steps) is not int or steps < 1 or type(minimum) is not int or minimum < 2):
+        raise ValueError('Invalid fixed teacher fitting or holdout budget')
+    validate_model(previous)
     for row in records:
         validate(row)
         if row['interventions'] == 1:
@@ -442,8 +496,9 @@ def conservative(records, previous, *, seed=42, holdout=.5, horizon=6, epsilon=.
     if any(row.get('horizon', horizon) != horizon or row['penalty'] != records[0]['penalty'] or
            row['reference'] != records[0]['reference'] for row in records):
         raise ValueError('One frozen horizon and whole-episode reward protocol are required')
-    if not 0 < holdout < 1 or chain_limit < 1:
-        raise ValueError('Invalid fixed holdout split or mixture chain bound')
+    # Validate deployment constants even when this window lacks fitting data.
+    confidence([], horizon=horizon, penalty=records[0]['penalty'], epsilon=epsilon, beta=beta,
+        delta_max=delta_max, overhead=overhead, method=method)
     fitting = [row for row in records if randomizer(seed, row['base_id'], 'holdout').random() >= holdout]
     holding = [row for row in records if row not in fitting]
     if set(row['base_id'] for row in holding) & set(used_holdout):
@@ -483,10 +538,16 @@ def conservative(records, previous, *, seed=42, holdout=.5, horizon=6, epsilon=.
     report.update(deployed=True, reason='positive_fixed_bottom_lower_bound')
     return model, report
 def distill(previous, rows, *, steps=100):
+    validate_model(previous)
+    if type(steps) is not int or steps < 1 or not rows:
+        raise ValueError('Policy compression needs observations and positive optimizer steps')
+    for row in rows:
+        validate(row)
+    frozen_window(rows)
+    if any(row['interventions'] != 1 for row in rows) or len({row['base_id'] for row in rows}) != len(rows):
+        raise ValueError('Policy compression needs independent observed base questions')
     features = np.asarray([row['features'] for row in rows])
-    mean, scale = features.mean(axis=0), features.std(axis=0)
-    mean[0], scale[0] = 0.0, 1.0
-    scale[scale < 1e-8] = 1.0
+    mean, scale, _ = normalize(features)
     weights = np.zeros((3, len(mean)))
     for _ in range(steps):
         gradient = np.zeros_like(weights)
@@ -498,10 +559,14 @@ def distill(previous, rows, *, steps=100):
             probability = exp/exp.sum()
             gradient[actions] += np.outer(np.asarray(probabilities(previous, row['features'], classes))-probability, query)/len(rows)
         weights += .02*gradient
-    return dict(format=TEACHER, dimension=len(mean), weights=weights.tolist(), mean=mean.tolist(), scale=scale.tolist(),
+        if not np.isfinite(weights).all():
+            raise ValueError('Policy compression optimizer overflowed')
+    model = dict(format=TEACHER, dimension=len(mean), weights=weights.tolist(), mean=mean.tolist(), scale=scale.tolist(),
         fit_ids=[row['base_id'] for row in rows], fitted_snapshot=rows[0]['snapshot'], objective=[],
         adoption_protocol=PROTOCOL, target_reference=REFERENCE,
         target_kind='compressed_previous_policy', scope='new_window_required_no_old_bound')
+    validate_model(model)
+    return model
 
 # Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com
