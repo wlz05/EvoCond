@@ -52,7 +52,8 @@ class ContextTests(unittest.TestCase):
         for raw in ('{"value": 1e999, "nested": {"ok": true}}',
                 '{"value": 1, "value": 2, "nested": {"ok": true}}',
                 '{"broken":, "nested": {"ok": true}}', '[{"ok": true}]',
-                '{"ok": true} {"different": false}', '{"ok": true} [1]'):
+                '{"ok": true} {"different": false}', '{"ok": true} [1]',
+                '{"ok": true}}', '{"ok": true}]'):
             with self.subTest(raw=raw), self.assertRaises(ValueError):
                 parse(raw)
 

@@ -67,7 +67,7 @@ def parse(text: str) -> dict[str, Any]:
         data, end = decoder.raw_decode(text, start)
     except (json.JSONDecodeError, ValueError, RecursionError) as error:
         raise ValueError("Model response contains an invalid JSON object") from error
-    if not isinstance(data, dict) or re.search(r'[\{\[]', text[end:]):
+    if not isinstance(data, dict) or re.search(r'[{}\[\]]', text[end:]):
         raise ValueError("Model response must contain one JSON object")
     return data
 class Http:
