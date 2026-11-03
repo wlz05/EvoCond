@@ -4,9 +4,12 @@
 'Visible contexts preserve soft uncertainty and explicit hard conflicts.'
 import unittest
 from copy import deepcopy
+from unittest.mock import patch
 from control import context, subtasks
 from model.client import Script, parse, validated
 from state.data import decode
+from state.schema import Budget, Contract, Observation, Scale, Snapshot
+from state.store import Store
 class Encoder:
     def encode(self, text):
         return [1.0, .5]
@@ -71,6 +74,93 @@ class ContextTests(unittest.TestCase):
         self.assertEqual(payload, original)
         self.assertEqual(requests[1]['values'], [1])
         self.assertEqual(requests[1]['repair']['previous'], {'values': [2]})
+
+class StoreOwnershipTests(unittest.TestCase):
+    def snapshot(self):
+        return Snapshot('task', (), {'nested': {'items': [1]}}, ('first',), 0,
+            Budget(), {'nested': {'items': [2]}},
+            history=({'step': 0, 'values': {'items': [3]}, 'events': []},))
+
+    def contract(self):
+        return Contract.build(Scale.GLOBAL, 1, None, 0,
+            {'predictions': {'progress': 1}, 'progress': 'progress', 'due': 3})
+
+    def test_store_owns_the_initial_snapshot(self):
+        snapshot = self.snapshot()
+        store = Store(snapshot)
+        before = store.read()
+        snapshot.facts['nested']['items'].append(9)
+        snapshot.environment['nested']['items'].append(9)
+        snapshot.history[0]['values']['items'].append(9)
+        self.assertEqual(store.read(), before)
+
+    def test_every_scale_view_is_detached_from_nested_state(self):
+        store = Store(self.snapshot())
+        before = store.read()
+        for scale in Scale:
+            view = store.view(scale)
+            view['facts']['nested']['items'].append(9)
+            view['environment']['nested']['items'].append(9)
+            history = view['history'] if scale is Scale.GLOBAL else view['recent']
+            history[0]['values']['items'].append(9)
+            self.assertEqual(store.read(), before)
+            self.assertEqual(store.view(scale.value), store.view(scale))
+        with self.assertRaises(ValueError):
+            store.view('unknown')
+
+    def test_commit_copy_failure_does_not_publish_versions_or_anchors(self):
+        store = Store(self.snapshot())
+        before = store.read()
+        def copy(value):
+            if isinstance(value, Snapshot):
+                raise ValueError('Snapshot cannot be copied')
+            return deepcopy(value)
+        with patch('state.store.deepcopy', side_effect=copy), self.assertRaises(ValueError):
+            store.commit(self.contract())
+        self.assertEqual(store.read(), before)
+        self.assertEqual(store.nextversion(Scale.GLOBAL), 1)
+        self.assertEqual(store.contracts(), {})
+        self.assertEqual(store.anchors(), {})
+
+    def test_bad_goal_update_leaves_contract_version_available(self):
+        store = Store(self.snapshot())
+        before = store.read()
+        for goal in ((), ('task',), ('task', [], 'extra'), 'task'):
+            with self.subTest(goal=goal), self.assertRaises(ValueError):
+                store.commit(self.contract(), goal=goal)
+            self.assertEqual(store.read(), before)
+            self.assertEqual(store.nextversion(Scale.GLOBAL), 1)
+
+    def test_contract_and_anchor_exports_do_not_share_owned_state(self):
+        store = Store(self.snapshot())
+        contract = self.contract()
+        store.commit(contract)
+        contract.predictions.clear()
+        exported = store.contracts()
+        exported[Scale.GLOBAL].predictions.clear()
+        anchor = store.anchors()[Scale.GLOBAL]
+        anchor.facts['nested']['items'].append(9)
+        self.assertEqual(set(store.contract(Scale.GLOBAL).predictions), {'progress'})
+        self.assertEqual(store.anchors()[Scale.GLOBAL].facts['nested']['items'], [1])
+
+    def test_failed_budget_spend_does_not_publish_an_observation(self):
+        store = Store(self.snapshot())
+        before = store.read()
+        observation = Observation(1, {'nested': {'items': [4]}}, verified=True)
+        with self.assertRaises(RuntimeError):
+            store.apply(observation, tokens=before.budget.tokens+1)
+        self.assertEqual(store.read(), before)
+        store.apply(observation)
+        observation.values['nested']['items'].append(9)
+        self.assertEqual(store.read().facts['nested']['items'], [4])
+
+    def test_invalid_store_objects_are_rejected_before_mutation(self):
+        with self.assertRaises(TypeError):
+            Store({})
+        store = Store(self.snapshot())
+        with self.assertRaises(TypeError):
+            store.commit({})
+        self.assertEqual(store.contracts(), {})
 
 # Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

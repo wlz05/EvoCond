@@ -9,7 +9,9 @@ from typing import Any, Mapping
 from state.schema import Budget, Contract, Observation, Scale, Snapshot
 class Store:
     def __init__(self, snapshot: Snapshot):
-        self._state = snapshot
+        if not isinstance(snapshot, Snapshot):
+            raise TypeError("Store requires a validated Snapshot")
+        self._state = deepcopy(snapshot)
         self._initial = snapshot.budget
         self._contracts: dict[Scale, Contract] = {}
         self._anchors: dict[Scale, tuple[int, Snapshot]] = {}
@@ -33,6 +35,8 @@ class Store:
     # Commit state and contracts atomically.
     def commit(self, contract: Contract, goal: tuple[str, str | list[str] | tuple[str, ...]] | None = None, plan: str | list[str] | tuple[str, ...] | None = None) -> None:
         with self._lock:
+            if not isinstance(contract, Contract):
+                raise TypeError("Store requires a validated Contract")
             version = self._versions[contract.scale] + 1
             if contract.version != version:
                 raise ValueError("Contract version must increase by one")
@@ -50,6 +54,8 @@ class Store:
                     raise ValueError("Local contract has a stale bridge parent")
             state = self._state
             if goal is not None:
+                if not isinstance(goal, (list, tuple)) or len(goal) != 2:
+                    raise ValueError("Goal update requires a goal and constraints")
                 value = str(goal[0]).strip()
                 if not value:
                     raise ValueError("Goal must not be empty")
@@ -64,7 +70,10 @@ class Store:
                     raise TypeError("Plan must be a string or sequence")
                 items = tuple(str(item).strip() for item in rawplan if str(item).strip())
                 state = replace(state, plan=items, cursor=0, version=state.version + 1)
-            self._contracts[contract.scale] = deepcopy(contract)
+            # Prepare all owned copies before publishing any state.
+            owned = deepcopy(contract)
+            anchor = deepcopy(state)
+            self._contracts[contract.scale] = owned
             self._versions[contract.scale] = contract.version
             if contract.scale is Scale.GLOBAL:
                 self._contracts.pop(Scale.BRIDGE, None)
@@ -75,7 +84,7 @@ class Store:
                 self._contracts.pop(Scale.LOCAL, None)
                 self._anchors.pop(Scale.LOCAL, None)
             self._state = state
-            self._anchors[contract.scale] = (contract.version, deepcopy(state))
+            self._anchors[contract.scale] = (contract.version, anchor)
     def apply(self, observation: Observation, tokens: int = 0, seconds: float = 0.0, tools: float = 0.0) -> Snapshot:
         with self._lock:
             if observation.step <= self._state.step:
@@ -132,6 +141,7 @@ class Store:
             self._state = replace(self._state, status=value, version=self._state.version + 1)
             return deepcopy(self._state)
     def view(self, scale: Scale) -> dict[str, Any]:
+        scale = Scale(scale)
         with self._lock:
             state = self._state
             base: dict[str, Any] = {"goal": state.goal, "constraints": list(state.constraints), "facts": dict(state.facts), "environment": dict(state.environment), "budget": asdict(state.budget), "budgetratio": state.budget.ratio(self._initial), "step": state.step, "version": state.version, "status": state.status}
@@ -151,7 +161,7 @@ class Store:
                 base["cursor"] = state.cursor
                 base["history"] = list(state.history)
                 base["contracts"] = {key.value: value.export() for key, value in self._contracts.items()}
-            return base
+            return deepcopy(base)
 
 # Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com
