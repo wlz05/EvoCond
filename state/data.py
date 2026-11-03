@@ -3,11 +3,18 @@
 
 from __future__ import annotations
 import json
+from math import isfinite
 from typing import Any, Mapping, TypeVar
 Item = TypeVar("Item")
 FIELDS = {"dataset", "datasetname", "benchmark", "benchmarkname"}
 def reject(value: str) -> None:
     raise ValueError(f"Nonfinite JSON number: {value}")
+
+def finite(value: str) -> float:
+    result = float(value)
+    if not isfinite(result):
+        reject(value)
+    return result
 def unique(items: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in items:
@@ -16,7 +23,7 @@ def unique(items: list[tuple[str, Any]]) -> dict[str, Any]:
         result[key] = value
     return result
 def decode(text: str) -> Any:
-    return json.loads(text, parse_constant=reject, object_pairs_hook=unique)
+    return json.loads(text, parse_float=finite, parse_constant=reject, object_pairs_hook=unique)
 # Canonicalize dataset labels before lookup.
 def lower(value: Any) -> str:
     if not isinstance(value, str):

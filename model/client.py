@@ -2,13 +2,14 @@
 # EvoCond: Preserving Conditional Tool Relations for Co-Evolving Language Agents
 
 from __future__ import annotations
+from copy import deepcopy
 import json
 import re
 from math import isfinite
 from typing import Any, Callable, Mapping, Protocol, TypeVar
 from urllib.parse import urlsplit, urlunsplit
 from urllib.request import Request, urlopen
-from state.data import canonical, decode, reject, unique
+from state.data import canonical, decode, finite, reject, unique
 Result = TypeVar("Result")
 class Model(Protocol):
     def generate(self, prompt: str, payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -35,36 +36,40 @@ def contractual(raw: Mapping[str, Any]) -> dict[str, Any]:
     data["invariants"] = list(dict.fromkeys(key for item in invariants if (key := canonical(item)) in keys and key != progress))
     return data
 def validated(model: Model, prompt: str, payload: Mapping[str, Any], validator: Callable[[dict[str, Any]], Result]) -> Result:
-    request = dict(payload)
+    request = deepcopy(dict(payload))
     for attempt in range(2):
-        raw = model.generate(prompt, request)
+        raw = model.generate(prompt, deepcopy(request))
         if not isinstance(raw, Mapping):
             raise TypeError("Model response must be a mapping")
-        data = dict(raw)
+        data = deepcopy(dict(raw))
         try:
-            return validator(data)
+            return validator(deepcopy(data))
         except (TypeError, ValueError) as error:
             if attempt:
                 response = json.dumps(data, ensure_ascii=True, separators=(",", ":"))
                 if len(response) > 2048:
                     response = response[:2048] + "..."
                 raise ValueError(f"Model contract remained invalid after one repair: {error}; response={response}") from error
-            request = dict(payload)
+            request = deepcopy(dict(payload))
             request["repair"] = {"error": str(error), "previous": data, "instruction": "Return one corrected JSON object that satisfies the system schema"}
     raise RuntimeError("Model validation retry was exhausted")
 def load(text: str) -> Any:
     return decode(text)
-# Extract the first complete JSON object.
+# Reject malformed envelopes instead of salvaging nested objects.
 def parse(text: str) -> dict[str, Any]:
-    decoder = json.JSONDecoder(parse_constant=reject, object_pairs_hook=unique)
-    for start in (match.start() for match in re.finditer(r"\{", text)):
-        try:
-            data, unused = decoder.raw_decode(text[start:])
-        except (json.JSONDecodeError, ValueError):
-            continue
-        if isinstance(data, dict):
-            return data
-    raise ValueError("Model response does not contain a valid JSON object")
+    if not isinstance(text, str) or len(text) > 4194304:
+        raise ValueError("Model content must be bounded text")
+    start = text.find('{')
+    if start < 0 or text.lstrip().startswith('['):
+        raise ValueError("Model response does not contain a valid JSON object")
+    decoder = json.JSONDecoder(parse_float=finite, parse_constant=reject, object_pairs_hook=unique)
+    try:
+        data, end = decoder.raw_decode(text, start)
+    except (json.JSONDecodeError, ValueError, RecursionError) as error:
+        raise ValueError("Model response contains an invalid JSON object") from error
+    if not isinstance(data, dict) or re.search(r'[\{\[]', text[end:]):
+        raise ValueError("Model response must contain one JSON object")
+    return data
 class Http:
     def __init__(self, url: str, model: str, key: str, timeout: float = 120.0):
         parts = urlsplit(url.strip())
