@@ -23,6 +23,24 @@ def registry():
         result, _ = admit(result, tool(name), FakeSandbox(), probe_inputs={"value": 1}, task_id="admit")
     return result
 class RetrievalV2Tests(unittest.TestCase):
+    def test_retired_predecessor_keeps_its_observed_edge_to_a_current_candidate(self):
+        memory = registry()
+        old = memory['aliases']['first']
+        memory = observe_transition(memory, source_name='first', target_name='second', task_id='q1',
+            split='train', context_vector=Encoder().encode('task'), encoder_id=Encoder.encoder_id,
+            direct_feedback='verified', task_success=True)
+        memory, _ = admit(memory, tool('first', 'def first(value):\n    return value + 1\n'),
+            FakeSandbox(), probe_inputs={'value': 1}, task_id='upgrade')
+        for spec in ({'mode': 'dense'}, {'mode': 'sparse', 'max_incident_edges': 1,
+                'min_matching_tasks': 1, 'min_abs_score': 0., 'selection': 'score', 'seed': 42}):
+            fitted = {**alignment(), 'structure_policy': spec}
+            view = describe(memory, Encoder(), fitted, query='task', previous_tool='first',
+                previous_version=old, structure_policy=spec)
+            candidate = next(row for row in view['candidates'] if row['name'] == 'second')
+            self.assertGreater(candidate['edge']['score'], 0)
+            self.assertEqual(view['structure_receipt']['selected_edge_keys'],
+                [old+'->'+memory['aliases']['second']])
+
     def test_retired_merged_alias_keeps_real_previous_version(self):
         memory, _ = admit(empty_registry(), tool("first"), FakeSandbox(),
                           probe_inputs={"value": 1}, task_id="admit")

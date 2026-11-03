@@ -111,6 +111,59 @@ class StructureBudgetTests(unittest.TestCase):
         self.assertFalse(report["accuracy_measured"])
         self.assertFalse(report["generated_code_executed"])
         self.assertEqual(registry, before)
+
+    def test_all_policies_share_callable_destination_filtering(self):
+        row = {'matching_tasks': 2, 'score': .5, 'support': 2.}
+        views = {key: deepcopy(row) for key in ('a->b', 'old->b', 'a->old', 'a->a')}
+        before = deepcopy(views)
+        for spec in ({'mode': 'dense'}, SPARSE, {'mode': 'none'}):
+            selected, receipt = select(views, spec, allowed_versions=['a', 'b'])
+            self.assertEqual(receipt['available_edges'], 1)
+            self.assertEqual(set(selected), set() if spec['mode'] == 'none' else {'a->b'})
+            self.assertEqual(receipt['selected_edges'], len(selected))
+        self.assertEqual(views, before)
+
+    def test_observed_retired_predecessor_does_not_reactivate_other_old_edges(self):
+        row = {'matching_tasks': 2, 'score': .5, 'support': 2.}
+        views = {key: deepcopy(row) for key in ('old->b', 'other->b', 'b->old')}
+        for spec in ({'mode': 'dense'}, SPARSE):
+            selected, receipt = select(views, spec, allowed_versions=['b'], previous_version='old')
+            self.assertEqual(set(selected), {'old->b'})
+            self.assertEqual(receipt['available_edges'], 1)
+            self.assertEqual(receipt['max_incident_edges_observed'], 1)
+        self.assertEqual(select(views, allowed_versions=[])[0], {})
+
+    def test_structure_statistics_reject_nonfinite_or_coerced_values(self):
+        good = {'matching_tasks': 2, 'score': .5, 'support': 2.}
+        for field, values in (('matching_tasks', (True, -1, 2.)),
+                ('score', (True, float('nan'), float('inf'), 1.1, 10**1000)),
+                ('support', (True, -1, float('nan'), float('inf'), 10**1000))):
+            for value in values:
+                for spec in ({'mode': 'dense'}, SPARSE, {'mode': 'none'}):
+                    with self.subTest(field=field, value=value, spec=spec), self.assertRaises(ValueError):
+                        select({'a->b': {**good, field: value}}, spec, allowed_versions=['a', 'b'])
+
+    def test_structure_identities_and_policy_labels_fail_with_value_errors(self):
+        for value in ({'mode': []}, {**SPARSE, 'selection': []}):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                policy(value)
+        for allowed in ('ab', None, [''], [' a'], [['a']], [True]):
+            with self.subTest(allowed=allowed), self.assertRaises(ValueError):
+                select({}, allowed_versions=allowed)
+        for key in (1, 'a->', '->b', 'a->b->c', ' a->b'):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                select({key: {}}, allowed_versions=['a', 'b'])
+        for previous in ('', [], True, ' old', 'a->b'):
+            with self.subTest(previous=previous), self.assertRaises(ValueError):
+                select({}, allowed_versions=['a'], previous_version=previous)
+
+    def test_filtered_structure_results_and_receipts_are_detached(self):
+        views = {'a->b': {'matching_tasks': 2, 'score': -.5, 'support': 2., 'history': [1]}}
+        selected, receipt = select(views, allowed_versions=['a', 'b'])
+        selected['a->b']['history'].append(9)
+        receipt['selected_edge_keys'].append('other->b')
+        self.assertEqual(views['a->b']['history'], [1])
+        self.assertEqual(select(views, allowed_versions=['a', 'b'])[1]['selected_edge_keys'], ['a->b'])
 if __name__ == "__main__":
     unittest.main()
 

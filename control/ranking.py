@@ -188,9 +188,10 @@ def describe(registry: dict, encoder, alignment: dict, *, query: str,
     views = edges.batch_edge_views(registry, context_vector=qvec, encoder_id=encoder_id,
         reuse_boundary_mode=reuse_boundary_mode, current_user_text=current_user_text)
     boundary_receipt = boundary.receipt(views, reuse_boundary_mode, current_user_text)
-    # Sparse structure only uses current callable endpoints, so fit and serve have the same text.
+    # Only an observed predecessor may supply a retired source version.
     allowed = [row["version"] for row in active]
-    views, structure_receipt = select_structure(views, structure_policy, allowed_versions=allowed)
+    views, structure_receipt = select_structure(views, structure_policy, allowed_versions=allowed,
+                                               previous_version=previous)
     structure_receipt["reuse_boundary"] = boundary_receipt
     neutral = {"association": 0.0, "utility": 0.0, "reliability": 0.0,
                "support": 0.0, "score": 0.0, "context_match": 0.0,
