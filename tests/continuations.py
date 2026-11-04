@@ -17,6 +17,7 @@ from control.runtime import Runtime, task_identity
 from control.runtime import load_config
 from control.pairing import collect_teacher_policy_pairs, snapshot_hash
 from control.continuation import observed_outcome, validate_snapshot
+from control.teacher import PROVENANCE_FIELDS
 from control import dynamic, ranking
 from tests.checkout import official_root
 from tests.runtimes import Backend, dispatcher_class, actor_method, PLAN
@@ -239,6 +240,77 @@ class ContinuationTests(unittest.TestCase):
             run()
         self.assertFalse((self.root/'out/audit.json').exists())
         self.assertEqual((self.root/'out/pairs.jsonl').read_text(encoding='utf-8'),'')
+class ContinuationValidationTests(unittest.TestCase):
+    def receipt(self, alpha=1.0):
+        fields = {name: 'unit-v1' if name == 'encoder_id' else 'a'*64 for name in PROVENANCE_FIELDS}
+        request = SimpleNamespace(**fields, seed=1, alpha=alpha, action_scope='next_retrieval_only',
+                                  execution_context_hash='b'*64)
+        receipt = {**fields, 'executed': True, 'interventions': 1, 'seed': 1, 'alpha': alpha,
+                   'action_scope': request.action_scope, 'execution_context_hash': 'b'*64,
+                   'shared_registry_hash': 'c'*64, 'trace_hash': 'd'*64}
+        return request, receipt
+    def snapshot(self):
+        return {'format': 'searl_official_continuation_v1', 'step': 1, 'max_turns': 5,
+                'runtime': {'context': {'split': 'train', 'task_id': 'question', 'private': True}}}
+    def test_receipt_requires_an_exact_integer_intervention_count(self):
+        request, receipt = self.receipt()
+        invalid = [None, [], 'receipt', *[{**receipt, 'interventions': value}
+                   for value in (None, True, 1.0, '1', 0, 2)]]
+        for row in invalid:
+            with self.subTest(receipt=row), self.assertRaisesRegex(ValueError, 'exactly one'):
+                observed_outcome(request, row, 1.0, shared_registry_hash='c'*64)
+    def test_receipt_requires_the_exact_integer_seed(self):
+        request, receipt = self.receipt()
+        for seed in (True, 1.0, '1', None, 2):
+            with self.subTest(seed=seed), self.assertRaisesRegex(ValueError, 'changed seed'):
+                observed_outcome(request, {**receipt, 'seed': seed}, 1.0, shared_registry_hash='c'*64)
+    def test_receipt_rejects_boolean_and_nonfinite_actions(self):
+        for alpha, invalid in ((1.0, [True]), (0.0, [False]),
+                (.5, [None, '.5', float('nan'), float('inf'), 10**1000, -.5, .75])):
+            request, receipt = self.receipt(alpha)
+            for value in invalid:
+                with self.subTest(alpha=value), self.assertRaisesRegex(ValueError, 'changed alpha'):
+                    observed_outcome(request, {**receipt, 'alpha': value}, 1.0, shared_registry_hash='c'*64)
+    def test_correctness_rejects_invalid_values_without_numeric_overflow(self):
+        request, receipt = self.receipt()
+        for score in (True, False, None, '1', [], float('nan'), float('inf'), -float('inf'), 10**1000, -2, 2):
+            with self.subTest(score=score), self.assertRaisesRegex(ValueError, 'correctness scale'):
+                observed_outcome(request, receipt, score, shared_registry_hash='c'*64)
+        for score, reward, success in ((-1, 0.0, False), (.5, .5, False), (1, 1.0, True)):
+            result = observed_outcome(request, receipt, score, shared_registry_hash='c'*64)
+            self.assertEqual((result['reward'], result['success']), (reward, success))
+    def test_snapshot_rejects_missing_or_malformed_runtime_context(self):
+        for runtime in (None, [], 'runtime', {}, {'context': None}, {'context': []}):
+            snapshot = {**self.snapshot(), 'runtime': runtime}
+            with self.subTest(runtime=runtime), self.assertRaisesRegex(ValueError, 'runtime context'):
+                validate_snapshot(snapshot, question_id='question')
+        for snapshot in (None, [], 'snapshot', {}):
+            with self.subTest(snapshot=snapshot), self.assertRaisesRegex(ValueError, 'restorable'):
+                validate_snapshot(snapshot, question_id='question')
+    def test_snapshot_requires_its_private_training_question(self):
+        original = self.snapshot()
+        for update in ({'private': False}, {'private': 1}, {'split': 'test'}, {'task_id': 'another'}):
+            snapshot = deepcopy(original)
+            snapshot['runtime']['context'].update(update)
+            with self.subTest(update=update), self.assertRaises(ValueError):
+                validate_snapshot(snapshot, question_id='question')
+        for identity in (None, '', ' ', True):
+            with self.subTest(identity=identity), self.assertRaisesRegex(ValueError, 'identity'):
+                validate_snapshot(original, question_id=identity)
+        self.assertIs(validate_snapshot(original, question_id='question'), original['runtime'])
+    def test_snapshot_requires_integer_indices_and_remaining_horizon(self):
+        for field, values in (('step', [None, True, 1.0, '1', -1]),
+                              ('max_turns', [None, True, 5.0, '5', 0, -1])):
+            for value in values:
+                snapshot = {**self.snapshot(), field: value}
+                with self.subTest(field=field, value=value), self.assertRaisesRegex(ValueError, 'integer indices'):
+                    validate_snapshot(snapshot, question_id='question')
+        for step in (4, 5):
+            snapshot = {**self.snapshot(), 'step': step}
+            with self.subTest(step=step), self.assertRaisesRegex(ValueError, 'no real continuation'):
+                validate_snapshot(snapshot, question_id='question')
+        snapshot = {**self.snapshot(), 'step': 3}
+        self.assertIs(validate_snapshot(snapshot, question_id='question'), snapshot['runtime'])
 if __name__ == '__main__':
     unittest.main()
 
