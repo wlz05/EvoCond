@@ -416,7 +416,24 @@ def launch_spec(frozen, root, arm, *, stage="train", split="validation", resume=
               "ray_init.namespace": config["run_id"]+"_"+arm}
     command = ["bash", "main_searl.sh"]+[f"++{key}={json.dumps(value)}" for key, value in params.items()]
     return command, env
-def readiness(gpus):
+def validate_accelerators(devices, gpus, *, h100=False):
+    if type(gpus) is not int or gpus < 1 or type(h100) is not bool or not isinstance(devices, list):
+        raise ValueError('Declare a positive integer GPU allocation and its device inventory')
+    if len(devices) < gpus:
+        raise ValueError('Fewer visible GPUs than the frozen protocol requires')
+    if h100 and (gpus != 8 or len(devices) != 8):
+        raise ValueError('The H100 study requires exactly eight visible actor GPUs')
+    selected = devices[:gpus]
+    for device in selected:
+        if (not isinstance(device, dict) or not isinstance(device.get('name'), str) or not device['name'].strip()
+                or type(device.get('memory')) is not int or device['memory'] <= 0):
+            raise ValueError('GPU inventory needs a model name and positive memory bytes')
+        if h100 and (not re.search(r'\bH100\b', device['name'], re.IGNORECASE)
+                or 'MIG' in device['name'].upper() or device['memory'] < 75_000_000_000):
+            raise ValueError('The matched study requires full-memory H100 GPUs, not another model or MIG slices')
+    return deepcopy(selected)
+
+def readiness(gpus, *, h100=False):
     if sys.platform != "linux":
         raise RuntimeError("Actual distributed launch requires the inspected Linux GPU host")
     missing = [name for name in ("torch", "ray", "vllm", "transformers", "pyarrow", "mcp", "sentence_transformers")
@@ -424,8 +441,13 @@ def readiness(gpus):
     if missing:
         raise RuntimeError(f"Missing training dependencies: {missing}")
     import torch
-    if torch.cuda.device_count() < gpus:
-        raise RuntimeError("Fewer visible GPUs than the frozen protocol requires")
+    devices = [{'name': torch.cuda.get_device_properties(i).name,
+                'memory': torch.cuda.get_device_properties(i).total_memory}
+               for i in range(torch.cuda.device_count())]
+    try:
+        validate_accelerators(devices, gpus, h100=h100)
+    except ValueError as error:
+        raise RuntimeError(str(error)) from error
 def environment_identity():
     import torch
     return {"python": sys.version, "packages": {name: importlib.metadata.version(name) for name in
@@ -530,7 +552,7 @@ def main():
                       "log": env["LOG_PATH"], "qwen_updates": args.stage == "train"}))
     if not args.run:
         return
-    readiness(frozen["config"]["budget"]["gpus"])
+    readiness(frozen["config"]["budget"]["gpus"], h100=frozen['config'].get('design') is not None)
     record = root / args.arm / "attempts" / (attempt+".json")
     identity = dict(pid=os.getpid(), attempt=attempt, arm=args.arm, root=str(root))
     with allocation(root, workspace, identity, shared=frozen['config'].get('design') is not None):

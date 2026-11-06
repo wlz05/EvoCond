@@ -62,6 +62,64 @@ Within a frozen execution window, a preselected retrieval point receives one ran
 - **Learning from actual presentation.** One randomized point in an existing rollout identifies terminal assistance relative to the semantic list; frozen windows connect estimation to deployment.
 - **Matched system and mechanism evaluation.** Full-system comparisons, condition-by-adoption controls, and actor-by-bank panels connect task performance to the three bottlenecks.
 
+### Method and Equations
+
+EvoCond separates the evidence used to propose a tool combination from the credit used to adopt it. A relation can remain applicable after the actor has learned to solve the task without its guidance. The implementation therefore retains condition-feedback events and evaluates actual tool lists against the same actor's semantic list.
+
+**Conditional reconstruction.** For compatible historical samples, let $\omega_{hs}(c)$ combine the context kernel, age decay, and within-question normalization. The signed edge is
+
+$$
+w_{uv}(c)=\frac{\sum_h\sum_s\omega_{hs}(c)y_{hs}}
+{\kappa+\sum_h\sum_s\omega_{hs}(c)}.
+$$
+
+[relations.estimate](control/relations.py) returns the signed numerator, conditional mass, effective support, and resulting edge weight. Samples from the same base question share its event weight. This quantity describes observed relation support; [mixing.py](control/mixing.py) uses it to propose lists, while the teacher learns their execution value.
+
+**Current-actor adoption.** Action $a_0$ is the semantic payload among the distinct serialized lists. With terminal correctness $Y$, measured actor, tool, and retrieval cost $C$, fixed cost scale $C_0$, and penalty $\lambda_C$, the learning target is
+
+$$
+R=Y-\lambda_C\min(C/C_0,1),\qquad
+A_e(x,a)=Q_e(x,a)-Q_e(x,a_0).
+$$
+
+At the one preselected randomized point, the logged probability $p_i(a)$ and an independently fitted reward head $m_i$ give
+
+$$
+\widehat Q_i^{\mathrm{DR}}(a)
+=m_i(x_i,a)+\frac{\mathbf{1}[A_i=a]}{p_i(a)}
+\bigl(R_i-m_i(x_i,a)\bigr),\qquad
+\widehat A_i(a)=\widehat Q_i^{\mathrm{DR}}(a)-\widehat Q_i^{\mathrm{DR}}(a_0).
+$$
+
+[bandit.crossfit](control/bandit.py) constructs these semantic-centered targets, and [bandit.fit](control/bandit.py) optimizes the teacher. Folds are grouped by base question; [bandit.heldout_targets](control/bandit.py) uses a reward head fitted outside the evaluation questions. Payloads that serialize to the same list form one action, so nominal fusion weights cannot create extra evidence.
+
+**Adoption update.** For frozen deployed teacher $T_e$ and candidate $\nu$, the held-out contrast is
+
+$$
+Z_i=\sum_a\bigl(\nu(a\mid x_i)-T_e(a\mid x_i)\bigr)\widehat Q_i^{\mathrm{DR}}(a)
+=\sum_a\bigl(\nu(a\mid x_i)-T_e(a\mid x_i)\bigr)\widehat A_i(a).
+$$
+
+The coefficients sum to zero, so a value shift shared by every list cannot change the adoption contrast. Phase reports expose both teachers' semantic-relative means in the adoption_evidence field and verify that their difference equals the reported mean contrast. Both means include every independent held-out base question, including zero contributions from unreached or collapsed choices. They estimate the marked-point effect under the frozen continuation.
+
+For $N$ held-out questions and marking horizon $H$, the default studentized rule uses
+
+$$
+G_L=H\left(\overline Z-z_{1-\beta_e}\frac{s_Z}{\sqrt N}\right),\qquad
+C_H=(1+\lambda_C)H(H-1),\qquad
+T_{e,\delta}=(1-\delta)T_e+\delta\nu.
+$$
+
+[bandit.confidence](control/bandit.py) sets $\delta=0$ when evaluation is ineligible or $G_L\le0$; otherwise it uses $\min(\delta_{\max},G_L/(2C_H))$, with $\delta_{\max}$ when $C_H=0$. The normal rule has asymptotic coverage; the separately configured Bernstein control uses its global finite-sample envelope. [stage.py](control/stage.py) deploys the accepted teacher only on the actor, bank, encoder, and geometry fingerprint used for that evaluation. A new execution basis starts with semantic presentation and new adoption feedback.
+
+**Memory fatigue and credit transport.** On matched tasks and a fixed capability pool, [fatigue.panel](control/fatigue.py) measures $B_{ij}=J_{\mathrm{str}}(\pi_i,\mathcal H_j)-J_{\mathrm{sem}}(\pi_i,\mathcal H_j)$. The old/new actor and bank cells separate actor change, bank change, and their interaction. For paired task advantages $A_0,A_1$, [fatigue.transport](control/fatigue.py) reports
+
+$$
+D_{\mathrm{recv}}=\frac{|A_0|+|A_1|-|A_0+A_1|}{4}.
+$$
+
+This receiver-sharing loss is positive when the two actors prefer opposite presentations. The panel also reports the directional loss from carrying the old choice to the new actor, alongside rescues, harms, and full cost. These matched outcomes explain where credit changes; training still learns adoption from randomized current-window feedback.
+
 ## Project Structure
 
 ```text
@@ -90,6 +148,15 @@ EvoCond/
 - **One server with 8 H100 SXM 80GB GPUs and NVLink/NVSwitch** for the distributed actor experiment.
 - Python 3.10 or newer, [Ray](https://docs.ray.io/en/latest/), [vLLM](https://docs.vllm.ai/en/latest/), Transformers, [PyArrow](https://arrow.apache.org/docs/python/), and the dependencies of the bundled [SEARL runtime](https://github.com/circles-post/SEARL).
 - An isolated tool-execution service, a Wikipedia retrieval service, and a separate final-scoring allocation.
+
+Before reserving the server, inspect its GPU model and interconnect with:
+
+```bash
+nvidia-smi -L
+nvidia-smi topo -m
+```
+
+Main and ablation launch preflight requires exactly eight visible H100 devices with at least 75,000,000,000 reported memory bytes per device. It rejects mixed GPU models, named MIG devices, and reduced-memory slices. Model and memory checks identify the actor allocation; the topology output identifies the NVLink paths. Keep search services outside the actor allocation.
 
 The actor is [Qwen3-4B](https://huggingface.co/Qwen/Qwen3-4B). Tool retrieval uses [e5-base-v2](https://huggingface.co/intfloat/e5-base-v2). The released native entry disables reward-model rollouts and uses its answer, format, and tool-call reward functions during training and online validation. Final benchmark scoring loads [Qwen3-32B](https://huggingface.co/Qwen/Qwen3-32B) through [judge.py](judge.py), after training or on another allocation. The upstream QwQ-32B configuration is inactive in this recipe.
 
@@ -260,7 +327,7 @@ python calibrate.py \
 For a raw configuration, supply the prepared training count to resolve the same schedule. Add `--simulate` for the independent synthetic scenarios:
 
 ```bash
-python calibrate.py --config configs/contextual.json --questions 10000 --size 128 --simulate
+python calibrate.py --config configs/contextual.json --questions 10000 --size 192 --simulate
 ```
 
 `heldout_advantages` retains every held-out base question, including zero-contribution observations. Calibration checks the phase's recorded `confidence_protocol`, hold-out identities, and count before recomputing its bounds. A report without the original advantages cannot be reconstructed from its accepted-update summary. Historical frozen protocols retain their original allocation; preparing a new study resolves the current schedule and creates a new protocol. The normal rule reports asymptotic coverage; the Bernstein control uses its bounded-score assumptions for finite-sample coverage.
@@ -511,6 +578,8 @@ The distinction matters during actor learning: successful execution with memory 
 #### Training Trace
 
 `phases/phaseN.json` now records `memory_sizes.read_snapshot`, `memory_sizes.pending_publication`, and `memory_value`. Inventory counts refer to distinct capabilities, versions, relations, and retained edge events. `memory_value` compares semantic presentation with a prespecified uniform distribution over distinct nonsemantic actual payload classes at the randomized point. Identical payloads count once. With logging probability `p`, the contrast weight is `(target_probability - semantic_probability) / p`; a fixed reward midpoint centers the estimate. This known-propensity IPS diagnostic requires no fitted reward model. The adoption learner retains its cross-fitted DR objective.
+
+Each completed phase's `teacher_update.adoption_evidence` appears as `adoption_evidence` in the trace. It reports the old teacher and candidate's separate DR means against semantic presentation, their difference, the complete hold-out count, and the actor-bank binding. This identifies how the learned proposal changes current adoption value alongside the uniform-list memory diagnostic. Historical phases without that receipt retain an unavailable value.
 
 Every preselected question stays in the denominator. Unreached points, unsupported histories, and a single actual class contribute zero. No collected observations yields an unavailable mean rather than a zero-valued memory effect. Reports include the smallest logging probability, largest contrast weight, sample dispersion, and measured success and costs. Relation-support receipts separately record deduplicated queried edges, conditional mass, query effective support, and signed edge counts; their statistics cover only randomized points with recorded support. Legacy logs without these fields keep support unavailable. Training traces summarize the random-point effect under each logged continuation; the frozen panel below evaluates full presentation policies on the same probe tasks. Completed phases are included; an unfinished tail is counted separately. Neither output selects a deployment policy.
 

@@ -121,6 +121,7 @@ def reward(success, costs, *, penalty, reference):
         raise ValueError('Whole-episode costs overflowed') from error
     if not math.isfinite(total):
         raise ValueError('Whole-episode costs must have a finite total')
+    # Eq. (11): R = Y - lambda_C * min(C / C0, 1).
     return float(success)-penalty*min(total/reference, 1.0)
 def validate(row):
     required = {'features', 'reward', 'success', 'costs', 'penalty', 'reference', 'actions', 'probabilities', 'chosen', 'payload_hashes', 'interventions'}
@@ -244,6 +245,7 @@ def crossfit(records, *, folds=3, ridge=1.0):
             prediction = bounded(prediction, low, high)
             predictions.append(prediction)
             values.append(prediction+(row['reward']-prediction)/probability if row['chosen'] == action else prediction)
+        # Eqs. (12)-(13): A_DR(a) = Q_DR(a) - Q_DR(semantic).
         relative = [value-values[0] for value in values]
         if not all(finite(value) for value in values+relative):
             raise ValueError('Doubly robust targets exceed the finite numeric range')
@@ -435,6 +437,7 @@ def confidence(values, *, horizon, penalty, epsilon, beta=.05, delta_max=.2, ove
     curvature = width*horizon*(horizon-1)
     if not math.isfinite(curvature) or lower is not None and not math.isfinite(lower):
         raise ValueError('The finite-horizon confidence calculation overflowed')
+    # Eqs. (16)-(17): positive G_L sets delta <= G_L / (2*C_H).
     delta = min(delta_max, lower/(2*curvature)) if lower is not None and lower > 0 and curvature else delta_max if lower is not None and lower > 0 else 0.0
     improvement = delta*lower-curvature*delta**2-overhead if lower is not None else -overhead
     if improvement < 0:
@@ -473,9 +476,19 @@ def advantage(row, previous, proposal, head, *, epsilon):
     new = probabilities(proposal, row['features'], classes)
     receipt = contrast(old, new, p, width=1+row['penalty'])
     values = heldout_targets(row, head)
+    relative = np.asarray(values)-values[0]
+    prior_gain, proposal_gain = float(old @ relative), float(np.asarray(new) @ relative)
+    if not np.isfinite(relative).all() or not finite(prior_gain) or not finite(proposal_gain):
+        raise ValueError('Semantic-relative adoption evidence overflowed')
+    # Eq. (14): zero-sum policy differences remove the shared semantic value.
     result = float(np.asarray(receipt['difference']) @ np.asarray(values))
     if not math.isfinite(result) or abs(result) > receipt['bound']+1e-8:
         raise ValueError('Held-out advantage violates its zero-sum envelope')
+    if not math.isclose(result, proposal_gain-prior_gain, rel_tol=1e-9, abs_tol=1e-9):
+        raise ValueError('Semantic-relative evidence disagrees with the policy contrast')
+    receipt.update(reference_action=0, reference_payload_hash=row['payload_hashes'][0],
+        previous_relative_value=prior_gain, proposal_relative_value=proposal_gain,
+        policy_difference=result, value_kind='heldout_dr_estimate')
     return result, receipt
 def conservative(records, previous, *, seed=42, holdout=.5, horizon=6, epsilon=.2, beta=.05,
                  delta_max=.2, chain_limit=4, steps=100, minimum=6, overhead=0.0, used_holdout=(), method='bernstein'):
@@ -524,6 +537,18 @@ def conservative(records, previous, *, seed=42, holdout=.5, horizon=6, epsilon=.
         beta=beta, delta_max=delta_max, overhead=overhead, method=method)
     report.update(receipt, targets=targets, proposal_sha256=dynamic.digest(proposal), reward_model_fit_ids=head['fit_ids'],
         contrast_receipts=contrasts, heldout_advantages=advantages, local_envelopes_used_for_confidence=False)
+    # Keep zero-contribution questions in both semantic-relative means.
+    report['adoption_evidence'] = dict(reference_action=0, target_reference=REFERENCE, n=len(holding),
+        observed_marks=len(contrasts), zero_contributions=len(holding)-len(contrasts),
+        previous_relative_mean=math.fsum(row['previous_relative_value']/len(holding) for row in contrasts),
+        proposal_relative_mean=math.fsum(row['proposal_relative_value']/len(holding) for row in contrasts),
+        difference_mean=report['mean'], binding=deepcopy(head['binding']),
+        denominator='all_independent_holdout_questions',
+        scope='one_marked_point_dr_vs_semantic_under_the_frozen_continuation')
+    evidence = report['adoption_evidence']
+    if not math.isclose(evidence['proposal_relative_mean']-evidence['previous_relative_mean'],
+                        evidence['difference_mean'], rel_tol=1e-9, abs_tol=1e-9):
+        raise ValueError('Held-out semantic-relative means disagree with the update contrast')
     if depth(previous) >= chain_limit:
         base = distill(previous, observed, steps=steps)
         report.update(delta=0.0, deployed=False, reason='chain_compressed_requires_new_window', bound_transferred=False)

@@ -87,12 +87,14 @@ class Engine:
         self.freeze()
     def freeze(self):
         self.registry = deepcopy(self.runtime.dispatcher.registry)
+        # Eq. (19): b_e binds adoption credit to actor, bank and read geometry.
         self.bottom = dynamic.digest(dict(actor=self.actor, encoder=self.encoder_id, adoption_protocol=bandit.PROTOCOL, registry=dynamic.digest(self.registry),
             alignment=dynamic.digest(self.alignment), whole=dynamic.digest(self.whole), metric=dynamic.digest(self.metric), options=self.options))
         self.snapshot = dynamic.digest(dict(format=FORMAT, phase=self.phase, actor=self.actor, encoder=self.encoder_id, adoption_protocol=bandit.PROTOCOL,
             registry=dynamic.digest(self.registry), alignment=dynamic.digest(self.alignment), whole=dynamic.digest(self.whole), metric=dynamic.digest(self.metric),
             teacher=dynamic.digest(self.teacher), teacher_bottom=self.teacher_bottom, options=self.options))
     def deployed_teacher(self):
+        # Eqs. (18)-(19): a changed execution basis starts from semantic adoption.
         return self.teacher if self.teacher is not None and self.teacher_bottom == self.bottom else None
     def adoption_status(self):
         active = self.deployed_teacher() is not None

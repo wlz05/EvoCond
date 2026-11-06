@@ -115,6 +115,24 @@ class FatigueTests(unittest.TestCase):
         (self.root/'phases/phase0.json').write_text(json.dumps(report), encoding='utf-8')
         return payload
 
+    def test_trace_preserves_current_actor_semantic_relative_adoption_evidence(self):
+        self.trace_fixture()
+        path = self.root/'phases/phase0.json'
+        report = json.loads(path.read_text(encoding='utf-8'))
+        evidence = dict(reference_action=0, n=1, previous_relative_mean=0., proposal_relative_mean=-.1,
+                        difference_mean=-.1, binding={'actor': 'current'})
+        report['teacher_update'] = dict(adoption_evidence=evidence)
+        path.write_text(json.dumps(report), encoding='utf-8')
+        self.assertEqual(fatigue.trace(self.root)['phases'][0]['adoption_evidence'], evidence)
+        report['teacher_update'] = None
+        path.write_text(json.dumps(report), encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'Teacher update'):
+            fatigue.trace(self.root)
+
+    def test_trace_leaves_missing_historical_adoption_evidence_unavailable(self):
+        self.trace_fixture()
+        self.assertIsNone(fatigue.trace(self.root)['phases'][0]['adoption_evidence'])
+
     def test_trace_streams_and_hashes_the_captured_bytes_including_bom(self):
         payload = self.trace_fixture(b'\xef\xbb\xbf'+(json.dumps(zero('q'))+'\n').encode())
         with patch.object(Path, 'read_text', side_effect=AssertionError('Use streamed log reads')):

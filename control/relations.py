@@ -101,6 +101,7 @@ def estimate(memory, source, target, phi, context, *, versions=None, uncondition
         weight, numerator = terms(entry, collect=True)
         weights.append(weight)
         numerators.append(numerator)
+    # Eq. (6): w_uv(c) = signed_mass / (kappa + conditional_mass).
     mass, signed = sum(weights), sum(numerators)
     largest = max(weights, default=0.0)
     scaled = [weight/largest for weight in weights] if largest else []

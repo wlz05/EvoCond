@@ -488,6 +488,39 @@ class ExperimentTests(unittest.TestCase):
         with patch.object(sys, "argv", ['experiment.py', "evaluate", "--root", str(self.root), "--arm", "evocond", "--split", "test"]), \
                 redirect_stdout(io.StringIO()), patch("sys.stderr", new_callable=io.StringIO), self.assertRaises(SystemExit):
             experiment.main()
+class AcceleratorContractTests(unittest.TestCase):
+    def devices(self):
+        return [dict(name='NVIDIA H100 80GB HBM3', memory=80*1024**3) for _ in range(8)]
+    def test_eight_full_memory_h100_devices_match_the_study(self):
+        devices = self.devices()
+        checked = experiment.validate_accelerators(devices, 8, h100=True)
+        self.assertEqual(checked, devices)
+        checked[0]['name'] = 'changed'
+        self.assertEqual(devices[0]['name'], 'NVIDIA H100 80GB HBM3')
+    def test_study_rejects_partial_or_extra_visible_allocations(self):
+        for count, requested in ((7, 8), (9, 8), (6, 6)):
+            devices = (self.devices()+self.devices())[:count]
+            with self.subTest(count=count, requested=requested), self.assertRaises(ValueError):
+                experiment.validate_accelerators(devices, requested, h100=True)
+    def test_study_rejects_mixed_models_and_reduced_memory(self):
+        for update in (dict(name='NVIDIA H200'), dict(name='NVIDIA RTX 4090'),
+                       dict(name='NVIDIA H100 MIG 1g.10gb'), dict(memory=10*1024**3)):
+            devices = self.devices()
+            devices[3].update(update)
+            with self.subTest(update=update), self.assertRaisesRegex(ValueError, 'full-memory H100'):
+                experiment.validate_accelerators(devices, 8, h100=True)
+    def test_hardware_metadata_requires_exact_types(self):
+        for update in (dict(name=None), dict(name=''), dict(memory=True), dict(memory='80000000000'), dict(memory=0)):
+            devices = self.devices()
+            devices[0].update(update)
+            with self.subTest(update=update), self.assertRaisesRegex(ValueError, 'inventory'):
+                experiment.validate_accelerators(devices, 8, h100=True)
+        for gpus, flag in ((True, True), (0, True), (8, 1)):
+            with self.subTest(gpus=gpus, flag=flag), self.assertRaises(ValueError):
+                experiment.validate_accelerators(self.devices(), gpus, h100=flag)
+    def test_legacy_allocations_keep_their_declared_gpu_model(self):
+        devices = [dict(name='NVIDIA RTX 4090', memory=24*1024**3)]
+        self.assertEqual(experiment.validate_accelerators(devices, 1), devices)
 if __name__ == "__main__":
     unittest.main()
 

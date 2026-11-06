@@ -173,5 +173,64 @@ class BanditTests(unittest.TestCase):
             with self.subTest(rows=rows, steps=steps), self.assertRaises(ValueError):
                 bandit.distill(None, rows, steps=steps)
 
+class RelativeAdoptionTests(unittest.TestCase):
+    def observations(self, size=48):
+        rows = records(size)
+        for row in rows:
+            row.update(old_probabilities=[1.0, 0.0, 0.0], probabilities=[1-.2+.2/3, .2/3, .2/3])
+        return rows
+    def fitted(self):
+        rows = self.observations()
+        proposal, _ = bandit.fit(rows[:6], steps=1)
+        return rows, proposal, bandit.reward_model(rows[:6])
+    def test_semantic_reference_explains_the_same_heldout_contrast(self):
+        rows, proposal, head = self.fitted()
+        original = deepcopy(rows[7])
+        score, receipt = bandit.advantage(rows[7], None, proposal, head, epsilon=.2)
+        self.assertEqual(receipt['reference_action'], 0)
+        self.assertEqual(receipt['reference_payload_hash'], rows[7]['payload_hashes'][0])
+        self.assertEqual(receipt['previous_relative_value'], 0.0)
+        self.assertAlmostEqual(receipt['proposal_relative_value']-receipt['previous_relative_value'], score)
+        self.assertEqual(rows[7], original)
+    def test_common_value_shift_does_not_change_relative_adoption_credit(self):
+        rows, proposal, head = self.fitted()
+        receipts = []
+        for shift in (0.0, 10.0):
+            with patch.object(bandit, 'heldout_targets', return_value=[.2+shift, -.8+shift, .7+shift]):
+                score, receipt = bandit.advantage(rows[7], None, proposal, head, epsilon=.2)
+                receipts.append((score, receipt))
+        for name in ('previous_relative_value', 'proposal_relative_value', 'policy_difference'):
+            self.assertAlmostEqual(receipts[0][1][name], receipts[1][1][name])
+        self.assertAlmostEqual(receipts[0][0], receipts[1][0])
+    def test_folded_payloads_use_their_actual_semantic_reference(self):
+        rows, proposal, head = self.fitted()
+        row = deepcopy(rows[7])
+        row.update(actions=[0, 2], probabilities=[.9, .1], old_probabilities=[1.0, 0.0],
+                   payload_hashes=['semantic', 'structure'], chosen=2)
+        score, receipt = bandit.advantage(row, None, proposal, head, epsilon=.2)
+        self.assertEqual(receipt['reference_payload_hash'], 'semantic')
+        self.assertAlmostEqual(receipt['proposal_relative_value'], score)
+    def test_relative_evidence_keeps_zero_contribution_questions_in_the_denominator(self):
+        rows = self.observations()
+        for row in rows[-8:]:
+            row.update(status='unreached', features=[], actions=[], probabilities=[], old_probabilities=[],
+                       chosen=None, payload_hashes=[], interventions=0)
+        with patch.object(bandit, 'randomizer') as split:
+            split.return_value.random.side_effect = [.75]*24+[.25]*24
+            _, report = bandit.conservative(rows, None, steps=1, horizon=7, epsilon=.2, method='normal')
+        audit = report['adoption_evidence']
+        self.assertEqual(audit['n'], len(report['holdout_ids']))
+        self.assertEqual(audit['observed_marks']+audit['zero_contributions'], audit['n'])
+        self.assertEqual(audit['zero_contributions'], report['zeros'])
+        self.assertEqual((audit['n'], audit['zero_contributions']), (24, 8))
+        self.assertEqual(audit['previous_relative_mean'], 0.0)
+        self.assertAlmostEqual(audit['proposal_relative_mean']-audit['previous_relative_mean'], report['mean'])
+        self.assertEqual(audit['denominator'], 'all_independent_holdout_questions')
+        self.assertEqual(set(report['holdout_ids']) & set(report['reward_model_fit_ids']), set())
+    def test_missing_fit_support_does_not_manufacture_semantic_relative_evidence(self):
+        rows = self.observations(2)
+        _, report = bandit.conservative(rows, None, steps=1, horizon=7, epsilon=.2, method='normal')
+        self.assertNotIn('adoption_evidence', report)
+
 # Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

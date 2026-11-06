@@ -112,8 +112,12 @@ def trace(root):
     groups = {phase: [] for phase in metadata}
     def complete(phase):
         report, identity = metadata[phase]
+        update = report.get('teacher_update', {})
+        if not isinstance(update, dict):
+            raise ValueError('Teacher update must be an identified phase report')
         reports[phase] = dict(phase=phase, snapshot=report['snapshot'], memory=report.get('memory_sizes'),
-            phase_report_sha256=identity, value=window(groups[phase]))
+            phase_report_sha256=identity, value=window(groups[phase]),
+            adoption_evidence=update.get('adoption_evidence'))
         groups[phase] = None
     for phase, (report, _) in metadata.items():
         if report['base_observations'] == 0:
@@ -266,6 +270,7 @@ def transport(previous, current):
         best = max(target, 0.)
         # Semantic presentation wins source ties by the declared rule.
         loss = -target if source > 0 > target else target if source <= 0 < target else 0.
+        # Eq. (24): D_recv = (|A0| + |A1| - |A0 + A1|) / 4.
         blind = min(abs(source), abs(target))/2 if positive_flip or negative_flip else 0.
         values = dict(previous_advantage=source, current_advantage=target, advantage_change=target-source,
             positive_to_negative_share=float(positive_flip), negative_to_positive_share=float(negative_flip),
