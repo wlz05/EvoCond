@@ -4,7 +4,7 @@
 
 We study **structural memory fatigue**: relation evidence keeps growing while its incremental execution benefit declines. Semantic and memory-guided execution can both improve, yet their relative advantage can reverse. A correct relation can remain reusable while its previous adoption preference becomes wrong for the improved actor. EvoCond preserves the evidence and re-estimates its influence on the current execution basis.
 
-EvoCond achieves state-of-the-art pass@1 performance in mathematical and multi-hop reasoning. Experiments use **8 NVIDIA GeForce RTX 4090 GPUs**, with random seeds **42, 52, 3047, and 3407**.
+EvoCond achieves state-of-the-art pass@1 performance in mathematical and multi-hop reasoning. The training configuration specifies **one server with 8 NVIDIA H100 SXM 80GB GPUs connected through NVLink/NVSwitch**, with random seeds **42, 52, 3047, and 3407**.
 
 ## Architecture
 
@@ -87,7 +87,7 @@ EvoCond/
 ## Requirements
 
 - Linux with NVIDIA drivers and a CUDA-compatible [PyTorch installation](https://pytorch.org/get-started/locally/).
-- **8 RTX 4090 GPUs** for the distributed actor experiment.
+- **One server with 8 H100 SXM 80GB GPUs and NVLink/NVSwitch** for the distributed actor experiment.
 - Python 3.10 or newer, [Ray](https://docs.ray.io/en/latest/), [vLLM](https://docs.vllm.ai/en/latest/), Transformers, [PyArrow](https://arrow.apache.org/docs/python/), and the dependencies of the bundled [SEARL runtime](https://github.com/circles-post/SEARL).
 - An isolated tool-execution service, a Wikipedia retrieval service, and a separate final-scoring allocation.
 
@@ -245,7 +245,7 @@ Preparation verifies the Qwen3-4B architecture and weight contents. The model di
 
 ### Confidence Allocation
 
-`prepare` derives `maximum_windows` from the complete training schedule before collection. With 10,000 training questions, batch size 256, one epoch, and two batches per stage, the schedule has 40 collection batches, 20 actor updates, and 20 teacher evaluation opportunities. The final stage contains 272 questions. Within each independent training run, a total beta of 0.05 gives beta 0.0025 per evaluation; the normal critical value is approximately 2.807. Actual prepared training counts determine the allocation after filtering and splitting.
+`prepare` derives `maximum_windows` from the complete training schedule before collection. With 10,000 training questions, batch size 384, one epoch, and two batches per stage, the schedule has 27 collection batches, 14 actor updates, and 13 teacher evaluation opportunities. The final stage contains 16 questions and closes at the epoch barrier without an additional teacher evaluation. Within each independent training run, a total beta of 0.05 gives beta 0.05/13 per evaluation; the normal critical value is approximately 2.665. Actual prepared training counts determine the allocation after filtering and splitting.
 
 For stage width greater than one, each non-boundary batch reserves an evaluation slot. A short final stage ends at its epoch boundary; a single-batch tail has no teacher evaluation before that boundary. With stage width one, every batch reserves a slot. Multi-epoch schedules count all epochs. Missing support, insufficient hold-out data, or a rejected proposal does not reduce the predeclared denominator. Runtime accounting uses evaluation slots rather than collection-phase numbers, and checkpoint recovery continues the same allocation.
 
@@ -290,7 +290,7 @@ Repeat the same `configs` or `prepare` command after an interrupted preparation.
 
 The [native sampler](baselines/SEARL-official/verl/trainer/train.py) shuffles the fixed training rows without replacement using the job seed. One epoch visits the training partition once; each selected base question generates eight online rollouts. Conditions with the same seed receive the same question order. SEARL's tool-anchored credit and EvoCond's adoption learner operate on those collected trajectories.
 
-The collection batch is 256 base questions, with eight rollouts per question. Full two-batch windows contain 512 questions. The final batch and final short window are retained. For 10,000 training questions this gives 40 collection batches, a final batch of 16, and a final two-batch update window of 272 questions. These are schedule calculations, not benchmark measurements. The frozen protocol records actual window sizes and update calls. SEARL's paper Table 2 reports global batch 384 on H200; the released entry uses 256. The eight-4090 runs use the explicit 256 collection configuration above.
+The collection batch is 384 base questions, with eight rollouts per question: 3072 trajectories per full collection batch. Eight GPUs divide the question batch into 48 questions per GPU. Full two-batch windows contain 768 questions and 6144 trajectories. The final batch and final short window are retained. For 10,000 training questions this gives 27 collection batches and a final single-batch window of 16 questions. The frozen protocol records actual window sizes and update calls. The training hyperparameters follow SEARL's paper Table 2; hardware is adapted from its H200 allocation to the single-server eight-H100 configuration.
 
 ## Ablation Experiments
 
@@ -343,11 +343,11 @@ Training begins with validation, following the [released SEARL entry](https://gi
 
 ```bash
 python run.py evaluate --suite main --conditions evocond --seeds 42 \
-  --resume runs/reproduction/main/evocond/seed42/teacher/checkpoints/global_step_40 \
+  --resume runs/reproduction/main/evocond/seed42/teacher/checkpoints/global_step_27 \
   --split validation --run
 ```
 
-For each condition and seed, choose the saved candidate with the highest declared validation score on the fixed validation partition. Native `val-core` metrics use `acc` when available and `reward` otherwise; keep the scoring route and aggregate selection metric the same across conditions. Record the selected paired checkpoint in `configs/checkpoints.example.json` or a study-specific map with the same schema. The runner uses that explicit selection. `global_step_40` is a checkpoint-path example for a 10,000-question schedule; replace it with the selected saved step reported by `status`.
+For each condition and seed, choose the saved candidate with the highest declared validation score on the fixed validation partition. Native `val-core` metrics use `acc` when available and `reward` otherwise; keep the scoring route and aggregate selection metric the same across conditions. Record the selected paired checkpoint in `configs/checkpoints.example.json` or a study-specific map with the same schema. The runner uses that explicit selection. `global_step_27` is a checkpoint-path example for a 10,000-question schedule; replace it with the selected saved step reported by `status`.
 
 The checkpoint map restored by [source.py](source.py) at `configs/checkpoints.example.json` contains the three main conditions for seed 42. Use `--seeds 42` with that map, or extend it to the exact selected seed/condition grid. Judge and result manifest paths are relative to the manifest file, not the shell's working directory. Set the real file checksums before running either manifest.
 
@@ -396,11 +396,36 @@ Vary relation scale and condition heterogeneity separately. More edges or events
 
 ### Shared Setup
 
-All main and training-ablation conditions use eight RTX 4090 GPUs, Qwen3-4B in non-thinking mode, and seeds 42, 52, 3047, 3407. Each seed uses the same data order across conditions. Data partitions do not change with training seeds. Checkpoint content, rather than its directory name, identifies the common starting actor. Declare `pretrained` or `coldstart` in `initialization`; a cold-start checkpoint is shared by all conditions.
+All main and training-ablation configurations specify one eight-H100 SXM 80GB server with NVLink/NVSwitch, Qwen3-4B in non-thinking mode, and seeds 42, 52, 3047, 3407. Each seed uses the same data order across conditions. Data partitions do not change with training seeds. Checkpoint content, rather than its directory name, identifies the common starting actor. Declare `pretrained` or `coldstart` in `initialization`; a cold-start checkpoint is shared by all conditions.
 
-Training uses a learning rate of 1e-6, one epoch, eight rollouts per base question, a 256-question collection batch, temperature 0.7, top-p 0.98, and repetition penalty 1.05. Prompt, response, and total context limits are 4096, 2048, and 32768 tokens; the execution limit is six turns. Tool-output tokens are excluded from policy loss. The native tool environment, permissions, retrieval endpoint, reward route, and timeout rules are common execution inputs.
+| Training parameter | Default |
+|---|---|
+| Actor | Qwen3-4B, non-thinking (`enable_thinking=False`) |
+| Nodes / GPUs per node | 1 / 8 |
+| GPU / interconnect | H100 SXM 80GB / NVLink and NVSwitch |
+| Global collection batch | 384 base questions |
+| Rollouts per question | 8 |
+| Maximum interaction turns | 6 |
+| Prompt / response limit | 4096 / 2048 tokens |
+| Total context limit | 32768 tokens |
+| Temperature / top-p | 0.7 / 0.98 |
+| Repetition penalty | 1.05 |
+| Learning rate | 1e-6 |
+| Training epochs | 1 |
 
-SEARL's [paper, Appendix C](https://aclanthology.org/2026.acl-long.1125.pdf#page=13) uses Qwen3-4B and reports a 384-question global batch on H200. Its [released entry](https://github.com/circles-post/SEARL/blob/main/main_searl.sh) uses a 256-question batch. The local eight-4090 comparison uses the released 256 collection setting, not an unlabeled mixture of the two recipes.
+Tool-output tokens are excluded from policy loss. The native tool environment, permissions, retrieval endpoint, reward route, and timeout rules are common execution inputs.
+
+The training hyperparameters follow [SEARL, Appendix C and Table 2](https://aclanthology.org/2026.acl-long.1125.pdf#page=13), including global batch 384. Its [released entry](https://github.com/circles-post/SEARL/blob/main/main_searl.sh) defaults to batch 256; the launcher explicitly overrides it with 384 and selects one node with eight GPUs. Other native execution settings remain inherited: tensor parallel size 1, dynamic batching, PPO minibatch and per-GPU microbatch size 1, gradient checkpointing, actor/reference parameter offload, optimizer offload, and rollout GPU memory utilization 0.9. The vendored entry remains pinned and unchanged.
+
+Edit `budget` in a repository-relative `--config` JSON, or use `run.py` overrides: `--batch-size`, `--rollouts`, `--epochs`, `--max-prompt`, `--max-response`, `--max-context`, `--max-turns`, `--learning-rate`, `--temperature`, `--top-p`, and `--repetition-penalty`. `--model` selects a repository-relative Qwen3-4B checkpoint. For example:
+
+```bash
+python run.py configs --root runs/h100 --max-prompt 4096 --max-response 2048 --run
+python run.py prepare --root runs/h100 --max-prompt 4096 --max-response 2048 --run
+python run.py train --root runs/h100 --max-prompt 4096 --max-response 2048 --run
+```
+
+Use the same config and overrides at every stage. Generation and turn overrides also update the contextual rollout count and horizon. Prompt/response limits reach both `MAX_PROMPT_LENGTH`/`MAX_RESPONSE_LENGTH` and native `data.max_prompt_length`/`data.max_response_length`; rollout output length is explicitly capped at the response limit. Actor, reference, and rollout log-probability token budgets use SEARL's rule `max_turns * (max_prompt + max_response)`: 36864 tokens per GPU with the default settings. `source.py --run` restores the new starter defaults for missing files and preserves existing customized settings. When updating an existing checkout, set its config batch to 384 explicitly. Changed configurations use a fresh run root and never overwrite historical frozen protocols.
 
 ### Main Comparison
 
@@ -455,7 +480,7 @@ Configuration and launch-lock files are published only after a complete write. I
 
 No base question is dropped or duplicated to fill a batch. The last collection batch retains its actual size. A short final actor-memory window publishes all its events and updates the actor once. At the next epoch, the two-batch schedule restarts. The frozen schedule records `questions_per_epoch`, `window_questions`, `tail_questions`, and `total_actor_updates`.
 
-For 10,000 training questions and batch 256, the schedule contains 40 collection batches, with 16 questions in the final batch. Native SEARL performs 40 actor update calls; `pace` and EvoCond perform 20. The final two-batch update covers 272 questions. These counts describe calls into the native actor updater; optimizer minibatch steps remain part of the native training log.
+For 10,000 training questions and batch 384, the schedule contains 27 collection batches, with 16 questions in the final batch. Native SEARL performs 27 actor update calls; `pace` and EvoCond perform 14. The final single-batch update covers 16 questions. These counts describe calls into the native actor updater; optimizer minibatch steps remain part of the native training log.
 
 Save and validate at declared actor barriers and the final short window. Recovery restores the paired actor, optimizer, data iterator, graph, registry, and teacher state. An interrupted incomplete window resumes from the preceding paired checkpoint, replaying that window under the same frozen inputs. Preparation is idempotent only for identical artifacts. A changed source or protocol uses a new run directory.
 

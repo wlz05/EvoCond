@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # EvoCond: Preserving Conditional Tool Relations for Co-Evolving Language Agents
 
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from copy import deepcopy
 import io
 import json
@@ -99,6 +99,45 @@ class StudyTests(unittest.TestCase):
             self.assertEqual(sum(layout['window_questions']), 10000)
             self.assertEqual(layout['actor_updates_per_epoch'], 40//count)
         self.assertEqual(windows.layout(10000, 256, 2, tail='keep')['window_questions'][-1], 272)
+
+    def test_paper_batch_on_eight_h100s_preserves_tail_and_confidence_slots(self):
+        budget = experiment.settings(self.config()['budget'])
+        self.assertEqual((budget['gpus'], budget['batch_size']), (8, 384))
+        for count, updates in ((1, 27), (2, 14)):
+            layout = windows.layout(10000, budget['batch_size'], count, tail='keep')
+            self.assertEqual(layout['batches_per_epoch'], 27)
+            self.assertEqual(layout['actor_updates_per_epoch'], updates)
+            self.assertEqual(layout['window_questions'][-1], 16)
+            self.assertEqual(sum(layout['window_questions']), 10000)
+        self.assertEqual(layout['total_teacher_evaluations'], 13)
+        self.assertEqual(windows.confidence({}, layout)['maximum_windows'], 13)
+
+    def test_runner_overrides_reach_all_conditions_and_contextual_budget(self):
+        with patch.object(study, 'matrix', wraps=study.matrix) as matrix, \
+                patch.object(run.subprocess, 'run') as launch, redirect_stdout(io.StringIO()):
+            run.main(['configs', '--seeds', '42', '--batch-size', '192', '--rollouts', '4', '--epochs', '2',
+                '--max-prompt', '8192', '--max-response', '1536', '--max-context', '32768', '--max-turns', '4',
+                '--learning-rate', '2e-6', '--temperature', '.6', '--top-p', '.9', '--repetition-penalty', '1.1',
+                '--model', 'assets/models/Qwen3-4B'])
+        config = matrix.call_args.args[0]
+        values = study.matrix(config, seeds=[42])
+        study.inventory(values)
+        for value in values.values():
+            self.assertEqual(value['budget']['batch_size'], 192)
+            self.assertEqual(value['budget']['max_prompt'], 8192)
+            self.assertEqual(value['budget']['max_response'], 1536)
+            self.assertEqual(value['budget']['rollouts'], 4)
+        options = values['evocond/seed42']['contextual']
+        self.assertEqual((options['rollouts'], options['horizon_steps']), (4, 5))
+        launch.assert_not_called()
+
+    def test_runner_rejects_invalid_budget_before_configuration_publication(self):
+        for flags in (['--batch-size', '385'], ['--max-response', '40000'], ['--top-p', '0'],
+                ['--model', '../outside'], ['--learning-rate', 'nan']):
+            with self.subTest(flags=flags), patch.object(study, 'write') as write, \
+                    redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                run.main(['configs', '--run', *flags])
+            write.assert_not_called()
 
     def test_short_final_window_has_an_explicit_epoch_barrier(self):
         self.assertEqual(windows.layout(9, 4, 2, tail='keep')['window_questions'], [8, 1])

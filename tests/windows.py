@@ -3,6 +3,7 @@
 
 'Fixed-bottom native batching, ragged padding and paired checkpoint barriers.'
 from copy import deepcopy
+import json
 from types import SimpleNamespace
 import unittest
 import numpy as np

@@ -173,6 +173,58 @@ class ExperimentTests(unittest.TestCase):
         self.assertEqual(environment['DYNAMIC_PROMPT'], 'False')
         self.assertNotIn('unrelated-source', environment['PYTHONPATH'])
         self.assertIn('++actor_rollout_ref.env.dynamic_prompt=false', command)
+    def test_native_entry_receives_default_and_custom_training_limits(self):
+        defaults = experiment.settings({})
+        expected = dict(gpus=8, batch_size=384, rollouts=8, epochs=1, max_prompt=4096,
+            max_response=2048, max_context=32768, max_turns=6, learning_rate=1e-6,
+            temperature=.7, top_p=.98, repetition_penalty=1.05)
+        self.assertEqual({key: defaults[key] for key in expected}, expected)
+        changes = dict(batch_size=192, rollouts=4, epochs=2, max_prompt=8192, max_response=1536,
+            max_turns=4, learning_rate=2e-6, temperature=.6, top_p=.9, repetition_penalty=1.1)
+        mapping = {'data.train_batch_size': 'batch_size', 'data.max_prompt_length': 'max_prompt',
+            'data.max_response_length': 'max_response', 'actor_rollout_ref.rollout.max_tokens': 'max_response',
+            'actor_rollout_ref.rollout.max_model_len': 'max_context', 'actor_rollout_ref.rollout.n': 'rollouts',
+            'actor_rollout_ref.rollout.max_turns': 'max_turns', 'actor_rollout_ref.env.max_turns': 'max_turns',
+            'actor_rollout_ref.actor.optim.lr': 'learning_rate', 'actor_rollout_ref.rollout.temperature': 'temperature',
+            'actor_rollout_ref.rollout.top_p': 'top_p', 'actor_rollout_ref.rollout.repetition_penalty': 'repetition_penalty',
+            'trainer.total_epochs': 'epochs', 'trainer.n_gpus_per_node': 'gpus'}
+        for overrides in ({}, changes):
+            for arm in experiment.ARMS:
+                with self.subTest(overrides=overrides, arm=arm):
+                    frozen = self.frozen()
+                    budget = frozen['config']['budget'] = experiment.settings(overrides)
+                    with patch.dict(experiment.os.environ, {'MAX_PROMPT_LENGTH': '1', 'MAX_RESPONSE_LENGTH': '2',
+                            'SEARL_GPUS_PER_NODE': '1'}):
+                        command, env = experiment.launch_spec(frozen, self.root, arm)
+                    self.assertEqual(command[:2], ['bash', 'main_searl.sh'])
+                    pairs = [item[2:].split('=', 1) for item in command[2:]]
+                    params = {key: json.loads(value) for key, value in pairs}
+                    self.assertEqual(len(params), len(pairs))
+                    for key, option in mapping.items():
+                        self.assertEqual(params[key], budget[option], key)
+                    self.assertEqual(params['trainer.nnodes'], 1)
+                    tokens = budget['max_turns']*(budget['max_prompt']+budget['max_response'])
+                    for key in ('actor_rollout_ref.actor.ppo_max_token_len_per_gpu',
+                            'actor_rollout_ref.ref.log_prob_max_token_len_per_gpu',
+                            'actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu'):
+                        self.assertEqual(params[key], tokens)
+                    self.assertIs(params['actor_rollout_ref.env.enable_thinking'], False)
+                    self.assertEqual(env['MAX_PROMPT_LENGTH'], str(budget['max_prompt']))
+                    self.assertEqual(env['MAX_RESPONSE_LENGTH'], str(budget['max_response']))
+                    self.assertEqual(env['SEARL_GPUS_PER_NODE'], '8')
+                    for key in ('actor_rollout_ref.rollout.tensor_model_parallel_size',
+                            'actor_rollout_ref.rollout.gpu_memory_utilization',
+                            'actor_rollout_ref.actor.ppo_mini_batch_size',
+                            'actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu',
+                            'actor_rollout_ref.actor.fsdp_config.param_offload'):
+                        self.assertNotIn(key, params)
+    def test_evaluation_uses_the_same_native_length_limits(self):
+        frozen = self.frozen()
+        checkpoint = self.checkpoint()
+        command, env = experiment.launch_spec(frozen, self.root, 'evocond', stage='evaluate', resume=checkpoint)
+        self.assertIn('++data.max_prompt_length=4096', command)
+        self.assertIn('++data.max_response_length=2048', command)
+        self.assertEqual((env['MAX_PROMPT_LENGTH'], env['MAX_RESPONSE_LENGTH']), ('4096', '2048'))
     def test_runtime_registries_are_arm_private(self):
         configurations = experiment.runtimes(self.frozen(), self.root)
         self.assertEqual(len({row["registry_path"] for row in configurations.values()}), 3)

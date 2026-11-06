@@ -31,7 +31,7 @@ FORMAT = "evocond_searl_experiment_v1"
 PIN = "b535d6199602bd9d747fc260bd29c77764799358"
 ARMS = ("searl", "evocond", "teacher")
 HERE = Path(__file__).resolve().parent
-DEFAULTS = dict(gpus=8, batch_size=256, rollouts=8, epochs=1, max_prompt=4096,
+DEFAULTS = dict(gpus=8, batch_size=384, rollouts=8, epochs=1, max_prompt=4096,
                 max_response=2048, max_context=32768, max_turns=6, save_freq=5, validation_freq=5,
                 learning_rate=1e-6, seed=42, tail_policy='error', temperature=.7, top_p=.98, repetition_penalty=1.05)
 def read(path):
@@ -355,6 +355,7 @@ def launch_spec(frozen, root, arm, *, stage="train", split="validation", resume=
     if stage == "train" and split != "validation":
         raise ValueError("Training can monitor validation only; test is reserved for explicit final evaluation")
     config, budget = frozen["config"], frozen["config"]["budget"]
+    token_budget = budget["max_turns"]*(budget["max_prompt"]+budget["max_response"])
     arm_root = root / arm
     ckpt = checkpoint(root, arm, resume, world_size=budget['gpus'], runtime=runtimes(frozen, root)[arm]) if resume else None
     if stage == "evaluate" and not ckpt:
@@ -381,9 +382,13 @@ def launch_spec(frozen, root, arm, *, stage="train", split="validation", resume=
                WANDB_DIR=str(arm_root / "wandb"))
     env['PYTHONHASHSEED'] = str(budget['seed'])
     params = {"data.train_batch_size": budget["batch_size"], "data.seed": budget["seed"],
+              "data.max_prompt_length": budget["max_prompt"], "data.max_response_length": budget["max_response"],
               "data.keep_tail": budget.get('tail_policy') == 'keep',
               "actor_rollout_ref.actor.state_masking": True,
               "actor_rollout_ref.actor.optim.lr": budget["learning_rate"],
+               "actor_rollout_ref.actor.ppo_max_token_len_per_gpu": token_budget,
+               "actor_rollout_ref.ref.log_prob_max_token_len_per_gpu": token_budget,
+               "actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu": token_budget,
               "actor_rollout_ref.rollout.seed": budget["seed"],
               "actor_rollout_ref.rollout.max_tokens": budget["max_response"],
               "actor_rollout_ref.rollout.max_model_len": budget["max_context"],
@@ -403,6 +408,7 @@ def launch_spec(frozen, root, arm, *, stage="train", split="validation", resume=
               "actor_rollout_ref.env.max_turns": budget["max_turns"],
               "actor_rollout_ref.env.runtime_config_path": str(arm_root / "runtime_config.json"),
               "actor_rollout_ref.env.evaluation_split": split,
+              "trainer.nnodes": 1, "trainer.n_gpus_per_node": budget["gpus"],
               "trainer.total_epochs": budget["epochs"], "trainer.save_freq": budget["save_freq"],
               "trainer.test_freq": budget["validation_freq"], "trainer.resume_mode": "resume_path" if ckpt else "disable",
               "trainer.resume_from_path": ckpt, "trainer.val_only": stage == "evaluate",

@@ -37,6 +37,11 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description='Plan matched main and ablation experiments on eight GPUs.')
     parser.add_argument('stage', choices=('configs', 'prepare', 'status', 'train', 'evaluate'))
     parser.add_argument('--config', type=Path, default=Path('configs/contextual.json'))
+    parser.add_argument('--model', help='Repository-relative actor model directory')
+    for name in ('batch_size', 'rollouts', 'epochs', 'max_prompt', 'max_response', 'max_context', 'max_turns'):
+        parser.add_argument('--'+name.replace('_', '-'), type=int, default=None)
+    for name in ('learning_rate', 'temperature', 'top_p', 'repetition_penalty'):
+        parser.add_argument('--'+name.replace('_', '-'), type=float, default=None)
     parser.add_argument('--root', type=Path, default=Path('runs/reproduction'))
     parser.add_argument('--suite', choices=tuple(study.SUITES), default='main')
     parser.add_argument('--conditions', nargs='+')
@@ -65,6 +70,17 @@ def main(argv=None):
     if args.resume and args.checkpoints:
         parser.error('Use either one --resume or a --checkpoints map')
     config = strict_json((HERE/args.config).read_text(encoding='utf-8-sig'))
+    from experiment import settings
+    overrides = {key: getattr(args, key) for key in ('batch_size', 'rollouts', 'epochs', 'max_prompt',
+        'max_response', 'max_context', 'max_turns', 'learning_rate', 'temperature', 'top_p', 'repetition_penalty')
+        if getattr(args, key) is not None}
+    try:
+        config['budget'] = settings({**config.get('budget', {}), **overrides})
+        if args.model is not None:
+            relative(HERE, args.model)
+            config['model'] = args.model
+    except ValueError as error:
+        parser.error(str(error))
     values = study.matrix(config, args.suite, args.seeds, args.conditions)
     folder = args.root/args.suite
     if args.stage == 'configs':

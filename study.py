@@ -84,7 +84,8 @@ def matrix(config, suite='main', seeds=SEEDS, conditions=None):
             value['design'] = validate(dict(format=FORMAT, suite=suite, condition=condition,
                 arm='searl' if native else 'teacher', native=native,
                 actor_batches=1 if condition == 'searl' else 2))
-            value['contextual'].update(variant='full', fixed_alpha=None, confidence_method='normal', seed=seed, frozen_batches=2)
+            value['contextual'].update(variant='full', fixed_alpha=None, confidence_method='normal', seed=seed,
+                frozen_batches=2, rollouts=value['budget']['rollouts'], horizon_steps=value['budget']['max_turns']+1)
             value['contextual'].update(CHANGES.get(condition, {}))
             if native:
                 value.pop('contextual')

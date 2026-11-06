@@ -43,6 +43,10 @@ class PublicationTests(unittest.TestCase):
                 self.assertEqual((root/name).read_bytes(), payload, name)
             starter = json.loads((root/'configs/contextual.json').read_text(encoding='utf-8'))
             self.assertNotIn('maximum_windows', starter['contextual'])
+            for name in ('configs/contextual.json', 'configs/searl_experiment.example.json'):
+                budget = json.loads((root/name).read_text(encoding='utf-8'))['budget']
+                self.assertEqual((budget['gpus'], budget['batch_size'], budget['rollouts']), (8, 384, 8))
+                self.assertEqual((budget['max_prompt'], budget['max_response']), (4096, 2048))
             config = root/'configs/contextual.json'
             config.write_bytes(b'custom settings\r\n')
             self.assertEqual(materialize(root, run=True)['created'], 0)
@@ -335,6 +339,8 @@ class AuditTests(unittest.TestCase):
         frozen['config']['budget']['learning_rate'] *= 10
         self.write(target, frozen)
         with patch.object(run, 'HERE', self.root), patch.object(run.subprocess, 'run') as launch, \
+                patch.object(experiment, 'prepare', return_value={'prepared': True}), \
+                patch.object(experiment, 'launch_spec', return_value=([], {})), \
                 redirect_stdout(io.StringIO()), self.assertRaises(ValueError):
             run.main(['train', '--config', 'config.json', '--root', 'runs', '--seeds', '42', '--run'])
         launch.assert_not_called()
@@ -346,7 +352,9 @@ class AuditTests(unittest.TestCase):
         target = self.root/'runs/main/evocond/seed42/protocol.json'
         target.parent.mkdir(parents=True)
         self.write(target, dict(config=self.normalized(values['evocond/seed42'])))
-        with patch.object(run, 'HERE', self.root), patch.object(run.subprocess, 'run') as launch, redirect_stdout(io.StringIO()):
+        with patch.object(run, 'HERE', self.root), patch.object(run.subprocess, 'run') as launch, \
+                patch.object(experiment, 'prepare', return_value={'prepared': True}), \
+                patch.object(experiment, 'launch_spec', return_value=([], {})), redirect_stdout(io.StringIO()):
             run.main(['train', '--config', 'config.json', '--root', 'runs', '--seeds', '42', '--conditions', 'evocond', '--run'])
         launch.assert_called_once()
 
