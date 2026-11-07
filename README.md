@@ -449,7 +449,17 @@ python run.py train --suite main --conditions evocond --seeds 42 \
 
 Replace the example step with a paired checkpoint in the `status` output's `checkpoints` list. `incomplete_checkpoints` lists rejected candidates and their reasons. Checkpoints bind actor weights, optimizer and data position, tool graph, registry, and adoption state. Training cannot resume an older step while later checkpoint paths remain in the same branch. Preserve and move those later artifacts outside that branch before replaying an interrupted window; evaluation can use an earlier validation-selected checkpoint without changing later checkpoints. Existing frozen runs retain their original configuration; a changed source or protocol uses a new study root. Judge, summary, and fatigue commands preserve existing output paths; choose a new output name for another report. The judge output's parent directory must exist.
 
-Resume on the same eight-device world size and keep all rank shards together with `data.pt` and `method_runtime`. Preflight parses the paired GraphRAG cache and directed GraphML snapshot, checking node and edge identities as well as file presence. A nonempty but truncated sidecar is an incomplete checkpoint. The native loader then restores the tensor and iterator states; file checks alone do not establish tensor integrity.
+Resume on the same eight-device world size and keep all rank shards together with `data.pt`, `method_runtime`, and `checkpoint.json`. The trainer publishes this commit record after writing the model, optimizer, scheduler/RNG, iterator, and memory files. It records each member's size and SHA256, then atomically advances the latest-step pointer. A directory without the commit record remains incomplete.
+
+A paired save refuses an existing step directory before writing any rank. Keep an interrupted directory for inspection and move it outside the active checkpoint branch before replaying that step; neither a complete checkpoint nor partial recovery evidence is overwritten.
+
+Preflight parses the paired GraphRAG cache and directed GraphML snapshot, checks node and edge identities, verifies every member's size, and hashes the iterator and memory files. Immediately before native restore, the loader verifies every recorded checksum, including all eight ranks, before loading checkpoint tensors into the workers. This catches same-size shard corruption and sidecars copied from another snapshot. Missing iterator state stops paired recovery. Checksums establish stored-byte integrity; the native loader still deserializes and validates the tensor states.
+
+The complete-checkpoint record applies to runs prepared with this source version. Keep earlier runs with their original frozen source and protocol; do not create a new commit record to relabel an old checkpoint. Resuming a checkpoint that already completed the scheduled training steps performs no extra collection or optimizer update. Explicit validation and test evaluation still run normally.
+
+After updating the checkout, run `python source.py --run` before preparing a new study root. It refreshes a recognized source receipt only when all maintained native files match the reviewed versions, while preserving existing experiment configurations.
+
+GraphRAG rebuilds embeddings, lexical indices, communities, and summaries from the restored tool inventory. Execution history replaces the prior history, and cache tool/community identities must match that inventory. Removed tools cannot survive through old embeddings or co-occurrence entries. If tool descriptions contain no lexical features, semantic retrieval remains available.
 
 ## Experimental Protocol
 

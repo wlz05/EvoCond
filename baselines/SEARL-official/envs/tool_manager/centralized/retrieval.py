@@ -66,6 +66,20 @@ class GraphRAGRetrieval:
         'Load tool metadata and an optional dependency graph, then build indices.'
         with self.lock:
             self.mcps = mcps.copy()
+            # Derived indices belong only to the replacement tool snapshot.
+            self.tool_embeddings.clear()
+            self.tfidf_matrix = None
+            self.tfidf_mcp_ids = []
+            self.communities.clear()
+            self.community_summaries.clear()
+            self.global_summary = ''
+            for name in list(self.execution_history):
+                if name not in self.mcps:
+                    del self.execution_history[name]
+                else:
+                    history = self.execution_history[name]
+                    history['co_occurrence'] = Counter({key: value for key, value
+                        in history.get('co_occurrence', {}).items() if key in self.mcps})
 
             if tool_graph is not None:
                 self.tool_graph = tool_graph.copy()
@@ -144,7 +158,15 @@ class GraphRAGRetrieval:
             self.tfidf_mcp_ids.append(mcp_name)
 
         if texts:
-            self.tfidf_matrix = self.tfidf_vectorizer.fit_transform(texts)
+            try:
+                self.tfidf_matrix = self.tfidf_vectorizer.fit_transform(texts)
+            except ValueError as error:
+                if 'empty vocabulary' not in str(error).lower():
+                    raise
+                self.tfidf_matrix = None
+                self.tfidf_mcp_ids = []
+                print('[GraphRAG] No lexical features; retaining semantic retrieval')
+                return
             print(f"[GraphRAG] Built TF-IDF index for {len(texts)} tools")
         else:
             self.tfidf_matrix = None
@@ -609,19 +631,38 @@ class GraphRAGRetrieval:
             print(f"[GraphRAG] Cache file not found: {cache_path}")
             return
 
-        with open(cache_path, 'r', encoding='utf-8') as f:
-            cache_data = json.load(f)
+        from control.contracts import strict_json
+        cache_data = strict_json(Path(cache_path).read_text(encoding='utf-8-sig'), max_text=64*1024*1024)
+        if (not isinstance(cache_data, dict) or not isinstance(cache_data.get('execution_history'), dict)
+                or not isinstance(cache_data.get('communities'), dict)
+                or not isinstance(cache_data.get('community_summaries'), dict)
+                or not isinstance(cache_data.get('global_summary'), str)):
+            raise ValueError('Invalid GraphRAG cache schema')
 
+        histories = {}
         for mcp_name, hist in cache_data.get('execution_history', {}).items():
-            self.execution_history[mcp_name] = defaultdict(lambda: 0)
-            self.execution_history[mcp_name].update(hist)
-
-            if 'co_occurrence' in hist:
-                self.execution_history[mcp_name]['co_occurrence'] = Counter(hist['co_occurrence'])
-
-        self.communities = {k: set(v) for k, v in cache_data.get('communities', {}).items()}
-        self.community_summaries = cache_data.get('community_summaries', {})
-        self.global_summary = cache_data.get('global_summary', '')
+            if mcp_name not in self.mcps or not isinstance(hist, dict) or not isinstance(hist.get('co_occurrence', {}), dict):
+                raise ValueError('GraphRAG history belongs to a different tool snapshot')
+            histories[mcp_name] = dict(hist)
+            histories[mcp_name]['co_occurrence'] = Counter({name: value for name, value
+                in hist.get('co_occurrence', {}).items() if name in self.mcps})
+        if any(not isinstance(value, list) or not all(isinstance(name, str) for name in value)
+                for value in cache_data['communities'].values()):
+            raise ValueError('Invalid GraphRAG community membership')
+        communities = {key: set(value) for key, value in cache_data.get('communities', {}).items()}
+        if any(not members <= set(self.mcps) for members in communities.values()):
+            raise ValueError('GraphRAG communities belong to a different tool snapshot')
+        if (not set(cache_data['community_summaries']) <= set(communities)
+                or not all(isinstance(value, str) for value in cache_data['community_summaries'].values())):
+            raise ValueError('GraphRAG summaries belong to a different community snapshot')
+        # Execution history replaces its prior state; embeddings stay freshly rebuilt.
+        with self.lock:
+            self.execution_history.clear()
+            for name, history in histories.items():
+                self.execution_history[name].update(history)
+            self.communities = communities
+            self.community_summaries = dict(cache_data.get('community_summaries', {}))
+            self.global_summary = cache_data.get('global_summary', '')
 
         print(f"[GraphRAG] Cache loaded from {cache_path}")
 

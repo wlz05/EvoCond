@@ -57,6 +57,8 @@ class ExperimentTests(unittest.TestCase):
         (folder/'method_runtime/subtasks.graphml').write_text(
             '<graphml xmlns="http://graphml.graphdrawing.org/xmlns"><graph edgedefault="directed"/></graphml>',
             encoding='utf-8')
+        from control.runtime import seal_checkpoint
+        seal_checkpoint(folder)
         return folder
     def test_weight_fingerprint_changes_with_weight_bytes(self):
         model = self.model()
@@ -314,6 +316,75 @@ class ExperimentTests(unittest.TestCase):
             experiment.checkpoint(self.root, 'evocond', folder)
         graph.write_bytes(original)
         self.assertEqual(experiment.checkpoint(self.root, 'evocond', folder), str(folder))
+
+    def test_missing_commit_record_never_becomes_a_recovery_candidate(self):
+        folder = self.checkpoint()
+        (folder/'checkpoint.json').unlink()
+        with self.assertRaisesRegex(ValueError, 'commit record'):
+            experiment.checkpoint(self.root, 'evocond', folder)
+        inventory = experiment.checkpoint_inventory(self.frozen(), self.root, 'evocond')
+        self.assertEqual(inventory['checkpoints'], [])
+        self.assertIn('global_step_5', inventory['incomplete_checkpoints'])
+
+    def test_full_restore_detects_same_size_rank_corruption(self):
+        from control.runtime import verify_checkpoint
+        folder = self.checkpoint()
+        shard = folder/'actor/model_world_size_8_rank_7.pt'
+        original = shard.read_bytes()
+        shard.write_bytes(original.replace(b'CPU', b'ALT'))
+        self.assertEqual(experiment.checkpoint(self.root, 'evocond', folder), str(folder))
+        with self.assertRaisesRegex(ValueError, 'checksum'):
+            verify_checkpoint(folder, full=True)
+        shard.write_bytes(original)
+        verify_checkpoint(folder, full=True)
+
+    def test_iterator_and_valid_cache_replacements_break_the_commit(self):
+        folder = self.checkpoint()
+        for name in ('data.pt', 'method_runtime/graphrag.json'):
+            target = folder/name
+            original = target.read_bytes()
+            if name == 'data.pt':
+                target.write_bytes(original.replace(b'CPU', b'ALT'))
+            else:
+                cache = json.loads(original)
+                cache['global_summary'] = 'another snapshot'
+                target.write_text(json.dumps(cache), encoding='utf-8')
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, 'member'):
+                experiment.checkpoint(self.root, 'evocond', folder)
+            target.write_bytes(original)
+
+    def test_checkpoint_commit_failure_keeps_partial_files_uncommitted(self):
+        from control.runtime import seal_checkpoint
+        folder = self.checkpoint()
+        (folder/'checkpoint.json').unlink()
+        with patch('control.contracts.os.link', side_effect=OSError('publication interrupted')):
+            with self.assertRaises(OSError):
+                seal_checkpoint(folder)
+        self.assertFalse((folder/'checkpoint.json').exists())
+        self.assertTrue((folder/'data.pt').is_file())
+        self.assertEqual(list(folder.glob('.evocond-*.tmp')), [])
+        seal_checkpoint(folder)
+        with self.assertRaises(FileExistsError):
+            seal_checkpoint(folder)
+
+    def test_checkpoint_commit_rejects_relabelled_and_missing_members(self):
+        from control.runtime import verify_checkpoint
+        folder = self.checkpoint()
+        receipt = folder/'checkpoint.json'
+        original = receipt.read_bytes()
+        for mutation in ('identity', 'roster', 'boolean_size'):
+            value = json.loads(original)
+            if mutation == 'identity':
+                value['policy_step'] = 6
+            elif mutation == 'roster':
+                value['files'].pop('data.pt')
+            else:
+                value['files']['data.pt']['size'] = True
+            receipt.write_text(json.dumps(value), encoding='utf-8')
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                verify_checkpoint(folder)
+        receipt.write_bytes(original)
+        verify_checkpoint(folder)
 
     def test_checkpoint_world_size_must_match_the_frozen_allocation(self):
         folder = self.checkpoint(world_size=4)

@@ -21,6 +21,7 @@ from xml.etree import ElementTree
 from control.isolation import canonical_hash, validate_deployment
 from control.runtime import validate_config as validate_runtime
 from control.runtime import execution_context_fingerprint
+from control.runtime import verify_checkpoint
 from control.runtime import FORMAT as RUNTIME_FORMAT
 from splits import audit, file_digest, rows
 from convert import prepared, validate_official_row, question_hash
@@ -368,6 +369,7 @@ def checkpoint(root, arm, value, *, world_size=None, runtime=None):
             or any(edge.get(key) not in node_ids for edge in graphs[0].findall(namespace+'edge')
                 for key in ('source', 'target'))):
         raise ValueError('Invalid paired GraphML node or edge identity')
+    verify_checkpoint(path, full=False)
     return str(path)
 def checkpoint_inventory(frozen, root, arm):
     valid, incomplete = [], {}

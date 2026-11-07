@@ -16,10 +16,85 @@ import unicodedata
 import uuid
 from control import dynamic, edges, ranking, boundary, subtasks, teacher
 from control.joint import Controller
-from control.contracts import strict_json
+from control.contracts import publish, strict_json
 FORMAT = "evocond_searl_runtime_v1"
+CHECKPOINT_FORMAT = 'evocond_paired_checkpoint_v1'
 ARMS = ("searl", "evocond", "teacher")
 TEACHER_MODES = ("exact_policy", "frozen_controller_transfer", "semantic_fallback_on_policy_change")
+def checkpoint_members(folder):
+    folder = Path(folder).resolve(strict=True)
+    state = strict_json((folder/'method_runtime/runtime.json').read_text(encoding='utf-8-sig'), max_text=64*1024*1024)
+    metadata = strict_json((folder/'actor/fsdp_config.json').read_text(encoding='utf-8-sig'))
+    if (not isinstance(metadata, dict) or type(metadata.get('world_size')) is not int
+            or metadata['world_size'] < 1 or metadata.get('FSDP_version') not in (1, 2)
+            or type(metadata.get('FSDP_version')) is not int):
+        raise ValueError('Invalid paired checkpoint FSDP metadata')
+    if (not isinstance(state, dict) or state.get('format') != FORMAT or state.get('arm') not in ARMS
+            or type(state.get('policy_step')) is not int or state['policy_step'] < 1
+            or folder.name != 'global_step_'+str(state['policy_step'])
+            or not isinstance(state.get('run_id'), str) or not state['run_id']
+            or not isinstance(state.get('config_hash'), str) or not re.fullmatch('[a-f0-9]{64}', state['config_hash'])):
+        raise ValueError('Invalid paired checkpoint runtime identity')
+    names = {'actor/fsdp_config.json', 'data.pt', 'method_runtime/runtime.json',
+        'method_runtime/graphrag.json', 'method_runtime/subtasks.graphml'}
+    for role in ('actor', 'critic'):
+        if role == 'critic' and not (folder/role).exists():
+            continue
+        info = strict_json((folder/role/'fsdp_config.json').read_text(encoding='utf-8-sig'))
+        if (not isinstance(info, dict) or type(info.get('world_size')) is not int or info['world_size'] < 1
+                or type(info.get('FSDP_version')) is not int or info['FSDP_version'] not in (1, 2)):
+            raise ValueError('Invalid paired checkpoint FSDP metadata')
+        names.add(role+'/fsdp_config.json')
+        names.update(f'{role}/{prefix}_world_size_{info["world_size"]}_rank_{rank}.pt'
+            for prefix in ('model', 'optim', 'extra_state') for rank in range(info['world_size']))
+    identity = dict(format=CHECKPOINT_FORMAT, world_size=metadata['world_size'],
+        **{key: state[key] for key in ('policy_step', 'run_id', 'arm', 'config_hash')})
+    return folder, identity, sorted(names)
+
+def checkpoint_digest(path):
+    digest = sha256()
+    with Path(path).open('rb') as stream:
+        for chunk in iter(lambda: stream.read(1024*1024), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+def seal_checkpoint(folder):
+    folder, identity, names = checkpoint_members(folder)
+    if (folder/'checkpoint.json').exists():
+        raise FileExistsError('Paired checkpoint is already committed')
+    files = {}
+    for name in names:
+        path = folder/name
+        if not path.is_file() or not path.resolve().is_relative_to(folder) or not path.stat().st_size:
+            raise ValueError('Missing paired checkpoint member: '+name)
+        files[name] = dict(size=path.stat().st_size, sha256=checkpoint_digest(path))
+    # Publish the commit record only after every rank and runtime file is complete.
+    publish(folder/'checkpoint.json', json.dumps({**identity, 'files': files}, sort_keys=True, allow_nan=False))
+
+def verify_checkpoint(folder, *, full=True):
+    if type(full) is not bool:
+        raise ValueError('Checkpoint verification mode must be boolean')
+    folder, identity, names = checkpoint_members(folder)
+    receipt = folder/'checkpoint.json'
+    if not receipt.is_file():
+        raise ValueError('Incomplete paired checkpoint: missing checkpoint.json commit record')
+    recorded = strict_json(receipt.read_text(encoding='utf-8-sig'))
+    if (not isinstance(recorded, dict) or set(recorded) != set(identity)|{'files'}
+            or dynamic.digest({key: recorded[key] for key in identity}) != dynamic.digest(identity)
+            or not isinstance(recorded['files'], dict) or set(recorded['files']) != set(names)):
+        raise ValueError('Paired checkpoint commit identity or file roster differs')
+    for name in names:
+        item, path = recorded['files'][name], folder/name
+        if (not isinstance(item, dict) or set(item) != {'size', 'sha256'} or type(item['size']) is not int
+                or item['size'] < 1 or not isinstance(item['sha256'], str)
+                or not re.fullmatch('[a-f0-9]{64}', item['sha256']) or not path.is_file()
+                or not path.resolve().is_relative_to(folder) or path.stat().st_size != item['size']):
+            raise ValueError('Paired checkpoint member size or identity differs: '+name)
+        if full or not name.startswith(('actor/', 'critic/')) or not name.endswith('.pt'):
+            if checkpoint_digest(path) != item['sha256']:
+                raise ValueError('Paired checkpoint member checksum differs: '+name)
+    return recorded
+
 def execution_context_fingerprint(config):
     'Bind teacher labels to control semantics, not paths or experiment names.'
     files = ('runtime.py', 'recovery.py', 'contracts.py', 'binding.py', 'guidance.py', 'ranking.py',

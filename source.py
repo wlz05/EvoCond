@@ -12,7 +12,12 @@ import subprocess
 import tempfile
 from control.contracts import publish, relative, strict_json
 RECEIPT = 'baselines/SEARL-official/source.json'
-PREVIOUS = frozenset(('1f3d7ee41522ab4596970488fa7f1b732095ff5c4fc4ee8cc682f8de09f3646c', '8d18f7c5dfe8ba931ae88b8faecd0a937ebe71d441719fd52162233dc3f4e547', 'ad7682f52d38a26be08f17c9ce42e6e83d7551844a46bfe61ca57af4d5edc968',))
+PREVIOUS = frozenset(('1f3d7ee41522ab4596970488fa7f1b732095ff5c4fc4ee8cc682f8de09f3646c', '8d18f7c5dfe8ba931ae88b8faecd0a937ebe71d441719fd52162233dc3f4e547', 'ad7682f52d38a26be08f17c9ce42e6e83d7551844a46bfe61ca57af4d5edc968', '38bc12079e3ba6b1de9a409b796c81fb42a7d3c002c25121098af94a48e51014'))
+PATCHES = {
+    'envs/tool_manager/centralized/central.py': '19829fd35ec7c734bf19baefabeb1fc1184f72fdce449dd32e3ad18a6b9ec5e1',
+    'envs/tool_manager/centralized/retrieval.py': '066ed4a08270fa2aa17411757faa7e0cca40089c402f24f07d976726aa1d4e36',
+    'verl/trainer/ppo/trainer.py': 'e932abfd775d9a6c6e8c7217fe2a74a3da6b2470be553b4676cd008c55215b24',
+}
 BUNDLE = (
     'H4sIAAAAAAAACuy9C3fbRpIw+ld65MkVpfCtF6WJ8q1iy45m5McnKcnumr50E2iSiEGAAUBJjO357fdUdTdQjQYIUFIyc/ds5owsAY1+VFfXu6o/b7WnXsKT'
     'JPLGy0TEWydbuywR98kpXyYhE6F/6k+GwW57scLH5Ek8yz/5NQ6D/LMVn/vWM/vR3DWfbDVxYt40CCOxdbL1jP1DiAWbikBEPBEui5ZB4s0Fm3i+iJkfOtxv'
@@ -1388,6 +1393,10 @@ def resources():
     value = strict_json(payload, max_text=2_000_000)
     # The README carries the current experiment protocol.
     value.pop('experiments.md', None)
+    # Bind the maintained native adapters to their reviewed source hashes.
+    receipt = strict_json(value[RECEIPT])
+    receipt['files'].update(PATCHES)
+    value[RECEIPT] = json.dumps(receipt, sort_keys=True, indent=2, ensure_ascii=True)+'\n'
     for name in ('configs/contextual.json', 'configs/searl_experiment.example.json'):
         config = strict_json(value[name])
         config['budget']['batch_size'] = 384

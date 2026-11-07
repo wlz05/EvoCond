@@ -1083,6 +1083,9 @@ class RayPPOTrainer:
         local_global_step_folder = os.path.join(
             self.config.trainer.default_local_dir, f"global_step_{self.global_steps}"
         )
+        method_actor = self._method_actor()
+        if method_actor is not None and os.path.exists(local_global_step_folder):
+            raise FileExistsError('Preserve the existing paired checkpoint directory before replaying this step')
 
         print(f"local_global_step_folder: {local_global_step_folder}")
         actor_local_path = os.path.join(local_global_step_folder, "actor")
@@ -1127,16 +1130,26 @@ class RayPPOTrainer:
         dataloader_state_dict = self.train_dataloader.state_dict()
         torch.save(dataloader_state_dict, dataloader_local_path)
 
-        method_actor = self._method_actor()
         if method_actor is not None:
             ray.get(method_actor.runtime_save.remote(os.path.join(local_global_step_folder, 'method_runtime')))
+            from control.runtime import seal_checkpoint
+            seal_checkpoint(local_global_step_folder)
 
-        # latest checkpointed iteration tracker (for atomic usage)
+        # Advance the latest pointer only after the complete paired commit.
         local_latest_checkpointed_iteration = os.path.join(
             self.config.trainer.default_local_dir, "latest_checkpointed_iteration.txt"
         )
-        with open(local_latest_checkpointed_iteration, "w") as f:
-            f.write(str(self.global_steps))
+        import tempfile
+        descriptor, temporary = tempfile.mkstemp(prefix='.evocond-', suffix='.tmp', dir=self.config.trainer.default_local_dir)
+        try:
+            with os.fdopen(descriptor, 'w', encoding='utf-8') as stream:
+                stream.write(str(self.global_steps))
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, local_latest_checkpointed_iteration)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
 
     def _load_checkpoint(self):
         if self.config.trainer.resume_mode == "disable":
@@ -1168,6 +1181,13 @@ class RayPPOTrainer:
                     working_dir = os.getcwd()
                     global_step_folder = os.path.join(working_dir, global_step_folder)
         print(f"Load from checkpoint folder: {global_step_folder}")
+        method_actor = self._method_actor()
+        dataloader_local_path = os.path.join(global_step_folder, 'data.pt')
+        dataloader_state_dict = None
+        if method_actor is not None:
+            from control.runtime import verify_checkpoint
+            verify_checkpoint(global_step_folder, full=True)
+            dataloader_state_dict = torch.load(dataloader_local_path, map_location='cpu', weights_only=False)
         # set global step
         self.global_steps = int(global_step_folder.split("global_step_")[-1])
 
@@ -1180,7 +1200,6 @@ class RayPPOTrainer:
         self.actor_rollout_wg.load_checkpoint(
             actor_path, del_local_after_load=self.config.trainer.del_local_ckpt_after_load
         )
-        method_actor = self._method_actor()
         if method_actor is not None:
             ray.get(method_actor.runtime_restore.remote(os.path.join(global_step_folder, 'method_runtime')))
         # load critic
@@ -1193,8 +1212,11 @@ class RayPPOTrainer:
         # TODO: from remote not implemented yet
         dataloader_local_path = os.path.join(global_step_folder, "data.pt")
         if os.path.exists(dataloader_local_path):
-            dataloader_state_dict = torch.load(dataloader_local_path, weights_only=False)
+            if dataloader_state_dict is None:
+                dataloader_state_dict = torch.load(dataloader_local_path, weights_only=False)
             self.train_dataloader.load_state_dict(dataloader_state_dict)
+        elif method_actor is not None:
+            raise ValueError('Paired recovery requires the saved data iterator')
         else:
             print(f"Warning: No dataloader state found at {dataloader_local_path}, will start from scratch")
 
@@ -1413,6 +1435,9 @@ class RayPPOTrainer:
             logger.log(data=val_metrics, step=self.global_steps)
             if self.config.trainer.get("val_only", False):
                 return
+        if self.global_steps >= self.total_training_steps:
+            print('The restored checkpoint has completed the declared training schedule.')
+            return
         # add tqdm
         progress_bar = tqdm(total=self.total_training_steps, initial=self.global_steps, desc="Training Progress")
 

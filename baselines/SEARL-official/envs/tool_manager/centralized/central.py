@@ -1309,8 +1309,13 @@ class CentralizedToolActor:
             required.append('graphrag.json')
         if any(not (folder/name).is_file() for name in required):
             raise ValueError('Incomplete paired runtime checkpoint')
-        self.method_runtime.restore(json.loads((folder/'runtime.json').read_text(encoding='utf-8')))
-        self.sub_task_graph = nx.read_graphml(folder/'subtasks.graphml')
+        from control.runtime import verify_checkpoint
+        from control.contracts import strict_json
+        verify_checkpoint(folder.parent, full=False)
+        state = strict_json((folder/'runtime.json').read_text(encoding='utf-8-sig'), max_text=64*1024*1024)
+        graph = nx.read_graphml(folder/'subtasks.graphml')
+        self.method_runtime.restore(state)
+        self.sub_task_graph = graph
         self._runtime_sync_graph()
         if self.graphrag_engine is not None:
             self.graphrag_engine.execution_history.clear()
