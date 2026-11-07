@@ -87,7 +87,7 @@ $$
 
 At the one preselected randomized point, the logged probability $p_i(a)$ and an independently fitted reward head $m_i$ give
 
-$$
+```math
 \begin{aligned}
 \widehat Q_i^{\mathrm{DR}}(a)
   &= m_i(x_i,a)
@@ -97,7 +97,7 @@ $$
   &= \widehat Q_i^{\mathrm{DR}}(a)
    - \widehat Q_i^{\mathrm{DR}}(a_0).
 \end{aligned}
-$$
+```
 
 [bandit.crossfit](control/bandit.py) constructs these semantic-centered targets, and [bandit.fit](control/bandit.py) optimizes the teacher. Folds are grouped by base question; [bandit.heldout_targets](control/bandit.py) uses a reward head fitted outside the evaluation questions. Payloads that serialize to the same list form one action, so nominal fusion weights cannot create extra evidence.
 
@@ -131,7 +131,7 @@ The normal rule has asymptotic coverage; the separately configured Bernstein con
 
 **Memory fatigue and credit transport.** On matched tasks and a fixed capability pool, [fatigue.panel](control/fatigue.py) measures structural lift $B_{ij}$ for actor $i$ and relation bank $j$. For paired task advantages $A_0,A_1$, [fatigue.transport](control/fatigue.py) also reports receiver-sharing loss:
 
-$$
+```math
 \begin{aligned}
 B_{ij}
   &= J_{\mathrm{str}}(\pi_i,\mathcal H_j)
@@ -139,7 +139,7 @@ B_{ij}
 D_{\mathrm{recv}}
   &= \frac{|A_0|+|A_1|-|A_0+A_1|}{4}.
 \end{aligned}
-$$
+```
 
 The old/new actor and bank cells separate actor change, bank change, and their interaction. Receiver-sharing loss is positive when the two actors prefer opposite presentations. The panel also reports the directional loss from carrying the old choice to the new actor, alongside rescues, harms, and full cost. These matched outcomes explain where credit changes; training still learns adoption from randomized current-window feedback.
 
