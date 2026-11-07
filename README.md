@@ -69,8 +69,9 @@ EvoCond separates the evidence used to propose a tool combination from the credi
 **Conditional reconstruction.** For compatible historical samples, let $\omega_{hs}(c)$ combine the context kernel, age decay, and within-question normalization. The signed edge is
 
 $$
-w_{uv}(c)=\frac{\sum_h\sum_s\omega_{hs}(c)y_{hs}}
-{\kappa+\sum_h\sum_s\omega_{hs}(c)}.
+w_{uv}(c)
+= \frac{\sum_{h,s}\omega_{hs}(c)\,y_{hs}}
+       {\kappa+\sum_{h,s}\omega_{hs}(c)}.
 $$
 
 [relations.estimate](control/relations.py) returns the signed numerator, conditional mass, effective support, and resulting edge weight. Samples from the same base question share its event weight. This quantity describes observed relation support; [mixing.py](control/mixing.py) uses it to propose lists, while the teacher learns their execution value.
@@ -78,47 +79,69 @@ $$
 **Current-actor adoption.** Action $a_0$ is the semantic payload among the distinct serialized lists. With terminal correctness $Y$, measured actor, tool, and retrieval cost $C$, fixed cost scale $C_0$, and penalty $\lambda_C$, the learning target is
 
 $$
-R=Y-\lambda_C\min(C/C_0,1),\qquad
-A_e(x,a)=Q_e(x,a)-Q_e(x,a_0).
+\begin{aligned}
+R &= Y-\lambda_C\min\{C/C_0,1\}, \\
+A_e(x,a) &= Q_e(x,a)-Q_e(x,a_0).
+\end{aligned}
 $$
 
 At the one preselected randomized point, the logged probability $p_i(a)$ and an independently fitted reward head $m_i$ give
 
 $$
+\begin{aligned}
 \widehat Q_i^{\mathrm{DR}}(a)
-=m_i(x_i,a)+\frac{\mathbf{1}[A_i=a]}{p_i(a)}
-\bigl(R_i-m_i(x_i,a)\bigr),\qquad
-\widehat A_i(a)=\widehat Q_i^{\mathrm{DR}}(a)-\widehat Q_i^{\mathrm{DR}}(a_0).
+  &= m_i(x_i,a)
+   + \frac{\mathbf{1}[A_i=a]}{p_i(a)}
+     \bigl[R_i-m_i(x_i,a)\bigr], \\
+\widehat A_i(a)
+  &= \widehat Q_i^{\mathrm{DR}}(a)
+   - \widehat Q_i^{\mathrm{DR}}(a_0).
+\end{aligned}
 $$
 
 [bandit.crossfit](control/bandit.py) constructs these semantic-centered targets, and [bandit.fit](control/bandit.py) optimizes the teacher. Folds are grouped by base question; [bandit.heldout_targets](control/bandit.py) uses a reward head fitted outside the evaluation questions. Payloads that serialize to the same list form one action, so nominal fusion weights cannot create extra evidence.
 
-**Adoption update.** For frozen deployed teacher $T_e$ and candidate $\nu$, the held-out contrast is
+**Adoption update.** For frozen deployed teacher $T_e$ and candidate $\nu$, write their probability difference as $\Delta_i(a)$. The held-out contrast is
 
 $$
-Z_i=\sum_a\bigl(\nu(a\mid x_i)-T_e(a\mid x_i)\bigr)\widehat Q_i^{\mathrm{DR}}(a)
-=\sum_a\bigl(\nu(a\mid x_i)-T_e(a\mid x_i)\bigr)\widehat A_i(a).
+\begin{aligned}
+\Delta_i(a) &= \nu(a\mid x_i)-T_e(a\mid x_i), \\
+Z_i &= \sum_a\Delta_i(a)\,\widehat A_i(a).
+\end{aligned}
 $$
 
-The coefficients sum to zero, so a value shift shared by every list cannot change the adoption contrast. Phase reports expose both teachers' semantic-relative means in the adoption_evidence field and verify that their difference equals the reported mean contrast. Both means include every independent held-out base question, including zero contributions from unreached or collapsed choices. They estimate the marked-point effect under the frozen continuation.
+Because $\sum_a\Delta_i(a)=0$, replacing centered advantages with uncentered DR values leaves the contrast unchanged. Phase reports expose both teachers' semantic-relative means in the adoption_evidence field and verify that their difference equals the reported mean contrast. Both means include every independent held-out base question, including zero contributions from unreached or collapsed choices. They estimate the marked-point effect under the frozen continuation.
 
 For $N$ held-out questions and marking horizon $H$, the default studentized rule uses
 
 $$
-G_L=H\left(\overline Z-z_{1-\beta_e}\frac{s_Z}{\sqrt N}\right),\qquad
-C_H=(1+\lambda_C)H(H-1),\qquad
+\begin{aligned}
+G_L &= H\left(\overline Z-z_{1-\beta_e}\frac{s_Z}{\sqrt N}\right), \\
+C_H &= (1+\lambda_C)H(H-1).
+\end{aligned}
+$$
+
+[bandit.confidence](control/bandit.py) sets $\delta=0$ when evaluation is ineligible or $G_L\le0$. Otherwise, the step is $\min\{\delta_{\max},G_L/(2C_H)\}$, using $\delta_{\max}$ when $C_H=0$. The deployed teacher is the mixture
+
+$$
 T_{e,\delta}=(1-\delta)T_e+\delta\nu.
 $$
 
-[bandit.confidence](control/bandit.py) sets $\delta=0$ when evaluation is ineligible or $G_L\le0$; otherwise it uses $\min(\delta_{\max},G_L/(2C_H))$, with $\delta_{\max}$ when $C_H=0$. The normal rule has asymptotic coverage; the separately configured Bernstein control uses its global finite-sample envelope. [stage.py](control/stage.py) deploys the accepted teacher only on the actor, bank, encoder, and geometry fingerprint used for that evaluation. A new execution basis starts with semantic presentation and new adoption feedback.
+The normal rule has asymptotic coverage; the separately configured Bernstein control uses its global finite-sample envelope. [stage.py](control/stage.py) deploys the accepted teacher only on the actor, bank, encoder, and geometry fingerprint used for that evaluation. A new execution basis starts with semantic presentation and new adoption feedback.
 
-**Memory fatigue and credit transport.** On matched tasks and a fixed capability pool, [fatigue.panel](control/fatigue.py) measures $B_{ij}=J_{\mathrm{str}}(\pi_i,\mathcal H_j)-J_{\mathrm{sem}}(\pi_i,\mathcal H_j)$. The old/new actor and bank cells separate actor change, bank change, and their interaction. For paired task advantages $A_0,A_1$, [fatigue.transport](control/fatigue.py) reports
+**Memory fatigue and credit transport.** On matched tasks and a fixed capability pool, [fatigue.panel](control/fatigue.py) measures structural lift $B_{ij}$ for actor $i$ and relation bank $j$. For paired task advantages $A_0,A_1$, [fatigue.transport](control/fatigue.py) also reports receiver-sharing loss:
 
 $$
-D_{\mathrm{recv}}=\frac{|A_0|+|A_1|-|A_0+A_1|}{4}.
+\begin{aligned}
+B_{ij}
+  &= J_{\mathrm{str}}(\pi_i,\mathcal H_j)
+   - J_{\mathrm{sem}}(\pi_i,\mathcal H_j), \\
+D_{\mathrm{recv}}
+  &= \frac{|A_0|+|A_1|-|A_0+A_1|}{4}.
+\end{aligned}
 $$
 
-This receiver-sharing loss is positive when the two actors prefer opposite presentations. The panel also reports the directional loss from carrying the old choice to the new actor, alongside rescues, harms, and full cost. These matched outcomes explain where credit changes; training still learns adoption from randomized current-window feedback.
+The old/new actor and bank cells separate actor change, bank change, and their interaction. Receiver-sharing loss is positive when the two actors prefer opposite presentations. The panel also reports the directional loss from carrying the old choice to the new actor, alongside rescues, harms, and full cost. These matched outcomes explain where credit changes; training still learns adoption from randomized current-window feedback.
 
 ## Project Structure
 
@@ -614,7 +637,16 @@ Freeze two actor snapshots and two relation banks before the probe evaluation. K
 | `actor1_bank0` | Later checkpoint | Earlier bank | Actor effect at fixed bank |
 | `actor1_bank1` | Later checkpoint | Later bank | Later structural lift |
 
-Let `B00`, `B01`, `B10`, and `B11` be structural-minus-semantic net utility. Compute paired task contrasts before averaging: actor effect `B10-B00`, bank effect `B01-B00`, interaction `B11-B10-B01+B00`, and total change `B11-B00`. The three effects sum to the total change. Further condition-erasure and budget controls locate the mechanism behind each effect. Repeat on seeds 42, 52, 3047, 3407 and use `--panels` for the mean and sample standard deviation over training runs.
+Let $B_{ij}$ be structural-minus-semantic net utility. Compute these paired task contrasts before averaging:
+
+| Effect | Contrast |
+|---|---|
+| Actor | $B_{10}-B_{00}$ |
+| Relation bank | $B_{01}-B_{00}$ |
+| Interaction | $B_{11}-B_{10}-B_{01}+B_{00}$ |
+| Total change | $B_{11}-B_{00}$ |
+
+The first three effects sum to the total change. Further condition-erasure and budget controls locate the mechanism behind each effect. Repeat on seeds 42, 52, 3047, 3407 and use `--panels` for the mean and sample standard deviation over training runs.
 
 The four-seed output retains absolute success, cost, clipped cost, and utility for every presentation arm. Each cell's `paired_success.structural_vs_semantic` contains the following observed transitions:
 
