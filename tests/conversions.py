@@ -390,6 +390,18 @@ class DatasetPrepareTests(unittest.TestCase):
         self.manifest_file([source])
         _, rows, _ = datasets.build_plan(self.manifest)
         self.assertEqual(rows["train"][0]["tool_call_count"], 2)
+    def test_optional_reward_metadata_rejects_numeric_overflow_before_conversion(self):
+        for key in ('mcp_worthiness', 'tool_call_count'):
+            for value in (10**400, float('inf'), float('nan'), True, '2'):
+                row = self.ready_row()
+                row[key] = value
+                with self.subTest(key=key, value=type(value)), self.assertRaisesRegex(ValueError, 'Invalid '+key):
+                    datasets.validate_official_row(row)
+        for value in (-1, 1.5):
+            row = self.ready_row()
+            row['tool_call_count'] = value
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'nonnegative integer'):
+                datasets.validate_official_row(row)
     def test_preserve_row_order_and_no_test_claim_from_train(self):
         source = self.source("train", "train", rows=[{"q": "Z?", "a": "1"}, {"q": "A?", "a": "2"}])
         self.manifest_file([source])

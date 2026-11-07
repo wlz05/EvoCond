@@ -5,12 +5,13 @@
 from __future__ import annotations
 import argparse
 import ast
+from copy import deepcopy
 from hashlib import sha256
 import importlib.util
 import json
 import math
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import re
 import warnings
 from report import paired_summary
@@ -51,6 +52,9 @@ def _source(base: Path, spec: dict) -> Path:
         raise ValueError("Every input needs path and sha256")
     if not isinstance(spec["path"], str) or not isinstance(spec["sha256"], str):
         raise ValueError("Input path/hash must be text")
+    if (not spec['path'].strip() or Path(spec['path']).is_absolute() or PureWindowsPath(spec['path']).drive
+            or PureWindowsPath(spec['path']).root or '\\' in spec['path']):
+        raise ValueError('Input paths must use portable relative paths from the manifest directory')
     path = (base / spec["path"]).resolve()
     if not path.is_file() or file_hash(path) != spec["sha256"]:
         raise ValueError(f"Missing input or SHA256 mismatch: {path}")
@@ -144,7 +148,7 @@ def individual_scores(rows, calls, metric):
             return values
     replay, counts, output = Replay(), {}, []
     for row in rows:
-        values = metric([row], replay)
+        values = metric([deepcopy(row)], replay)
         if sum(values[:4]) != 1 or values[2] not in (0, 1):
             raise ValueError("Author parser did not score exactly one output")
         identity = question_hash(row["question"])
@@ -332,6 +336,21 @@ def preflight(manifest_path: Path, official_root: Path, model: Path, *, full_wei
     return protocol, prepared
 def _write(path: Path, payload):
     publish(path, json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False))
+
+def unchanged(manifest_path, official_root, protocol):
+    # Recheck identities across model loading and final report publication.
+    if file_hash(manifest_path) != protocol['manifest_sha256']:
+        raise ValueError('Judge manifest changed during scoring')
+    for spec in (protocol['dataset'], *protocol['arms'].values()):
+        if file_hash(Path(spec['path'])) != spec['sha256']:
+            raise ValueError('Judge input changed during scoring')
+        if spec.get('alignment') is not None:
+            _source(manifest_path.parent, spec['alignment'])
+    for name, expected in protocol['author_source_sha256'].items():
+        if file_hash(official_root/name) != expected:
+            raise ValueError('Author source changed during scoring')
+    if file_hash(Path(__file__).resolve()) != protocol['wrapper_sha256']:
+        raise ValueError('Judge wrapper changed during scoring')
 def run(manifest_path: Path, official_root: Path, model: Path, output: Path | None = None, *, execute=False,
         batch_size=64, max_new_tokens=8, tensor_parallel=1, gpu_memory_utilization=0.85) -> dict:
     if output is not None and output.exists():
@@ -355,12 +374,13 @@ def run(manifest_path: Path, official_root: Path, model: Path, output: Path | No
     _write(output / "judge_protocol.json", protocol)
     judge = load_author_judge(official_root, model, batch_size=batch_size, max_new_tokens=max_new_tokens,
                               tensor_parallel=tensor_parallel, gpu_memory_utilization=gpu_memory_utilization)
+    unchanged(manifest_path, official_root, protocol)
     metrics = author_helpers(official_root)["evaluation_metrics_HLE"]
     result = {"run": True, "complete": False, "protocol_sha256": digest(protocol), "arms": {}}
     scored = {}
     for arm in protocol['arms']:
         before = len(judge.calls)
-        values = metrics(prepared[arm], judge)
+        values = metrics(deepcopy(prepared[arm]), judge)
         row = dict(zip(("no_answer", "boxed_not_found", "correct", "false_answer", "acc"), values))
         total = sum(row[key] for key in ("no_answer", "boxed_not_found", "correct", "false_answer"))
         if total != len(prepared[arm]):
@@ -374,6 +394,7 @@ def run(manifest_path: Path, official_root: Path, model: Path, output: Path | No
             raise RuntimeError("Per-question replay disagrees with author aggregate")
         _write(output / f"{arm}_scores.json", scored[arm])
     result["paired"] = paired_summary(scored)
+    unchanged(manifest_path, official_root, protocol)
     result["complete"] = True
     _write(output / "judge_report.json", result)
     return result

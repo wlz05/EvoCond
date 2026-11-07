@@ -129,8 +129,9 @@ def inventory(values):
         train_unit='independent_base_question', evaluation_unit='one_answer_per_base_question')
 
 def prepared(config, frozen, root):
-    from experiment import settings
+    from experiment import settings, training_schedule
     from control.stage import settings as contextual_settings
+    from control.windows import confidence
     if not isinstance(frozen, dict) or not isinstance(frozen.get('config'), dict):
         raise ValueError('Missing frozen study configuration')
     expected = deepcopy(config)
@@ -140,7 +141,17 @@ def prepared(config, frozen, root):
     expected['datasets'] = {key: str((Path(root)/name).resolve()) for key, name in expected['datasets'].items()}
     if expected.get('contextual') is not None:
         expected['contextual'] = contextual_settings(expected['contextual'])
-    if expected != frozen['config']:
+    try:
+        training_rows = frozen['split_audit']['datasets']['train']['rows']
+    except (KeyError, TypeError) as error:
+        raise ValueError('Missing frozen training split count') from error
+    # Resolve the same tail, epoch and confidence schedule used by prepare.
+    schedule = training_schedule(expected, training_rows)
+    if digest(schedule) != digest(frozen.get('schedule')):
+        raise ValueError('Requested training schedule differs from its frozen protocol')
+    if expected.get('contextual') is not None:
+        expected['contextual'] = confidence(expected['contextual'], schedule)
+    if digest(expected) != digest(frozen['config']):
         raise ValueError('Requested study configuration differs from its frozen protocol')
 
 def write(root, values):

@@ -17,6 +17,7 @@ import re
 import subprocess
 import sys
 from urllib.parse import urlsplit
+from xml.etree import ElementTree
 from control.isolation import canonical_hash, validate_deployment
 from control.runtime import validate_config as validate_runtime
 from control.runtime import execution_context_fingerprint
@@ -108,6 +109,19 @@ def window_budget(budget, options, training_rows):
     if options['horizon_steps'] != budget['max_turns']+1:
         raise ValueError('Uniform marking horizon must equal the actual native retrieval cap')
     return schedule
+
+def training_schedule(config, training_rows):
+    from control.windows import layout
+    budget = config['budget']
+    if config.get('design', {}).get('native'):
+        count = config['design']['actor_batches']
+        schedule = layout(training_rows, budget['batch_size'], count,
+            tail=budget['tail_policy'], epochs=budget['epochs'])
+        if any(budget[key] % count for key in ('save_freq', 'validation_freq')):
+            raise ValueError('Native cadence controls save and validate only at actor barriers')
+        return schedule
+    from control.stage import settings as contextual_settings
+    return window_budget(budget, contextual_settings(config['contextual']), training_rows)
 
 def arms(config):
     if config.get('design') is None:
@@ -215,12 +229,8 @@ def freeze(config, *, collection=False, base=None):
         return {"config": result, "split_audit": split, "fingerprints": fingerprints,
                 "upstream_commit": PIN, "claim": "frozen-policy training-only teacher bootstrap; no Qwen optimizer update"}
     if result.get('design', {}).get('native'):
-        from control.windows import layout
         count = result['design']['actor_batches']
-        schedule = layout(split['datasets']['train']['rows'], result['budget']['batch_size'], count,
-            tail=result['budget']['tail_policy'], epochs=result['budget']['epochs'])
-        if any(result['budget'][key] % count for key in ('save_freq', 'validation_freq')):
-            raise ValueError('Native cadence controls save and validate only at actor barriers')
+        schedule = training_schedule(result, split['datasets']['train']['rows'])
         return dict(config=result, split_audit=split, fingerprints=fingerprints, upstream_commit=PIN,
             schedule=schedule, arm_methods={'searl': 'native_tool_graph' if count == 1 else 'native_tool_graph_actor_cadence'},
             claim='pinned SEARL tool-graph baseline on the declared eight-GPU execution environment')
@@ -229,7 +239,7 @@ def freeze(config, *, collection=False, base=None):
         options = contextual_settings(result['contextual'])
         if options['rollouts'] != result['budget']['rollouts'] or result.get('teacher'):
             raise ValueError('Use the same native G rollouts and no legacy teacher artifacts')
-        schedule = window_budget(result['budget'], options, split['datasets']['train']['rows'])
+        schedule = training_schedule(result, split['datasets']['train']['rows'])
         from control.windows import confidence
         result['contextual'] = confidence(options, schedule)
         methods = ({'teacher': result['design']['condition']} if result.get('design') is not None else
@@ -333,6 +343,31 @@ def checkpoint(root, arm, value, *, world_size=None, runtime=None):
         raise ValueError('Runtime checkpoint identity or step differs from its actor checkpoint')
     if runtime is not None and (state['run_id'] != runtime['run_id'] or state['config_hash'] != canonical_hash(runtime)):
         raise ValueError('Runtime checkpoint differs from the frozen experiment configuration')
+    # Nonempty sidecars can still contain interrupted JSON or GraphML writes.
+    cache = read(path/'method_runtime/graphrag.json')
+    if (not isinstance(cache, dict) or not isinstance(cache.get('execution_history'), dict)
+            or not all(isinstance(value, dict) for value in cache['execution_history'].values())
+            or not isinstance(cache.get('communities'), dict)
+            or not all(isinstance(value, list) and all(isinstance(name, str) for name in value)
+                for value in cache['communities'].values())
+            or not isinstance(cache.get('community_summaries'), dict)
+            or not all(isinstance(value, str) for value in cache['community_summaries'].values())
+            or not isinstance(cache.get('global_summary'), str)):
+        raise ValueError('Invalid paired GraphRAG cache')
+    try:
+        graphml = ElementTree.parse(path/'method_runtime/subtasks.graphml').getroot()
+    except (ElementTree.ParseError, LookupError) as error:
+        raise ValueError('Invalid paired GraphML snapshot') from error
+    namespace = '{http://graphml.graphdrawing.org/xmlns}'
+    graphs = graphml.findall(namespace+'graph')
+    if graphml.tag != namespace+'graphml' or len(graphs) != 1 or graphs[0].get('edgedefault') != 'directed':
+        raise ValueError('Invalid paired GraphML snapshot')
+    nodes = [node.get('id') for node in graphs[0].findall(namespace+'node')]
+    node_ids = set(nodes)
+    if (any(not name for name in nodes) or len(node_ids) != len(nodes)
+            or any(edge.get(key) not in node_ids for edge in graphs[0].findall(namespace+'edge')
+                for key in ('source', 'target'))):
+        raise ValueError('Invalid paired GraphML node or edge identity')
     return str(path)
 def checkpoint_inventory(frozen, root, arm):
     valid, incomplete = [], {}

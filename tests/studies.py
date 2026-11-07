@@ -22,6 +22,61 @@ class StudyTests(unittest.TestCase):
     def config(self):
         return json.loads((ROOT/'configs/contextual.json').read_text(encoding='utf-8'))
 
+    def prepared_fixture(self, value, questions=10000):
+        from control.stage import settings as contextual_settings
+        config = deepcopy(value)
+        config['budget'] = experiment.settings(config['budget'])
+        for key in ('official_root', 'model', 'encoder', 'isolation_config', 'isolation_receipt'):
+            config[key] = str((ROOT/config[key]).resolve())
+        config['datasets'] = {key: str((ROOT/path).resolve()) for key, path in config['datasets'].items()}
+        schedule = windows.layout(questions, config['budget']['batch_size'], config['design']['actor_batches'],
+            tail=config['budget']['tail_policy'], epochs=config['budget']['epochs'])
+        if config.get('contextual') is not None:
+            config['contextual'] = {**contextual_settings(config['contextual']),
+                'maximum_windows': max(1, schedule['total_teacher_evaluations'])}
+        return dict(config=config, schedule=schedule, split_audit={'datasets': {'train': {'rows': questions}}})
+
+    def test_prepared_resolves_actual_schedule_for_every_main_condition(self):
+        for epochs in (1, 2):
+            config = self.config()
+            config['budget']['epochs'] = epochs
+            values = study.matrix(config, seeds=[42])
+            for name, value in values.items():
+                frozen = self.prepared_fixture(value)
+                with self.subTest(name=name, epochs=epochs):
+                    study.prepared(value, frozen, ROOT)
+                    self.assertEqual(frozen['schedule']['window_questions'][-1], 16)
+                    if value.get('contextual') is not None:
+                        self.assertEqual(frozen['config']['contextual']['maximum_windows'], 13*epochs)
+            self.assertNotIn('maximum_windows', values['evocond/seed42']['contextual'])
+
+    def test_prepared_rejects_changed_counts_schedule_and_confidence(self):
+        value = study.matrix(self.config(), seeds=[42])['evocond/seed42']
+        original = self.prepared_fixture(value)
+        for field in ('rows', 'schedule', 'confidence', 'epochs'):
+            frozen = deepcopy(original)
+            requested = deepcopy(value)
+            if field == 'rows':
+                frozen['split_audit']['datasets']['train']['rows'] = 9984
+            elif field == 'schedule':
+                frozen['schedule']['window_questions'][-1] = 17
+            elif field == 'confidence':
+                frozen['config']['contextual']['maximum_windows'] = 1000
+            else:
+                requested['budget']['epochs'] = 2
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, 'differs'):
+                study.prepared(requested, frozen, ROOT)
+        for audit in (None, {}, {'datasets': {'train': {}}}):
+            with self.subTest(audit=audit), self.assertRaisesRegex(ValueError, 'training split count'):
+                study.prepared(value, {**original, 'split_audit': audit}, ROOT)
+
+    def test_prepared_keeps_single_batch_schedule_confidence_denominator_positive(self):
+        value = study.matrix(self.config(), seeds=[42])['evocond/seed42']
+        frozen = self.prepared_fixture(value, questions=384)
+        study.prepared(value, frozen, ROOT)
+        self.assertEqual(frozen['schedule']['total_teacher_evaluations'], 0)
+        self.assertEqual(frozen['config']['contextual']['maximum_windows'], 1)
+
     def test_main_preserves_native_graph_and_names_cadence_control(self):
         values = study.matrix(self.config(), 'main')
         self.assertEqual(len(values), 12)

@@ -160,6 +160,56 @@ class JudgeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "no overwrite"):
             judge.run(self.manifest_path, self.author, self.model, self.output, execute=True)
 
+    def test_manifest_paths_are_portable_but_may_reference_a_parent_directory(self):
+        spec = self.write_json('input.json', {})
+        for name in ('/root/input.json', 'C:/data/input.json', 'C:input.json', 'data\\input.json'):
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, 'portable relative'):
+                judge._source(self.root, {**spec, 'path': name})
+        nested = self.root/'manifests'
+        nested.mkdir()
+        self.assertEqual(judge._source(nested, {**spec, 'path': '../input.json'}), (self.root/'input.json').resolve())
+
+    def test_loading_judge_cannot_change_the_sealed_scoring_sources(self):
+        paths = (self.manifest_path, self.root/'refs.jsonl', self.root/'teacher.jsonl',
+            self.author/'evaluation/evaluation.py')
+        for index, target in enumerate(paths):
+            self.setup_manifest()
+            output = self.root/f'changed{index}'
+            def load(*args, **kwargs):
+                target.write_bytes(target.read_bytes()+b'\n')
+                return judge.StrictAuthorJudge(Backend())
+            with self.subTest(target=target.name), patch.object(judge, 'load_author_judge', side_effect=load):
+                with self.assertRaisesRegex(ValueError, 'changed during scoring'):
+                    judge.run(self.manifest_path, self.author, self.model, output, execute=True)
+            self.assertTrue((output/'judge_protocol.json').is_file())
+            self.assertFalse((output/'judge_report.json').exists())
+
+    def test_final_report_rechecks_sources_after_scoring(self):
+        self.setup_manifest()
+        wrapped = judge.StrictAuthorJudge(Backend())
+        def metric(rows, backend):
+            backend.evaluation_batch([('A', row['ground_truth'], row['question']) for row in rows])
+            if backend is wrapped:
+                path = self.root/'refs.jsonl'
+                path.write_bytes(path.read_bytes()+b'\n')
+            return (0, 0, len(rows), 0, 1.)
+        with patch.object(judge, 'author_helpers', return_value={'evaluation_metrics_HLE': metric}), \
+                patch.object(judge, 'load_author_judge', return_value=wrapped):
+            with self.assertRaisesRegex(ValueError, 'input changed during scoring'):
+                judge.run(self.manifest_path, self.author, self.model, self.output, execute=True)
+        self.assertFalse((self.output/'judge_report.json').exists())
+
+    def test_parser_replay_does_not_mutate_scored_outputs(self):
+        rows = [dict(question='Q?', ground_truth=['A', 'alias'], output='original')]
+        original = deepcopy(rows)
+        def metric(values, backend):
+            values[0]['output'] = 'changed'
+            values[0]['ground_truth'].clear()
+            return (0, 0, 1, 0, 1.)
+        scored = judge.individual_scores(rows, [], metric)
+        self.assertEqual(rows, original)
+        self.assertEqual(scored[0]['output_sha256'], judge.text_hash('original'))
+
     def test_json_reader_accepts_bom_but_rejects_duplicate_and_overflow_numbers(self):
         path = self.root/'input.json'
         path.write_text('{"value":0.5}', encoding='utf-8-sig')

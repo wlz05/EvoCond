@@ -238,8 +238,13 @@ def validate_official_row(row: dict) -> str:
     group_keys(row)
     for key in ("mcp_worthiness", "tool_call_count"):
         value = row.get(key)
-        if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)):
-            raise ValueError(f"Invalid {key}")
+        if value is not None:
+            try:
+                finite = type(value) in (int, float) and math.isfinite(value)
+            except OverflowError:
+                finite = False
+            if not finite:
+                raise ValueError(f"Invalid {key}")
     count = row.get("tool_call_count")
     if count is not None and (count < 0 or int(count) != count):
         raise ValueError("Expected tool_call_count must be a nonnegative integer")

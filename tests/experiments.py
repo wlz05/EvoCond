@@ -52,6 +52,11 @@ class ExperimentTests(unittest.TestCase):
         state = dict(format=experiment.RUNTIME_FORMAT, arm=arm, run_id=runtime['run_id'],
             policy_step=5, config_hash=experiment.canonical_hash(runtime))
         (folder/'method_runtime/runtime.json').write_text(json.dumps(state), encoding='utf-8')
+        (folder/'method_runtime/graphrag.json').write_text(json.dumps(dict(execution_history={},
+            communities={}, community_summaries={}, global_summary='')), encoding='utf-8')
+        (folder/'method_runtime/subtasks.graphml').write_text(
+            '<graphml xmlns="http://graphml.graphdrawing.org/xmlns"><graph edgedefault="directed"/></graphml>',
+            encoding='utf-8')
         return folder
     def test_weight_fingerprint_changes_with_weight_bytes(self):
         model = self.model()
@@ -279,6 +284,37 @@ class ExperimentTests(unittest.TestCase):
             with self.subTest(name=name), self.assertRaisesRegex(ValueError, 'missing or invalid'):
                 experiment.launch_spec(self.frozen(), self.root, 'evocond', resume=folder)
             target.write_bytes(payload)
+    def test_checkpoint_rejects_nonempty_corrupt_graph_cache_before_launch(self):
+        folder = self.checkpoint()
+        cache = folder/'method_runtime/graphrag.json'
+        original = cache.read_bytes()
+        for text in ('{"execution_history":', '[]', '{}',
+                json.dumps(dict(execution_history={}, communities={'c': [1]},
+                    community_summaries={}, global_summary=''))):
+            cache.write_text(text, encoding='utf-8')
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                experiment.launch_spec(self.frozen(), self.root, 'evocond', resume=folder)
+        cache.write_bytes(original)
+        self.assertEqual(experiment.checkpoint(self.root, 'evocond', folder), str(folder))
+
+    def test_checkpoint_rejects_truncated_and_inconsistent_graphml(self):
+        folder = self.checkpoint()
+        graph = folder/'method_runtime/subtasks.graphml'
+        original = graph.read_bytes()
+        bodies = ('<graph', '<graph edgedefault="undirected"/>', '<graph edgedefault="directed">'
+            '<node id="a"/><node id="a"/></graph>', '<graph edgedefault="directed">'
+            '<node id="a"/><edge source="a" target="missing"/></graph>')
+        for body in bodies:
+            graph.write_text('<graphml xmlns="http://graphml.graphdrawing.org/xmlns">'+body+'</graphml>',
+                encoding='utf-8')
+            with self.subTest(body=body), self.assertRaisesRegex(ValueError, 'GraphML'):
+                experiment.launch_spec(self.frozen(), self.root, 'evocond', resume=folder)
+        graph.write_text('<?xml version="1.0" encoding="unsupported-encoding"?><graphml/>', encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'GraphML'):
+            experiment.checkpoint(self.root, 'evocond', folder)
+        graph.write_bytes(original)
+        self.assertEqual(experiment.checkpoint(self.root, 'evocond', folder), str(folder))
+
     def test_checkpoint_world_size_must_match_the_frozen_allocation(self):
         folder = self.checkpoint(world_size=4)
         self.assertEqual(experiment.checkpoint(self.root, 'evocond', folder), str(folder))
