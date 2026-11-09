@@ -435,14 +435,15 @@ class DatasetPrepareTests(unittest.TestCase):
     def test_real_converted_splits_reach_native_freeze_and_reject_missing_audit(self):
         from tests.isolation import deployment
         import study
-        sources = [self.source('train', 'train', rows=[{'q': f'Training question {i}?', 'a': str(i), 'task': str(i)} for i in range(256)]),
+        config = experiment.read(experiment.HERE/'configs/contextual.json')
+        config = study.matrix(config, seeds=[42], conditions=['evocond'])['evocond/seed42']
+        batch_size = config['budget']['batch_size']
+        sources = [self.source('train', 'train', rows=[{'q': f'Training question {i}?', 'a': str(i), 'task': str(i)} for i in range(batch_size)]),
             self.source('valid', 'validation', rows=[dict(q='Validation question?', a='A', task='validation')]),
             self.source('test', 'test', rows=[dict(q='Test question?', a='A', task='test')])]
         for source in sources:
             source['grouping'] = dict(namespace='benchmark', fields=dict(task='/task'))
         datasets.prepare(self.manifest_file(sources), self.output, run=True)
-        config = experiment.read(experiment.HERE/'configs/contextual.json')
-        config = study.matrix(config, seeds=[42], conditions=['evocond'])['evocond/seed42']
         model, encoder = self.root/'model', self.root/'encoder'
         model.mkdir()
         encoder.mkdir()
@@ -462,7 +463,7 @@ class DatasetPrepareTests(unittest.TestCase):
             datasets={name: str(self.output/(name+'.parquet')) for name in datasets.SPLITS})
         frozen = experiment.freeze(config)
         self.assertEqual(set(frozen['fingerprints']['dataset_preparation']), set(datasets.SPLITS))
-        self.assertEqual(frozen['split_audit']['datasets']['train']['rows'], 256)
+        self.assertEqual(frozen['split_audit']['datasets']['train']['rows'], batch_size)
         self.assertEqual(frozen['schedule']['total_teacher_evaluations'], 0)
         self.assertEqual(frozen['config']['contextual']['maximum_windows'], 1)
         self.assertTrue(frozen['split_audit']['group_metadata_complete'])

@@ -1,6 +1,6 @@
 # EvoCond: Preserving Conditional Tool Relations for Co-Evolving Language Agents
 
-**EvoCond** learns which accumulated tool relations should influence the current actor. Compatible tools share capability identities; their relation events retain the conditions under which they were observed. Each task reconstructs a combination proposal, and randomized tool-list presentation estimates its terminal benefit relative to the same actor's semantic execution. Actor updates preserve the evidence and start a new adoption evaluation.
+**EvoCond** learns which accumulated tool relations benefit the current actor. Compatible tools share capability identities; their relation events retain the conditions under which they were observed. Each task reconstructs a combination proposal, and randomized tool-list presentation estimates its terminal benefit relative to the same actor's semantic execution. Actor updates preserve the evidence and start a new adoption evaluation.
 
 We study **structural memory fatigue**: relation evidence keeps growing while its incremental execution benefit declines. Semantic and memory-guided execution can both improve, yet their relative advantage can reverse. A correct relation can remain reusable while its previous adoption preference becomes wrong for the improved actor. EvoCond preserves the evidence and re-estimates its influence on the current execution basis.
 
@@ -238,6 +238,8 @@ The data recipe follows [SEARL, Sections 4.1 and 4.3](https://aclanthology.org/2
 | Final benchmark evaluation | The fixed ARPO benchmark test partitions used by SEARL | Frozen test exports named by the experiment and per-benchmark judge manifests |
 
 Use the supplied partition memberships and record source versions, row counts, and checksums in `assets/deployment/datasets.json`. The released entry specifies validation files rather than a new split percentage. File roles follow `TRAIN_FILES` and `VAL_FILES`, including validation filenames containing `test`. An export into one file per role preserves the contributing rows and source identities. All conditions and seeds use the same prepared partitions.
+
+The experiment audits actual questions and declared task groups across all three roles before launch. Upstream filenames and role declarations do not establish disjointness: validation exports containing final benchmark questions are rejected. Validation alone selects checkpoints; final benchmark feedback never updates the actor, relation bank or teacher. A grouped development holdout is an explicitly recorded adapted split, while the fixed benchmark evaluation membership is preserved.
 
 ### Preparation and Cache
 
