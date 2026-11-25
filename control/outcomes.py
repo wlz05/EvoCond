@@ -4,7 +4,7 @@
 'Measured episode evidence; absent observations are never replaced by zeros.'
 from __future__ import annotations
 import math
-from control import exposure
+from control import exposure, search
 FORMAT = 'evocond_episode_outcome_v1'
 def measured(context, *, episode, arm, actor, bank, elapsed, variant=None):
     success = context.get('terminal_success')
@@ -32,10 +32,13 @@ def measured(context, *, episode, arm, actor, bank, elapsed, variant=None):
         fallback_payload_matches=sum(row.get('payload_hash') == row.get('semantic_payload_hash')
             and row.get('semantic_payload_hash') is not None for row in fallbacks) if observed_retrieval else None)
     metrics.update(exposure.summarize(selections))
+    searches = search.evidence(context)
+    metrics.update(tool_list_selections=len(selections) if observed_retrieval else None,
+        document_search_calls=len(searches), repeated_search_calls=search.repetitions(searches))
     return dict(format=FORMAT, episode_id=episode, task_id=context['task_id'], split=context['split'],
         arm=arm, variant=variant, policy_step=context['policy_step'], actor=actor, bank=bank,
         snapshot=context.get('phase_snapshot'), phase=context.get('phase'), ordinal=context.get('ordinal'),
-        success=success, metrics=metrics, collection_branch=context.get('collection_branch', False),
+        success=success, metrics=metrics, document_searches=searches, collection_branch=context.get('collection_branch', False),
         scope='observed_task_outcome_not_causal_edge_credit_or_SOTA')
 
 # Author: Weiliang Zhu; Other main author: Yaming Lv

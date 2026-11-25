@@ -24,6 +24,7 @@ parser.add_argument("--corpus_path", type=str, default=os.environ.get("RL_FACTOR
 parser.add_argument("--topk", type=int, default=3, help="Number of retrieved passages for one query.")
 parser.add_argument("--retriever_model", type=str, default=os.environ.get("RL_FACTORY_RAG_MODEL", "intfloat/e5-base-v2"), help="Name of the retriever model.")
 parser.add_argument("--workers", type=int, default=2, help="Number of uvicorn workers.")
+parser.add_argument('--evidence', action='store_true', help='Hash the corpus and index for evidence probes.')
 
 args = parser.parse_args()
 
@@ -253,11 +254,10 @@ class DenseRetriever(BaseRetriever):
             num = self.topk
         query_emb = self.encoder.encode(query)
         scores, idxs = self.index.search(query_emb, k=num)
-        idxs = idxs[0]
-        scores = scores[0]
-        results = load_docs(self.corpus, idxs)
+        pairs = [(int(idx), float(score)) for idx, score in zip(idxs[0], scores[0]) if idx >= 0]
+        results = load_docs(self.corpus, [idx for idx, _ in pairs])
         if return_score:
-            return results, scores.tolist()
+            return results, [score for _, score in pairs]
         else:
             return results
 
@@ -273,17 +273,10 @@ class DenseRetriever(BaseRetriever):
             query_batch = query_list[start_idx:start_idx + self.batch_size]
             batch_emb = self.encoder.encode(query_batch)
             batch_scores, batch_idxs = self.index.search(batch_emb, k=num)
-            batch_scores = batch_scores.tolist()
-            batch_idxs = batch_idxs.tolist()
-
-            # load_docs is not vectorized, but is a python list approach
-            flat_idxs = sum(batch_idxs, [])
-            batch_results = load_docs(self.corpus, flat_idxs)
-            # chunk them back
-            batch_results = [batch_results[i*num : (i+1)*num] for i in range(len(batch_idxs))]
-
-            results.extend(batch_results)
-            scores.extend(batch_scores)
+            for indices, values in zip(batch_idxs.tolist(), batch_scores.tolist()):
+                pairs = [(idx, score) for idx, score in zip(indices, values) if idx >= 0]
+                results.append(load_docs(self.corpus, [idx for idx, _ in pairs]))
+                scores.append([score for _, score in pairs])
         if return_score:
             return results, scores
         else:
@@ -353,6 +346,10 @@ config = Config(
 
 # 2) Instantiate a global retriever so it is loaded once and reused.
 retriever = get_retriever(config)
+revisions = {}
+if args.evidence:
+    from control.search import revision
+    revisions = dict(corpus_revision=revision(args.corpus_path), index_revision=revision(args.index_path))
 
 @app.post("/retrieve")
 def retrieve_endpoint(request: QueryRequest):
@@ -361,11 +358,12 @@ def retrieve_endpoint(request: QueryRequest):
         request.topk = config.retrieval_topk  # fallback to default
 
     # Perform batch retrieval
-    results, scores = retriever.batch_search(
+    result = retriever.batch_search(
         query_list=request.queries,
         num=request.topk,
         return_score=request.return_scores
     )
+    results, scores = result if request.return_scores else (result, None)
 
     # Format response
     resp = []
@@ -378,7 +376,7 @@ def retrieve_endpoint(request: QueryRequest):
             resp.append(combined)
         else:
             resp.append(single_result)
-    return {"result": resp}
+    return {"result": resp, **revisions}
 
 if __name__ == "__main__":
     # 3) Launch the server. By default, it listens on http://127.0.0.1:5003

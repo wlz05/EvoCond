@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 import fatigue as command
-from control import bandit, contracts, dynamic, fatigue
+from control import bandit, contracts, dynamic, fatigue, search
 from tests.bandits import records
 
 def observed(base, chosen, *, success, snapshot='fixed'):
@@ -632,6 +632,37 @@ class FatigueTests(unittest.TestCase):
         self.assertEqual(paired['rates']['success_lift']['mean'], .125)
         self.assertEqual(paired['per_seed']['42']['reference_failures'], 1)
         self.assertEqual(paired['per_seed']['52']['reference_failures'], 0)
+
+class SearchEvidenceTests(unittest.TestCase):
+    def test_only_delivered_passages_can_be_first_seen(self):
+        records = [{'document': {'contents': f'Title {i}\nBody {i}'}} for i in range(3)]
+        output, receipt = search.response('bridge', 2, {'result': [records]})
+        keys = [hit['passage_id'] for hit in receipt['hits']]
+        state = {'assistant_turn': 1}
+        search.observe(state, receipt)
+        search.delivered(state, receipt['hits'][1]['reference'])
+        state['assistant_turn'] += 1
+        search.observe(state, receipt)
+        search.delivered(state, output)
+        state['assistant_turn'] += 1
+        search.observe(state, receipt)
+        first, second, last = search.evidence(state)
+        self.assertEqual(first['returned'], keys)
+        self.assertEqual(first['first_seen'], [keys[1]])
+        self.assertEqual(second['visible'], keys[:2])
+        self.assertEqual(second['first_seen'], [keys[0]])
+        self.assertEqual(last['visible'], [])
+
+    def test_answer_only_counts_the_actor_final_answer(self):
+        self.assertEqual(search.answer_scores('No answer', ['yes']), (0, 0.))
+        self.assertEqual(search.answer_scores(r'<answer>no</answer><answer>\boxed{yes}</answer>', ['yes']), (1, 1.))
+
+    def test_repeat_checks_the_trajectory_even_when_answers_match(self):
+        first = dict(search_probe=dict(prefix_sha256='a'*64), output='<answer>yes</answer>',
+            document_searches=[dict(query='bridge')], tool_list_selections=[])
+        repeat = dict(first, document_searches=[dict(query='detour')])
+        with self.assertRaisesRegex(ValueError, 'repeat changed'):
+            search.check_repeat(dict(old_semantic={'task': first}, old_repeat={'task': repeat}))
 
 # Author: Weiliang Zhu; Other main author: Yaming Lv
 # Email: wlzchina05@gmail.com

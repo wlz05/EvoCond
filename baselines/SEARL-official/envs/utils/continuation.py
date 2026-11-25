@@ -57,6 +57,11 @@ def append_observations(su, infos, dones, names, scores, indices):
     limit = su.context_budget if strict else su.config_prompt_length
     if strict and any(len(row) > limit for row in sequences):
         raise ValueError('Official full visible history exceeds context budget; no reward emitted, increase common budget in a new run')
+    if strict:
+        su.pending_visible = [(su.env_object.plan_list[index]['_runtime_context'], infos[offset])
+            for offset, index in enumerate(indices) if not dones[offset] and (
+                getattr(su, 'search_probe_enabled', False) or any(
+                    name in ('search', 'search-search') for name in names[offset] or ()))]
     width = max(map(len, sequences)) if strict else max(max(map(len, sequences)), su.config_prompt_length)
     ids = torch.tensor([[su.pad_token_id]*(width-len(seq))+seq for seq in sequences], dtype=torch.int64)
     attention = ids != su.pad_token_id
@@ -70,6 +75,49 @@ def append_observations(su, infos, dones, names, scores, indices):
     result.meta_info.update(index=active, do_sample=bool(su.meta_info.get('sample_tool_turns', False)))
     su.loop_cnt += 1
     return result
+
+def prime_search(su, prompts, spec):
+    from control.search import prefix_text
+    from control.runtime import task_identity
+    if not su.is_validate or not su.strict_runtime or su.max_turns < 2:
+        raise ValueError('A fixed search prefix needs a strict validation rollout with a continuation turn')
+    su.meta_info.update(validate=True, sample_tool_turns=False)
+    su.rollout_num = 1
+    su.search_probe_enabled = True
+    su.batch_size = len(prompts)
+    su.init_prompt_token = prompts.batch['input_ids'].cpu()
+    su.init_attention_mask = prompts.batch['attention_mask'].cpu()
+    su.tool_use = [[] for _ in range(su.batch_size)]
+    su.mcp_ids = [[] for _ in range(su.batch_size)]
+    su.tool_call_count = None
+    su.loop_responses_token = []
+    su.env_object.plan_list = []
+    su.env_object.plan_success_list = [True]*su.batch_size
+    actor = su.env_object.tool_manager.centralized_actor_handle
+    questions = prompts.non_tensor_batch['question']
+    start = []
+    for index, question in enumerate(questions):
+        row = spec['prefixes'][task_identity(question)]
+        first = row['search']
+        raw = su.init_prompt_token[index][su.init_attention_mask[index].bool()].tolist()
+        plan_ids = su.tokenizer.encode(row['plan'], add_special_tokens=False)
+        if not plan_ids or len(plan_ids) > su.config_response_length:
+            raise ValueError('The fixed plan must fit the normal assistant response budget')
+        fingerprint = snapshot_hash(dict(prompt=raw, plan=plan_ids, first=first))
+        probe = {key: spec[key] for key in ('cell', 'checkpoint', 'bank', 'budget', 'corpus_revision',
+            'index_revision', 'split', 'source_sha256', 'environment_sha256', 'protocol_sha256')}
+        identity = ray.get(actor.runtime_search_probe.remote(question, row['plan'],
+            {**probe, 'prefix_sha256': fingerprint}, first))
+        su.loop_responses_token.append([raw, plan_ids])
+        su.env_object.plan_list.append({'_runtime_context': identity, '_policy_plan': None})
+        start.append([{'role': 'tool', 'name': 'search-search', 'content': prefix_text(first)}])
+    async def render_prefix():
+        return await asyncio.gather(*[su.env_object._process_single_prompt(
+            observation, su.tokenizer, 'tool_call', plan, False, 1, 1, ['search-search'])
+            for observation, plan in zip(start, su.env_object.plan_list)])
+    rendered = asyncio.run(render_prefix())
+    return append_observations(su, [row[0] for row in rendered], [False]*su.batch_size,
+        [['search-search'] for _ in start], [0.]*su.batch_size, list(range(su.batch_size)))
 
 def capture(su, step, infos, dones, valid, is_tool, names, scores, indices):
     pending = {index: {'observation': infos[i], 'done': bool(dones[i]), 'valid': int(valid[i]),

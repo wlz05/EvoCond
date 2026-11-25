@@ -7,8 +7,8 @@ import json
 from pathlib import Path
 import types
 import unittest
-from unittest.mock import MagicMock
-from urllib.parse import urlsplit
+from unittest.mock import MagicMock, patch
+from control import search as evidence
 
 class RequestFailure(Exception):
     pass
@@ -16,12 +16,13 @@ class RequestFailure(Exception):
 def load_search():
     source = Path(__file__).resolve().parents[1] / "envs/tools/local.py"
     tree = ast.parse(source.read_text(encoding="utf-8"))
-    functions = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in {"endpoint", "search"}]
+    functions = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in {"witnessed_search", "search"}]
     for node in functions:
         node.decorator_list = []
-    scope = {"urlsplit": urlsplit, "json": json, "LOCAL_SEARCH_URL": "http://wiki:8000/retrieve",
-             "MAX_BYTES": 1024, "requests": types.SimpleNamespace(RequestException=RequestFailure),
-             "session": MagicMock()}
+    client = MagicMock()
+    scope = {"endpoint": evidence.endpoint, "fetch": evidence.fetch, "SearchResponseError": evidence.SearchResponseError,
+             "LOCAL_SEARCH_URL": "http://wiki:8000/retrieve",
+             "requests": types.SimpleNamespace(RequestException=RequestFailure), "client": client, "session": client}
     exec(compile(ast.Module(body=functions, type_ignores=[]), str(source), "exec"), scope)
     return scope
 
@@ -34,6 +35,9 @@ def reply(scope, value=None, *, status=200, raw=None):
 
 class SearchBoundsTests(unittest.TestCase):
     def setUp(self):
+        limit = patch.object(evidence, 'MAX_BYTES', 1024)
+        limit.start()
+        self.addCleanup(limit.stop)
         self.scope = load_search()
         self.search = self.scope["search"]
 
@@ -114,9 +118,9 @@ class SearchBoundsTests(unittest.TestCase):
         self.assertEqual(self.search("question"), "No relevant documents found")
 
     def test_deep_json_error_does_not_escape_or_reveal_payload(self):
-        self.scope["MAX_BYTES"] = 10000
         reply(self.scope, raw=("[" * 2000 + '"SECRET"' + "]" * 2000).encode())
-        result = self.search("question")
+        with patch.object(evidence, 'MAX_BYTES', 10000):
+            result = self.search("question")
         self.assertTrue(result.startswith("Search error:"))
         self.assertNotIn("SECRET", result)
 

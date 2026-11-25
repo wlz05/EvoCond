@@ -25,7 +25,8 @@ from control.runtime import verify_checkpoint
 from control.runtime import FORMAT as RUNTIME_FORMAT
 from splits import audit, file_digest, rows
 from convert import prepared, validate_official_row, question_hash
-from control.contracts import publish, strict_json
+from control.contracts import publish, relative, strict_json
+from control import search
 from namespace import install as install_packages
 from source import reviewed
 install_packages()
@@ -384,6 +385,33 @@ def checkpoint_inventory(frozen, root, arm):
             valid.append(path.name)
     return dict(checkpoints=valid, incomplete_checkpoints=incomplete)
 
+def search_protocol(path, cell, frozen, root, arm, workspace):
+    spec = search.manifest(read(relative(workspace, path)))
+    config = frozen['config']
+    if config.get('contextual') is None or config.get('design', {}).get('native'):
+        raise ValueError('Search probes require a paired contextual rollout')
+    if spec['endpoint'] != config['search_url'] or spec['budget'] > config['budget']['max_turns']:
+        raise ValueError('Use the declared retrieval service and a call budget within the rollout horizon')
+    questions = (validate_official_row(row) for row in rows(Path(config['datasets']['validation'])))
+    validation = {question_hash(question): question for question in questions}
+    if not spec['prefixes'].keys() <= validation.keys():
+        raise ValueError('Search probe questions must belong to the frozen validation split')
+    from control.runtime import plan_from_searl
+    for task, prefix in spec['prefixes'].items():
+        plan_from_searl(validation[task], prefix['plan'])
+    runtime = runtimes(frozen, root)[arm]
+    paths = {key: Path(checkpoint(root, arm, relative(workspace, value),
+        world_size=config['budget']['gpus'], runtime=runtime)) for key, value in spec['checkpoints'].items()}
+    if int(paths['old'].name[12:]) >= int(paths['new'].name[12:]):
+        raise ValueError('Old and new checkpoints must be in training order')
+    actor = paths['new' if cell.startswith('new_') else 'old']
+    bank = paths['bank']
+    if not read(bank/'method_runtime/runtime.json').get('contextual'):
+        raise ValueError('The probe bank has no contextual relation snapshot')
+    return dict(spec, cell=cell, split='validation', bank_path=bank.relative_to(root/arm).as_posix(),
+        checkpoint=search.revision(actor/'checkpoint.json'), bank=search.revision(bank/'checkpoint.json'),
+        protocol_sha256=canonical_hash(spec)), str(actor)
+
 def launch_spec(frozen, root, arm, *, stage="train", split="validation", resume=None, attempt="attempt"):
     if stage not in ('train', 'evaluate') or split not in ('validation', 'test'):
         raise ValueError('Declare a training or evaluation stage and its dataset split')
@@ -552,9 +580,14 @@ def main():
     parser.add_argument("--resume")
     parser.add_argument("--split", choices=("validation", "test"), default="validation")
     parser.add_argument("--allow-test", action="store_true")
+    parser.add_argument('--search-probe', help='Prepared fixed-prefix study manifest')
+    parser.add_argument('--search-cell', choices=search.CELLS)
     parser.add_argument("--run", action="store_true")
     parser.add_argument('--workspace', type=Path, default=Path('.'))
     args = parser.parse_args()
+    if bool(args.search_probe) != bool(args.search_cell) or (args.search_probe and
+            (args.stage != 'evaluate' or args.split != 'validation' or args.resume or args.allow_test)):
+        parser.error('Use --search-probe and --search-cell together for validation without --resume')
     workspace = args.workspace.resolve(strict=True)
     root = (workspace/args.root).resolve()
     protocol = root / "protocol.json"
@@ -578,15 +611,33 @@ def main():
         parser.error("Training may only monitor validation; use evaluate --split test --allow-test for final evaluation")
     if args.split == "test" and args.stage == "evaluate" and not args.allow_test:
         parser.error("Test remains sealed. Explicit --allow-test is required for final evaluation")
-    if freeze(frozen["config"]) != frozen:
+    current = freeze(frozen['config'])
+    compatible = deepcopy(current)
+    if args.search_probe:
+        for key in ('method_source', 'official_source'):
+            compatible['fingerprints'][key] = frozen['fingerprints'][key]
+    if compatible != frozen:
         raise ValueError("Frozen code, model, data or fitted artifacts changed; create a new experiment")
     if read(root / args.arm / "runtime_config.json") != runtimes(frozen, root)[args.arm]:
         raise ValueError("Arm runtime configuration changed after freezing")
     attempt = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     resume = str((workspace/args.resume).resolve()) if args.resume else None
+    probe = None
+    if args.search_probe:
+        probe, resume = search_protocol(args.search_probe, args.search_cell, frozen, root, args.arm, workspace)
     command, env = launch_spec(frozen, root, args.arm, stage=args.stage, split=args.split, resume=resume, attempt=attempt)
-    print(json.dumps({"run": args.run, "arm": args.arm, "stage": args.stage, "command": command,
-                      "log": env["LOG_PATH"], "qwen_updates": args.stage == "train"}))
+    preview = dict(run=args.run, arm=args.arm, stage=args.stage, command=command, qwen_updates=args.stage == 'train')
+    if probe is not None:
+        target = root/args.arm/'search'/args.search_cell/attempt
+        probe_file = target/'protocol.json'
+        command = [arg for arg in command if not arg.startswith(('++ray_init.namespace=', '++trainer.validation_data_dir='))]
+        command.extend(('++actor_rollout_ref.env.search_probe_path='+json.dumps(str(probe_file)),
+            '++ray_init.namespace='+json.dumps('search_'+attempt), '++trainer.del_local_ckpt_after_load=false'))
+        env.update(SEARL_DYNAMIC_REGISTRY=str(target/'runtime/registry.json'),
+            RL_FACTORY_SEARCH_CACHE_DIR=str(target/'runtime/searchcache'),
+            LOG_PATH=str(target/'rollout.log'), WANDB_DIR=str(target/'wandb'))
+        preview.update(command=command, search_report=str(target/'search.jsonl'))
+    print(json.dumps(dict(preview, log=env['LOG_PATH'])))
     if not args.run:
         return
     readiness(frozen["config"]["budget"]["gpus"], h100=frozen['config'].get('design') is not None)
@@ -594,14 +645,19 @@ def main():
     identity = dict(pid=os.getpid(), attempt=attempt, arm=args.arm, root=str(root))
     with allocation(root, workspace, identity, shared=frozen['config'].get('design') is not None):
         environment = environment_identity()
-        environment_file = root / "environment.json"
+        environment_file = root / "environment.json" if probe is None else target/'environment.json'
         if environment_file.exists():
             if read(environment_file) != environment:
                 raise ValueError("GPU/dependency environment changed between arms or attempts")
         else:
             write_new(environment_file, environment)
+        if probe is not None:
+            probe.update(source_sha256=canonical_hash({key: current['fingerprints'][key]['sha256']
+                for key in ('method_source', 'official_source')}), environment_sha256=canonical_hash(environment))
+            write_new(probe_file, probe)
         write_new(record, {"command": command, "stage": args.stage, "split": args.split,
-                           "protocol_sha256": canonical_hash(frozen), "resume": args.resume,
+                           "protocol_sha256": canonical_hash(frozen),
+                           "resume": args.resume if probe is None else Path(resume).relative_to(workspace).as_posix(),
                            "environment_sha256": canonical_hash(environment)})
         result = subprocess.run(command, cwd=frozen["config"]["official_root"], env=env, check=False)
         write_new(record.with_suffix(".result.json"), {"exit_code": result.returncode})

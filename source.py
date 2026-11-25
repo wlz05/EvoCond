@@ -12,11 +12,17 @@ import subprocess
 import tempfile
 from control.contracts import publish, relative, strict_json
 RECEIPT = 'baselines/SEARL-official/source.json'
-PREVIOUS = frozenset(('1f3d7ee41522ab4596970488fa7f1b732095ff5c4fc4ee8cc682f8de09f3646c', '8d18f7c5dfe8ba931ae88b8faecd0a937ebe71d441719fd52162233dc3f4e547', 'ad7682f52d38a26be08f17c9ce42e6e83d7551844a46bfe61ca57af4d5edc968', '38bc12079e3ba6b1de9a409b796c81fb42a7d3c002c25121098af94a48e51014'))
+PREVIOUS = frozenset(('1f3d7ee41522ab4596970488fa7f1b732095ff5c4fc4ee8cc682f8de09f3646c', '8d18f7c5dfe8ba931ae88b8faecd0a937ebe71d441719fd52162233dc3f4e547', 'ad7682f52d38a26be08f17c9ce42e6e83d7551844a46bfe61ca57af4d5edc968', '38bc12079e3ba6b1de9a409b796c81fb42a7d3c002c25121098af94a48e51014', '613b87d6b53dee4f6a3af00ff0b5df53db83ce8930f482c757a5205f60e653f6'))
 PATCHES = {
-    'envs/tool_manager/centralized/central.py': '19829fd35ec7c734bf19baefabeb1fc1184f72fdce449dd32e3ad18a6b9ec5e1',
+    'envs/tool_manager/centralized/central.py': 'd03d821179a109d4b63dba3265eedf31276ba08ed0a07026a0ab6c08761874f6',
     'envs/tool_manager/centralized/retrieval.py': '066ed4a08270fa2aa17411757faa7e0cca40089c402f24f07d976726aa1d4e36',
-    'verl/trainer/ppo/trainer.py': 'e932abfd775d9a6c6e8c7217fe2a74a3da6b2470be553b4676cd008c55215b24',
+    'envs/tools/local.py': 'f6fe3503fabf49dc91e5bfff7ef188ef69d72d3673dfdd81d62f832888740cdc',
+    'envs/utils/continuation.py': '1a2eb2b7d4e02a897fe46a2e9738a4b0f1b867ea19e6535c6b5e0dcbdf873793',
+    'envs/utils/graph.py': 'fcd75ef8eef002992365f6c649dddeeea328b849c5d484963b0583db0ce36571',
+    'rag_server/retrieval.py': '5fbd458736cba836ed8442217ed91edb50ca27378e69d407ae7f4470ff1bcedb',
+    'tests/bounds.py': 'd27db85a56b979e67612ba9a300818b9b09dd462652152a08871d88bd7b5e5f1',
+    'verl/trainer/ppo/trainer.py': '632e3aeaf8f17fe8dfe63f8fce7c23fded0056162140af88de01ad6ccfd02263',
+    'verl/workers/workers.py': '5b76b1532c2348a3904b29bfa62fe969a8c862055704bd3465b4c2faad9f5e40',
 }
 BUNDLE = (
     'H4sIAAAAAAAACuy9C3fbRpIw+ld65MkVpfCtF6WJ8q1iy45m5McnKcnumr50E2iSiEGAAUBJjO357fdUdTdQjQYIUFIyc/ds5owsAY1+VFfXu6o/b7WnXsKT'

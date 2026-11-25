@@ -221,6 +221,10 @@ class Engine:
             by_version.setdefault(schema.get('tool_version'), schema)
         def presentation(ranking):
             return [deepcopy(by_version[row['version']]) for row in ranking if row['version'] in by_version]
+        probe = context.get('search_probe')
+        if probe and index == 0:
+            # The structural cell reorders only the semantic top-k tools.
+            result['rankings'][1.0] = sorted(result['rankings'][0.0], key=lambda row: -row['structure'])
         classes = bandit.payloads(result['rankings'], lambda ranking: json.dumps(dict(task=view, tools=presentation(ranking)),
             sort_keys=True, separators=(',', ':'), ensure_ascii=False, allow_nan=False))
         eligible = (context['split'] == 'train' and self.options['variant'] in fusion.LEARNED and self.options['fixed_alpha'] is None and
@@ -234,6 +238,8 @@ class Engine:
             fixed = 0.0 if self.options['variant'] == 'semantic' else .5
         if not result['edge_support']:
             fixed, marked = 0.0, False
+        if probe:
+            fixed = float(index == 0 and probe['cell'].endswith('_structural') and result['edge_support'])
         if fixed is None:
             selected, probabilities = bandit.choose(model, result['features'], classes, explore=marked,
                 epsilon=self.options['epsilon'], rng=bandit.randomizer(self.options['seed'], self.phase, context['task_id'], turn, 'action'))
@@ -268,6 +274,10 @@ class Engine:
         output['adoption'].update(applied=model is not None and fixed is None, deployed_teacher_sha256=dynamic.digest(model))
         from control import exposure
         output['exposure'] = exposure.build(result['access'], classes, selected, schemas)
+        if probe:
+            output['probe_presentation'] = dict(turn=turn, payload_hash=output['payload_hash'],
+                semantic_payload_hash=output['semantic_payload_hash'], candidate_hash=dynamic.digest(result['candidates']),
+                versions=output['exposure']['selected']['versions'])
         telemetry = dict(event='contextual_retrieval', task_id=context['task_id'], split=context['split'], turn=turn,
             phase=self.phase, snapshot=self.snapshot, actor=self.actor, alpha=output['alpha'], marked=output['marked'],
             edge_support=output['edge_support'], payload_hash=output['payload_hash'], semantic_payload_hash=output['semantic_payload_hash'], abstention=output['abstention'],

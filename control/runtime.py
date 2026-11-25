@@ -233,7 +233,7 @@ def recovery(history):
     query = next((r["content"] for r in reversed(history) if r["role"] == "user"), "")
     return Controller().decide(query, visible, [])
 class Runtime:
-    def __init__(self, config, dispatcher, *, encoder=None):
+    def __init__(self, config, dispatcher, *, encoder=None, probe_root=None):
         from control.binding import validate_strategy, validate_credit
         validate_strategy(config.get('binding_strategy', 'reject'), enabled=bool(config.get('value_contracts', False)))
         validate_credit(config.get('binding_credit', 'native_only'))
@@ -248,6 +248,10 @@ class Runtime:
             raise ValueError("Declare an explicit teacher policy scope")
         self.config = deepcopy(config)
         self.arm, self.root = config["arm"], Path(config["root"]).resolve()
+        if probe_root is not None:
+            if self.root == Path(probe_root).resolve() or not config.get('contextual'):
+                raise ValueError('Search probe requires an isolated contextual runtime')
+            self.root = Path(probe_root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.dispatcher, self.encoder = dispatcher, encoder
         self.lock = threading.RLock()
@@ -359,6 +363,42 @@ class Runtime:
             context['recovery'] = new_state(question, plan)
         self.contexts[identity] = context
         return identity
+
+    def search_probe(self, question, plan, probe, first_search):
+        from control import search
+        task = task_identity(question)
+        if not self.engine or probe['cell'] not in search.CELLS or probe['split'] != 'validation':
+            raise ValueError('Search probe is only available on contextual validation')
+        plan_from_searl(question, plan)
+        search.validate(first_search, identified=True)
+        identity = self.begin(question, plan, split='validation')
+        context = self.context(identity)
+        context['search_probe'] = {**probe, 'task': task}
+        self.assistant(identity, plan)
+        search.observe(context, first_search, prefix=True)
+        context['history'].append(dict(role='tool', name='search-search', content=search.prefix_text(first_search)))
+        return identity
+
+    def search_delivered(self, identity, rendered):
+        from control.search import delivered, digest
+        context = self.active_context(identity)
+        delivered(context, rendered)
+        if context.get('search_probe'):
+            row = context['selection_cache'].get(context['assistant_turn'])
+            if row is not None:
+                row['probe_presentation']['visible_prompt_sha256'] = digest(rendered)
+
+    def search_report(self, identity):
+        from control import search
+        context = self.context(identity)
+        rows = sorted(context.get('selection_cache', {}).items())
+        actor = [row['quantities'] for row in context['cost_receipts'] if row['kind'] == 'actor']
+        return dict(search_probe=deepcopy(context['search_probe']), document_searches=search.evidence(context),
+            tool_list_selections=[row['probe_presentation'] for _, row in rows],
+            output='\n'.join(row['content'] for row in context['history'][3:] if row['role'] == 'assistant'),
+            actor_input_tokens=sum(row['input_tokens'] for row in actor),
+            actor_output_tokens=sum(row['output_tokens'] for row in actor),
+            accounted_cost=sum(context['costs'].values()))
     def context(self, identity):
         if identity not in self.contexts:
             raise ValueError("Unknown runtime episode; context cannot be inferred across trajectories")
@@ -572,7 +612,7 @@ class Runtime:
         context['plan_error'], context['last_subtask'] = None, None
         return {'accepted': True, 'plan': context['plan'], 'revision': state['revision']}
     def observe(self, identity, name, result, *, success, version=None, arguments=None, execution_result=None, bindings=(),
-                executed=True, recovery_name=None, recovery_arguments=None, binding_audit=None):
+                executed=True, recovery_name=None, recovery_arguments=None, binding_audit=None, document_search=None):
         from control.evidence import call_record
         context = self.active_context(identity)
         if type(success) is not bool or type(executed) is not bool or (not executed and success):
@@ -613,6 +653,13 @@ class Runtime:
             audits = list(context['binding_audits'])
             audits[audit_id] = dict(recorded, executed=executed, success=success if executed else None, observation_recorded=True)
             updates['binding_audits'] = audits
+        if document_search is not None:
+            from control.search import observe
+            if name not in ('search', 'search-search') or not executed or not success:
+                raise ValueError('Document search requires an executed successful Wiki call')
+            state = {**context, 'document_searches': list(context.get('document_searches', []))}
+            observe(state, document_search)
+            updates['document_searches'] = state['document_searches']
         response = deepcopy(record)
         # Commit only after ledger, plan, recovery and audit validation succeeds.
         context.update(updates)

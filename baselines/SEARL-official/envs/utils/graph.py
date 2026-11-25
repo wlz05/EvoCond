@@ -131,6 +131,11 @@ class ToolUtilsGraph:
                 self.loop_responses_token[idx].append(prompt_token_list)
         else:
             batch_idxs = output.meta_info['index']
+            pending = getattr(self, 'pending_visible', None)
+            if pending:
+                actor = self.env_object.tool_manager.centralized_actor_handle
+                ray.get(actor.runtime_search_delivered.remote(pending))
+                self.pending_visible = []
 
         responses = output.batch.get('responses')
         process_response = []
@@ -162,7 +167,6 @@ class ToolUtilsGraph:
         step_start_time = time.time()
         capturing = getattr(self, 'capture_turn', None) == step
         if self.loop_cnt > 0 and getattr(self.env_object.tool_manager.verl_config, 'runtime_config_path', None):
-            import ray
             prompts = output.batch['prompts']
             masks = output.batch['attention_mask'][:, :prompts.shape[-1]]
             for local, batch_idx in enumerate(batch_idxs):
@@ -192,7 +196,6 @@ class ToolUtilsGraph:
             )
         step_end_time = time.time()
         if self.loop_cnt == 0 and getattr(self.env_object.tool_manager.verl_config, 'runtime_config_path', None):
-            import ray
             prompts = output.batch['prompts']
             masks = output.batch['attention_mask'][:, :prompts.shape[-1]]
             for local, batch_idx in enumerate(batch_idxs):

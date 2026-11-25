@@ -672,6 +672,17 @@ class RayPPOTrainer:
         self.validation_generations_logger.log(self.config.trainer.logger, samples, self.global_steps)
 
     def _validate(self):
+        probe_path = self.config.actor_rollout_ref.env.get('search_probe_path')
+        probe, search_rows = None, {}
+        if probe_path:
+            from pathlib import Path
+            from control.contracts import publish_chunks, strict_json
+            if (not self.config.trainer.val_only or self.async_rollout_mode
+                    or self.config.actor_rollout_ref.env.get('evaluation_split') != 'validation'):
+                raise ValueError('Search probes require synchronous validation-only execution')
+            probe_path = Path(probe_path)
+            probe = strict_json(probe_path.read_text(encoding='utf-8'), max_text=64*1024*1024)
+            probe_actor = self._method_actor()
         data_source_lst = []
         reward_extra_infos_dict: dict[str, list] = defaultdict(list)
 
@@ -686,6 +697,12 @@ class RayPPOTrainer:
 
         for test_data in self.val_dataloader:
             test_batch = DataProto.from_single_dict(test_data)
+            if probe is not None:
+                tasks = validation_question_metadata(test_batch.non_tensor_batch, len(test_batch))['question_sha256']
+                indices = [index for index, task in enumerate(tasks) if task in probe['prefixes']]
+                if not indices:
+                    continue
+                test_batch = test_batch.select_idxs(indices)
 
             # repeat test batch
             test_batch = test_batch.repeat(
@@ -693,7 +710,7 @@ class RayPPOTrainer:
             )
 
             # we only do validation on rule-based rm
-            if self.config.reward_model.enable and test_batch[0].non_tensor_batch["reward_model"]["style"] == "model":
+            if probe is None and self.config.reward_model.enable and test_batch[0].non_tensor_batch["reward_model"]["style"] == "model":
                 return {}
 
             # Store original inputs
@@ -772,6 +789,16 @@ class RayPPOTrainer:
 
             test_batch = test_batch.union(test_output_gen_batch)
             test_batch.meta_info["validate"] = True
+            if probe is not None:
+                identities = list(test_batch.non_tensor_batch['runtime_episode_id'])
+                receipts = ray.get(probe_actor.runtime_search_reports.remote(identities))
+                tasks = current_question_metadata['question_sha256']
+                for task, receipt in zip(tasks, receipts, strict=True):
+                    if task in search_rows or receipt['search_probe']['task'] != task:
+                        raise ValueError('Probe evidence is missing, duplicated or attached to another question')
+                    search_rows[task] = dict(receipt, question_sha256=task)
+                self._method_complete(test_batch, {}, 'validation')
+                continue
 
             # evaluate using reward_function
             result = self.val_reward_fn(test_batch, return_dict=True)
@@ -819,6 +846,13 @@ class RayPPOTrainer:
 
             data_source_lst.append(current_batch_data_sources)
 
+        if probe is not None:
+            if search_rows.keys() != probe['prefixes'].keys():
+                raise ValueError('Not all declared validation questions were executed')
+            publish_chunks(probe_path.parent/'search.jsonl',
+                ((json.dumps(search_rows[task], sort_keys=True, allow_nan=False)+'\n').encode('utf-8')
+                 for task in sorted(search_rows)))
+            return {'val-aux/search/questions': len(search_rows)}
         self._save_validation_samples(validation_samples)
 
         self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
@@ -1419,6 +1453,10 @@ class RayPPOTrainer:
         method_actor = self._method_actor()
         if method_actor is not None:
             ray.get(method_actor.runtime_policy_step.remote(self.global_steps))
+
+        if self.config.actor_rollout_ref.env.get('search_probe_path'):
+            logger.log(data=self._validate(), step=self.global_steps)
+            return
 
         if self.config.trainer.get('teacher_collect_mode'):
             from verl.trainer.collection import run

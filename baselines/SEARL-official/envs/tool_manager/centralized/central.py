@@ -1144,9 +1144,12 @@ class CentralizedToolActor:
             from envs.tool_manager.centralized.dispatch import IsolatedToolDispatcher
             config = load_config(runtime_path)
             dispatcher = IsolatedToolDispatcher.from_environment()
-            if Path(config['registry_path']).resolve() != Path(os.environ['SEARL_DYNAMIC_REGISTRY']).resolve():
+            probe_path = getattr(verl_config, 'search_probe_path', None)
+            probe_root = Path(probe_path).parent/'runtime' if probe_path else None
+            expected = probe_root/'registry.json' if probe_root else Path(config['registry_path'])
+            if expected.resolve() != Path(os.environ['SEARL_DYNAMIC_REGISTRY']).resolve():
                 raise ValueError("Runtime registry differs from isolated execution registry")
-            self.method_runtime = Runtime(config, dispatcher)
+            self.method_runtime = Runtime(config, dispatcher, probe_root=probe_root)
             if config['arm'] in ('searl', 'evocond') and (not self.use_graphrag or self.graphrag_engine is None):
                 raise ValueError("SEARL/EvoCond runtime requires the declared official GraphRAG; no silent fallback")
             self._runtime_sync_graph()
@@ -1186,6 +1189,16 @@ class CentralizedToolActor:
         snapshots = [self.method_runtime.capture_continuation(identity) for identity in identities]
         self.method_runtime.discard(identities)
         return snapshots
+
+    def runtime_search_probe(self, question, plan, probe, first_search):
+        return self.method_runtime.search_probe(question, plan, probe, first_search)
+
+    def runtime_search_delivered(self, rows):
+        for identity, rendered in rows:
+            self.method_runtime.search_delivered(identity, rendered)
+
+    def runtime_search_reports(self, identities):
+        return [self.method_runtime.search_report(identity) for identity in identities]
 
     def runtime_resume(self, snapshots, alpha, seed):
         return [self.method_runtime.resume_continuation(snapshot, alpha, seed) for snapshot in snapshots]
@@ -1310,11 +1323,34 @@ class CentralizedToolActor:
         if any(not (folder/name).is_file() for name in required):
             raise ValueError('Incomplete paired runtime checkpoint')
         from control.runtime import verify_checkpoint
-        from control.contracts import strict_json
+        from control.contracts import relative, strict_json
         verify_checkpoint(folder.parent, full=False)
         state = strict_json((folder/'runtime.json').read_text(encoding='utf-8-sig'), max_text=64*1024*1024)
         graph = nx.read_graphml(folder/'subtasks.graphml')
         self.method_runtime.restore(state)
+        probe_path = getattr(self.verl_config, 'search_probe_path', None)
+        if probe_path:
+            from control.dynamic import digest
+            from control.search import revision
+            probe = strict_json(Path(probe_path).read_text(encoding='utf-8'), max_text=64*1024*1024)
+            bank_path = relative(folder.parents[2], probe['bank_path'])
+            verify_checkpoint(bank_path, full=False)
+            saved = strict_json((bank_path/'method_runtime/runtime.json').read_text(encoding='utf-8'), max_text=64*1024*1024)
+            runtime = self.method_runtime
+            engine = runtime.engine
+            bank = saved['contextual']
+            registry_hash = digest(saved['registry'])
+            if (revision(folder.parent/'checkpoint.json') != probe['checkpoint']
+                    or revision(bank_path/'checkpoint.json') != probe['bank']
+                    or saved['config_hash'] != state['config_hash']):
+                raise ValueError('Probe actor or bank differs from the declared experiment')
+            engine.validate_state(bank, registry_hash=registry_hash, actor=bank['actor'])
+            runtime.dispatcher.replace_registry(saved['registry'], expected_sha256=digest(runtime.dispatcher.registry))
+            engine.alignment, engine.whole, engine.metric = bank['alignment'], bank['whole'], bank['metric']
+            engine.teacher, engine.teacher_bottom, engine.phase = None, None, bank['phase']
+            engine.freeze()
+            graph = nx.read_graphml(bank_path/'method_runtime/subtasks.graphml')
+            folder = bank_path/'method_runtime'
         self.sub_task_graph = graph
         self._runtime_sync_graph()
         if self.graphrag_engine is not None:
@@ -1400,7 +1436,9 @@ class CentralizedToolActor:
                     'cache_dir': getattr(self.verl_config, 'graphrag_cache_dir', 'cache/graphrag')
                 }
                 if runtime_config:
-                    graphrag_config['cache_dir'] = str(Path(runtime_config['root'])/'graphrag_cache')
+                    probe_path = getattr(self.verl_config, 'search_probe_path', None)
+                    cache_root = Path(probe_path).parent/'runtime' if probe_path else Path(runtime_config['root'])
+                    graphrag_config['cache_dir'] = str(cache_root/'graphrag_cache')
 
                 print(f"[GraphRAG] Initializing GraphRAG engine with config: {graphrag_config}")
 
@@ -2502,7 +2540,7 @@ class CentralizedToolActor:
         check = runtime.check(identity, name, resolved, checked_schemas)
         if binding_audit['after']['blocked']:
             check = binding_audit['after']
-        version, success, receipt = None, False, None
+        version, success, receipt, document_search = None, False, None, None
         if check['blocked']:
             result = json.dumps({'error': 'visible_requirement_conflict', 'audit': check}, ensure_ascii=False)
         elif name in ('create_and_execute_mcp', 'create_and_execute_mcp-create_and_execute_mcp'):
@@ -2542,10 +2580,14 @@ class CentralizedToolActor:
             if (set(resolved)-{'query', 'topk'} or not isinstance(query, str) or not query.strip()
                     or len(query) > 16000 or type(topk) is not int or not 1 <= topk <= 10):
                 return invalid('Search requires a bounded query and integer topk between 1 and 10')
-            result = await asyncio.to_thread(self.tool_manager._call_tool, name, json.dumps(resolved))
-            if not isinstance(result, str) or not (result == 'No relevant documents found'
-                    or result.startswith('Following are the search results given by the wiki search engine:')):
-                raise SandboxInfrastructureError('Retrieval service failed or returned an invalid response')
+            probe = context.get('search_probe')
+            if probe and len(context['document_searches']) >= probe['budget']:
+                return invalid('The document search budget is exhausted. Use the evidence already available.')
+            from envs.tools.local import witnessed_search
+            try:
+                result, document_search = await asyncio.to_thread(witnessed_search, query, topk)
+            except Exception as error:
+                raise SandboxInfrastructureError('Retrieval service failed or returned an invalid response') from error
             success = True
         else:
             result = f"# Unknown or unadmitted isolated tool: {name}"
@@ -2555,7 +2597,7 @@ class CentralizedToolActor:
             execution_result=receipt.get('execution_result', receipt.get('result', result)) if receipt else result,
             bindings=receipt.get('input_bindings', bindings) if receipt else bindings,
             executed=not check['blocked'], recovery_name=name, recovery_arguments=resolved,
-            binding_audit=binding_audit)
+            binding_audit=binding_audit, document_search=document_search)
         if receipt is not None:
             result = json.dumps({**receipt, 'call_id': call['call_id'], 'execution_result': call['result'],
                                  'result_referenceable': call['result_available']}, ensure_ascii=False, allow_nan=False)

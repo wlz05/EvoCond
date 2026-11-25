@@ -892,6 +892,10 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                     logger.info("Using standard ToolUtils")
         if continuation_mode and not isinstance(su, ToolUtilsGraph):
             raise ValueError('Continuation requires the official ToolUtilsGraph loop')
+        probe_path = self.config.env.get('search_probe_path')
+        if probe_path and (not isinstance(su, ToolUtilsGraph) or not is_validate or continuation_mode
+                or prompts.meta_info.get('do_sample') is not False or self.rollout.config.val_kwargs.n != 1):
+            raise ValueError('Search probe requires the greedy validation loop and one sample per question')
         if continuation_mode == 'capture':
             if type(capture_turn) is not int or not 0 <= capture_turn < self.rollout.config.max_turns-1:
                 raise ValueError('Capture turn must leave at least one real continuation generation')
@@ -911,6 +915,17 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             max_turns = self.rollout.config.max_turns
             tp_group, tp_rank = self.rollout_sharding_manager.get_tp_group_and_rank()
             start_step = 0
+            if probe_path:
+                start_step = 1
+                if tp_rank == 0:
+                    from control.contracts import strict_json
+                    from envs.utils.continuation import prime_search
+                    with open(probe_path, encoding='utf-8') as stream:
+                        spec = strict_json(stream.read(), max_text=64*1024*1024)
+                    prompts = prime_search(su, prompts, spec)
+                else:
+                    prompts = DataProto()
+                broadcast_data_proto(prompts, process_group=tp_group, group_src=0)
             if continuation_mode == 'resume':
                 snapshots = list(prompts.non_tensor_batch['continuation_snapshot'])
                 start_step = snapshots[0]['step']+1
