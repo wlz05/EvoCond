@@ -11,7 +11,13 @@ EvoCond achieves state-of-the-art pass@1 performance in mathematical and multi-h
 ```mermaid
 ---
 config:
+  block:
+    padding: 26
   themeCSS: |
+    path[marker-end] {
+      stroke: #687a90 !important;
+      stroke-width: 1.4px !important;
+    }
     marker[id$="-pointEnd"], marker[id$="-pointEnd-margin"] {
       overflow: visible;
     }
@@ -31,29 +37,18 @@ config:
     marker[id$="-pointEnd-margin"] path {
       d: path("M 7.8 3.85 L 11.5 7 L 7.8 10.15");
     }
-  flowchart:
-    curve: monotoneY
-    diagramPadding: 18
-    nodeSpacing: 28
-    rankSpacing: 40
-    wrappingWidth: 235
 ---
-flowchart TB
-    T["Current task and visible execution state"]
-    T --> C["Shared capabilities<br/>and semantic candidates"]
-    T --> R["Conditional signed ordering<br/>from the published relation bank"]
-    C --> L["Distinct semantic, structural<br/>and fused tool lists"]
-    R --> L
-    L --> A["Current-actor adoption policy<br/>Select the presented list"]
-    A --> P["Qwen3-4B plans and executes"]
-    P --> U["Terminal utility and full cost"]
-    U --> O["Evaluation report"]
-    U -.->|Training only| F["Logged presentation and episode feedback"]
-    F -.-> H["Held-out adoption comparison"]
-    F -.-> B["Co-evolution boundary"]
-    H -.-> N["Next frozen window<br/>Accepted teacher on the same actor and bank"]
-    B -.-> M["Next stage<br/>Publish relations, update the actor<br/>and re-evaluate adoption"]
-    linkStyle default stroke:#687a90,stroke-width:1.4px
+block-beta
+    columns 1
+    A["<b>1. Read the current task and state</b><br/>Identify shared capabilities and semantic candidates"]
+    B["<b>2. Reconstruct tool ordering</b><br/>Read signed evidence from the published relation bank<br/>Form distinct semantic, structural, and fused lists"]
+    C["<b>3. Select a list and execute</b><br/>The current-actor teacher presents one list<br/>Qwen3-4B plans and executes"]
+    D["<b>4. Record the result</b><br/>Report terminal utility and full cost"]
+    E["<b>5. Update during training only</b><br/>Within stage: compare teachers on held-out feedback<br/>At the stage boundary: publish relations,<br/>update the actor, and re-evaluate adoption"]
+    A --> B
+    B --> C
+    C --> D
+    D -.-> E
 ```
 
 Capability compatibility, relation support, and adoption value answer different questions. Compatibility determines which implementations can share an identity. Conditional support generates an ordering proposal. Randomized presentation estimates whether that proposal improves the current actor's terminal utility relative to the semantic list. The teacher selects the presented list; the actor retains planning, tool-call, and argument decisions. Hard execution dependencies remain enforced for every list.
