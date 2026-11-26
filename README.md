@@ -9,24 +9,40 @@ EvoCond achieves state-of-the-art pass@1 performance in mathematical and multi-h
 ## Architecture
 
 ```mermaid
-flowchart TD
+---
+config:
+  themeCSS: |
+    marker[id*="-pointEnd"] path {
+      fill: none !important;
+      stroke: #687a90 !important;
+      stroke-width: 1.4px !important;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      d: path("M 1 1 L 9 5 L 1 9");
+    }
+  flowchart:
+    curve: monotoneY
+    diagramPadding: 18
+    nodeSpacing: 28
+    rankSpacing: 40
+    wrappingWidth: 235
+---
+flowchart TB
     T["Current task and visible execution state"]
-    T --> C["Shared capabilities and semantic candidates"]
-    T --> R["Conditional signed ordering evidence"]
-    M["Published relation bank"] --> R
-    C --> L["Distinct semantic, structural and fused lists"]
+    T --> C["Shared capabilities<br/>and semantic candidates"]
+    T --> R["Conditional signed ordering<br/>from the published relation bank"]
+    C --> L["Distinct semantic, structural<br/>and fused tool lists"]
     R --> L
-    L --> A["Current-actor adoption policy<br/>Select the presented tool list"]
+    L --> A["Current-actor adoption policy<br/>Select the presented list"]
     A --> P["Qwen3-4B plans and executes"]
     P --> U["Terminal utility and full cost"]
     U --> O["Evaluation report"]
     U -.->|Training only| F["Logged presentation and episode feedback"]
-    F -.-> H["Held-out adoption comparison<br/>within the frozen window"]
-    F -.-> B["Publish relation evidence and update actor<br/>at the co-evolution boundary"]
-    H -.->|Accepted teacher update| A
-    B -.-> M
-    B -.->|New actor| P
-    B -.->|Re-evaluate adoption| A
+    F -.-> H["Held-out adoption comparison"]
+    F -.-> B["Co-evolution boundary"]
+    H -.-> N["Next frozen window<br/>Accepted teacher on the same actor and bank"]
+    B -.-> M["Next stage<br/>Publish relations, update the actor<br/>and re-evaluate adoption"]
+    linkStyle default stroke:#687a90,stroke-width:1.4px
 ```
 
 Capability compatibility, relation support, and adoption value answer different questions. Compatibility determines which implementations can share an identity. Conditional support generates an ordering proposal. Randomized presentation estimates whether that proposal improves the current actor's terminal utility relative to the semantic list. The teacher selects the presented list; the actor retains planning, tool-call, and argument decisions. Hard execution dependencies remain enforced for every list.
