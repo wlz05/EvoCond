@@ -8,26 +8,25 @@ EvoCond achieves state-of-the-art pass@1 performance in mathematical and multi-h
 
 ## Architecture
 
-```text
-Current task and visible execution state
-           |
-           v
-Shared capabilities and a common semantic candidate pool
-           |
-           v
-Compatible relation events -> current signed ordering evidence
-           |
-           v
-Ordering evidence -> semantic, structural, and fused tool lists
-           |
-           v
-Current-actor adoption policy -> actual tool-list presentation
-           |
-           v
-Qwen3-4B planning and execution -> terminal utility and full cost
-           |
-           +----> relation evidence and fixed-actor adoption feedback
-           +----> stage-boundary actor update and adoption re-evaluation
+```mermaid
+flowchart TD
+    T["Current task and visible execution state"]
+    T --> C["Shared capabilities and semantic candidates"]
+    T --> R["Conditional signed ordering evidence"]
+    M["Published relation bank"] --> R
+    C --> L["Distinct semantic, structural and fused lists"]
+    R --> L
+    L --> A["Current-actor adoption policy<br/>Select the presented tool list"]
+    A --> P["Qwen3-4B plans and executes"]
+    P --> U["Terminal utility and full cost"]
+    U --> O["Evaluation report"]
+    U -.->|Training only| F["Logged presentation and episode feedback"]
+    F -.-> H["Held-out adoption comparison<br/>within the frozen window"]
+    F -.-> B["Publish relation evidence and update actor<br/>at the co-evolution boundary"]
+    H -.->|Accepted teacher update| A
+    B -.-> M
+    B -.->|New actor| P
+    B -.->|Re-evaluate adoption| A
 ```
 
 Capability compatibility, relation support, and adoption value answer different questions. Compatibility determines which implementations can share an identity. Conditional support generates an ordering proposal. Randomized presentation estimates whether that proposal improves the current actor's terminal utility relative to the semantic list. The teacher selects the presented list; the actor retains planning, tool-call, and argument decisions. Hard execution dependencies remain enforced for every list.
